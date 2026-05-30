@@ -1,0 +1,62 @@
+// plugin.h
+//
+// Metamod:Source plugin entry
+
+#pragma once
+
+#include <ISmmPlugin.h>
+#include <playerslot.h>
+#include <tier1/utlvector.h>
+
+class CServerSideClient;
+class INetworkGameClient;
+class CCSPlayerController;
+
+namespace cs2bh
+{
+
+    class HiderPlugin : public ISmmPlugin, public IMetamodListener
+    {
+    public:
+        // ISmmPlugin
+        bool Load(PluginId id, ISmmAPI *ismm, char *error, size_t maxlen, bool late) override;
+        bool Unload(char *error, size_t maxlen) override;
+
+        const char *GetAuthor() override { return "frad70 (Windows port)"; }
+        const char *GetName() override { return "CS2-Bot-Hider"; }
+        const char *GetDescription() override { return "Fake-client persona/steamid/ping hider (Windows, Metamod, -insecure)"; }
+        const char *GetURL() override { return ""; }
+        const char *GetLicense() override { return "MIT"; }
+        const char *GetVersion() override { return "0.1.0"; }
+        const char *GetDate() override { return __DATE__; }
+        const char *GetLogTag() override { return "BOTHIDER"; }
+
+        // IMetamodListener
+        void OnLevelInit(char const *pMapName, char const *, char const *, char const *, bool, bool) override;
+        void OnLevelShutdown() override;
+
+        // Hook entry points
+        void Hook_OnClientConnected_Post(CPlayerSlot slot, const char *pszName, uint64 xuid,
+                                         const char *pszNetworkID, const char *pszAddress,
+                                         bool bFakePlayer);
+        void Hook_ClientPutInServer_Post(CPlayerSlot slot, char const *pszName, int type, uint64 xuid);
+        CPlayerSlot Hook_CreateFakeClient_Pre(const char *netname);
+        CUtlVector<INetworkGameClient *> *Hook_StartChangeLevel_Pre(
+            const char *mapName, const char *landmark, void *changelevelState);
+        void Hook_GameFrame_Post(bool simulating, bool bFirstTick, bool bLastTick);
+
+        // CUtlString::Set resolved from tier0.dll at Load
+        using CUtlStringSetFn = void (*)(void * /*CUtlString this*/, const char *);
+        CUtlStringSetFn m_pUtlStringSet = nullptr;
+
+    private:
+        void *m_pHookedGameServer = nullptr;
+        int m_StartChangeLevelHookId = 0;
+        bool m_bSelfDisabled = false;
+    };
+
+    extern HiderPlugin g_Plugin;
+
+} // namespace cs2bh
+
+PLUGIN_GLOBALVARS();
