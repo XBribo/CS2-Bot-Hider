@@ -16,7 +16,7 @@ When the engine spawns a fake client, BotHider:
 - Strips the `BOT` scoreboard label (clears `m_bFakePlayer`)
 - Assigns a real-looking **SteamID64**
 - Renames the bot to a curated **persona name**
-- Applies a **jittered ping** and a **crosshair share-code**
+- Applies a **jittered ping** and a **crosshair share-code(not completed)**
 
 Identities are sourced from `bot_info.json`. A companion
 **CounterStrikeSharp** plugin applies the live ping / crosshair and
