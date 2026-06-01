@@ -34,6 +34,20 @@ namespace cs2bh::targets
     inline constexpr int kSchemaFallback_m_iszPlayerName = 1300; // 0x514
     inline constexpr int kSchemaFallback_m_iPing = 2048;         // 0x800
 
+    // * UTIL_Remove(CEntityInstance*) in server.dll
+    // It null-checks the entity, then calls CGameEntitySystem::QueueDestroyEntity to mark it EF_MARKED_FOR_DELETE
+    // Used to destroy the CCSPlayerController a kicked bot leaves behind
+
+    inline constexpr const char *kIface_GameResourceServiceServer = "GameResourceServiceServerV001";
+    inline constexpr int kEntSys_OffsetInGameResSvc = 0x58;   // GameResourceService → CGameEntitySystem*
+    inline constexpr int kEntSys_IdentityChunksOffset = 0x10; // CEntitySystem → m_pIdentityChunks[]
+    inline constexpr int kEntIdentity_Size = 0x70;            // sizeof(CEntityIdentity) = 112 (runtime-verified stride)
+    inline constexpr int kEntIdentity_InstanceOffset = 0x00;  // CEntityIdentity::m_pInstance
+    inline constexpr int kEntListChunkSize = 512;             // entities per identity chunk
+
+    // CBasePlayerController::m_iszPlayerName
+    inline constexpr int kController_PlayerNameOffset = 1780;
+
     // CUtlString::Set mangled name in tier0.dll
     inline constexpr const char *kSym_CUtlString_Set =
         "?Set@CUtlString@@QEAAXPEBD@Z";

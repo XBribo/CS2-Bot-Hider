@@ -205,6 +205,13 @@ the new name is networked to clients — not just stored internally.
 
 ------------------------------------------------------------------------
 
+## Special thanks
+
+- [cs2-insanity](https://github.com/Frad70/cs2-insanity) Helped me determine the framework
+- [CS2Fixes](https://github.com/Source2ZE/CS2Fixes) Helped me identify the 'UTIL_Remove' signature
+
+------------------------------------------------------------------------
+
 ## License
 
 GPL-v3.0

@@ -1,0 +1,10 @@
+{
+  "UTIL_Remove": {
+    "signatures": {
+      "library": "server",
+      "windows": "48 85 C9 74 ? 48 8B D1 48 8B 0D ? ? ? ?",
+      "linux": ""
+    },
+    "comment": "UTIL_Remove: null-checks the entity then tail-calls CGameEntitySystem::QueueDestroyEntity, Used to destroy the CCSPlayerController a kicked bot leaves behind."
+  }
+}

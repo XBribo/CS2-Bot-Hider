@@ -9,6 +9,7 @@
 #include "serversideclient_ref.h"
 #include "slot_publisher.h"
 #include "version_targets.h"
+#include "sig_scan.h"
 
 #include <cstdio>
 #include <cstdint>
@@ -31,10 +32,14 @@ SH_DECL_HOOK6_void(IServerGameClients, OnClientConnected, SH_NOATTRIB, 0,
                    CPlayerSlot, const char *, uint64, const char *, const char *, bool);
 SH_DECL_HOOK4_void(IServerGameClients, ClientPutInServer, SH_NOATTRIB, 0,
                    CPlayerSlot, char const *, int, uint64);
+SH_DECL_HOOK5_void(IServerGameClients, ClientDisconnect, SH_NOATTRIB, 0,
+                   CPlayerSlot, ENetworkDisconnectionReason, const char *, uint64, const char *);
 SH_DECL_HOOK1(IVEngineServer, CreateFakeClient, SH_NOATTRIB, 0, CPlayerSlot, const char *);
 SH_DECL_HOOK3(INetworkGameServer, StartChangeLevel, SH_NOATTRIB, 0,
               CUtlVector<INetworkGameClient *> *, const char *, const char *, void *);
 SH_DECL_HOOK3_void(IServerGameDLL, GameFrame, SH_NOATTRIB, 0, bool, bool, bool);
+SH_DECL_HOOK3_void(ICvar, DispatchConCommand, SH_NOATTRIB, 0,
+                   ConCommandRef, const CCommandContext &, const CCommand &);
 
 namespace cs2bh
 {
@@ -45,13 +50,25 @@ namespace cs2bh
 
 PLUGIN_EXPOSE(cs2bh::HiderPlugin, cs2bh::g_Plugin);
 
-// Interface globals — populated in Load()
+// Interface globals
 
 IVEngineServer *engine = nullptr;
 ICvar *icvar = nullptr;
 IServerGameClients *gameclients = nullptr;
 IServerGameDLL *server = nullptr;
 extern INetworkServerService *g_pNetworkServerService;
+
+// GameResourceServiceServerV001
+static void *g_pGameResourceService = nullptr;
+
+// * UTIL_Remove(CEntityInstance*) — resolved by signature scan in Load(). Used to
+// destroy the CCSPlayerController a kicked bot leaves behind
+
+using UtilRemoveFn = void(__fastcall *)(void * /*CEntityInstance*/);
+static UtilRemoveFn g_pfnUtilRemove = nullptr;
+
+// ? Cross-check anchor: address of the CGameEntitySystem singleton global that UTIL_Remove references (mov rcx, [rip+disp])
+static void **g_ppEntSysGlobal = nullptr;
 
 namespace cs2bh
 {
@@ -72,6 +89,169 @@ namespace cs2bh
         if (count < 0 || count > 256 || slot < 0 || slot >= count)
             return nullptr;
         return vec->Element(slot);
+    }
+
+    // Resolve UTIL_Remove from server.dll by a signature loaded from gamedata.json.
+    // serverModule is the real server.dll (resolved past Metamod's shim); gamedata
+    // carries the pattern under "UTIL_Remove.signatures.windows"
+    static void ResolveUtilRemoveAndEntSys(const nlohmann::json &gamedata, HMODULE serverModule)
+    {
+        if (!serverModule)
+        {
+            META_CONPRINTF("[BOTHIDER] warning: server.dll module unresolved for signature scan\n");
+            return;
+        }
+        // Parse the sig once: needed both to scan and to walk its bytes below
+        std::string sigStr = sig::FindWindowsSig(gamedata, "UTIL_Remove");
+        std::vector<uint8_t> bytes;
+        std::vector<bool> wild;
+        if (sigStr.empty() || !sig::ParseSigString(sigStr, bytes, wild))
+        {
+            META_CONPRINTF("[BOTHIDER] warning: UTIL_Remove sig missing/malformed in gamedata.json\n");
+            return;
+        }
+        auto *hit = static_cast<unsigned char *>(sig::FindPatternIn(serverModule, bytes, wild));
+        if (!hit)
+            return;
+        g_pfnUtilRemove = reinterpret_cast<UtilRemoveFn>(hit);
+
+        // Locate the "48 8B 0D" (mov rcx, [rip+disp32]) and decode the entity-system global
+        for (size_t i = 0; i + 7 <= bytes.size(); ++i)
+        {
+            if (bytes[i] == 0x48 && bytes[i + 1] == 0x8B && bytes[i + 2] == 0x0D)
+            {
+                unsigned char *dispAt = hit + i + 3; // first byte of disp32
+                int32_t disp = *reinterpret_cast<int32_t *>(dispAt);
+                unsigned char *instrEnd = dispAt + 4; // RIP points past the instr
+                g_ppEntSysGlobal = reinterpret_cast<void **>(instrEnd + disp);
+                break;
+            }
+        }
+    }
+
+    // SEH-isolated single reads, used by the controller-resolution walk
+    static bool SehReadPtr(const void *addr, void **out)
+    {
+        __try
+        {
+            *out = *reinterpret_cast<void *const *>(addr);
+            return true;
+        }
+        __except (EXCEPTION_EXECUTE_HANDLER)
+        {
+            *out = nullptr;
+            return false;
+        }
+    }
+    // Treat addr as a char** , deref then copy.
+    static bool SehReadCStr(const void *addr, char *out, size_t cap)
+    {
+        __try
+        {
+            const char *p = *reinterpret_cast<const char *const *>(addr);
+            if (!p)
+            {
+                out[0] = '\0';
+                return false;
+            }
+            size_t i = 0;
+            for (; i + 1 < cap && p[i]; ++i)
+                out[i] = p[i];
+            out[i] = '\0';
+            return true;
+        }
+        __except (EXCEPTION_EXECUTE_HANDLER)
+        {
+            out[0] = '\0';
+            return false;
+        }
+    }
+
+    // Resolve a CEntityInstance* by entity index
+    static void *ResolveEntityInstance(int entityIndex, char *classnameOut, size_t classnameCap)
+    {
+        if (classnameOut && classnameCap)
+            classnameOut[0] = '\0';
+        if (!g_pGameResourceService || entityIndex <= 0 || entityIndex >= 0x8000)
+            return nullptr;
+
+        void *entSys = nullptr;
+        if (!SehReadPtr(reinterpret_cast<unsigned char *>(g_pGameResourceService) +
+                            targets::kEntSys_OffsetInGameResSvc,
+                        &entSys) ||
+            !entSys)
+            return nullptr;
+
+        void *chunk = nullptr;
+        const void *chunkSlot = reinterpret_cast<unsigned char *>(entSys) +
+                                targets::kEntSys_IdentityChunksOffset +
+                                (entityIndex / targets::kEntListChunkSize) * sizeof(void *);
+        if (!SehReadPtr(chunkSlot, &chunk) || !chunk)
+            return nullptr;
+
+        unsigned char *identity = reinterpret_cast<unsigned char *>(chunk) +
+                                  (entityIndex % targets::kEntListChunkSize) * targets::kEntIdentity_Size;
+        if (classnameOut && classnameCap)
+            SehReadCStr(identity + 0x20, classnameOut, classnameCap);
+
+        void *instance = nullptr;
+        if (!SehReadPtr(identity + targets::kEntIdentity_InstanceOffset, &instance) || !instance)
+            return nullptr;
+        return instance;
+    }
+
+    // * Destroy the CCSPlayerController a kicked bot leaves behind
+    // Returns true if the destroy was dispatched
+    static bool DestroyControllerForClient(void *pClient)
+    {
+        if (!pClient)
+            return false;
+        if (!g_pfnUtilRemove)
+        {
+            META_CONPRINTF("[BOTHIDER] destroy ABORT: UTIL_Remove unresolved (signature scan failed at Load)\n");
+            return false;
+        }
+        int entIdx = *reinterpret_cast<int *>(
+            reinterpret_cast<unsigned char *>(pClient) + ssc::OFFSET_m_nEntityIndex);
+        char cls[64];
+        void *inst = ResolveEntityInstance(entIdx, cls, sizeof(cls));
+        if (!inst)
+        {
+            // Resolution chain returned null
+            META_CONPRINTF("[BOTHIDER] destroy ABORT: entity resolve failed "
+                           "entIdx=%d cls='%s' grs=%p (check kEntSys_* offsets)\n",
+                           entIdx, cls, g_pGameResourceService);
+            return false;
+        }
+        // Only ever destroy a player controller — never collateral entities
+        if (std::strcmp(cls, "cs_player_controller") != 0)
+        {
+            META_CONPRINTF("[BOTHIDER] destroy skipped entIdx=%d cls='%s' (not a controller)\n",
+                           entIdx, cls);
+            return false;
+        }
+
+        // ? One-time cross-check: prove our GameResourceService+0x58 chain resolves
+        // the SAME CGameEntitySystem that UTIL_Remove uses
+        static bool s_crossChecked = false;
+        if (!s_crossChecked && g_ppEntSysGlobal)
+        {
+            void *entSysFromChain = nullptr;
+            SehReadPtr(reinterpret_cast<unsigned char *>(g_pGameResourceService) +
+                           targets::kEntSys_OffsetInGameResSvc,
+                       &entSysFromChain);
+            void *entSysFromRemove = nullptr;
+            SehReadPtr(g_ppEntSysGlobal, &entSysFromRemove);
+            META_CONPRINTF("[BOTHIDER] entSys cross-check: chain=%p remove=%p %s\n",
+                           entSysFromChain, entSysFromRemove,
+                           (entSysFromChain == entSysFromRemove) ? "MATCH" : "MISMATCH");
+            s_crossChecked = true;
+        }
+
+        g_pfnUtilRemove(inst);
+        META_CONPRINTF("[BOTHIDER] destroy dispatched entIdx=%d inst=%p cls='%s'\n",
+                       entIdx, inst, cls);
+        return true;
     }
 
     // Engine-side m_Name overwrite via CUtlString::Set
@@ -98,20 +278,20 @@ namespace cs2bh
     }
 
     // Stamp a string_t (pooled name) for m_iszPlayerName
-    // For v0.1.0 we leave this write disabled and rely on CServerSideClient::m_Name instead
+    // For v0.1.x we leave this write disabled and rely on CServerSideClient::m_Name instead
     static void WriteControllerPlayerName(void * /*controller*/, const char * /*name*/)
     {
-        // intentional no-op for v0.1.0
+        // intentional no-op for v0.1.x
     }
 
     // Stamp synthetic SteamID64 into the controller
     static void WriteControllerSteamId(void * /*controller*/, uint64_t /*sid64*/)
     {
-        // intentional no-op for v0.1.0
+        // intentional no-op for v0.1.x
     }
 
     // Walk EntitySystem for the controller pointer
-    // For v0.1.0 we use pszName + slot bookkeeping only
+    // For v0.1.x we use pszName + slot bookkeeping only
     static void *ResolveControllerBySlot(int /*slot*/)
     {
         return nullptr;
@@ -219,6 +399,123 @@ namespace cs2bh
         META_CONPRINTF("[BOTHIDER] CPiS safety-net slot=%d name='%s'\n", idx, pszName ? pszName : "<null>");
         RETURN_META(MRES_IGNORED);
     }
+
+    // Clean teardown on disconnect (e.g. bot_kick): restore the bot identity on the
+    // engine client so it tears down as a fake player, then drain all plugin state
+    void HiderPlugin::Hook_ClientDisconnect_Pre(CPlayerSlot slot, ENetworkDisconnectionReason /*reason*/,
+                                                const char * /*pszName*/, uint64 /*xuid*/,
+                                                const char * /*pszNetworkID*/)
+    {
+        if (m_bSelfDisabled)
+            RETURN_META(MRES_IGNORED);
+        int idx = slot.Get();
+        if (idx < 0 || idx >= PersonaPool::kMaxSlots)
+            RETURN_META(MRES_IGNORED);
+        if (!Personas().IsSlotManaged(idx))
+            RETURN_META(MRES_IGNORED);
+
+        // Capture the persona name before state is cleared so we can free its assignment
+        std::string persona = Personas().GetSlotName(idx);
+
+        // Restore engine-side bot identity: re-set m_bFakePlayer and wipe the forged
+        // SteamID so the engine releases the slot as a bot (avoids "already in the game")
+        void *pClient = ResolveClientBySlot(idx);
+        if (pClient)
+        {
+            auto *raw = reinterpret_cast<unsigned char *>(pClient);
+            ssc::SetFakePlayer(pClient);
+            *reinterpret_cast<uint64_t *>(raw + ssc::OFFSET_m_SteamID) = 0;
+
+            // * The engine drops the CServerSideClient on kick but leaves the CCSPlayerController
+            // UTIL_IsNameTaken read its entity index and queue the controller for destruction
+            DestroyControllerForClient(pClient);
+        }
+
+        // Free the bot_info assignment so the same persona can be reused next spawn
+        if (!persona.empty())
+            BotInfo().ReleaseAssignment(BotInfo().FindByName(persona.c_str()));
+
+        // Drain manager + personas + shared memory for this slot
+        Manager().ReleaseSlot(idx);
+        g_ExpectedNames.erase(persona);
+
+        META_CONPRINTF("[BOTHIDER] ClientDisconnect slot=%d name='%s' — slot released\n",
+                       idx, persona.empty() ? "<null>" : persona.c_str());
+        RETURN_META(MRES_IGNORED);
+    }
+
+    // True for console commands that disconnect a client
+    static bool IsKickCommand(const char *name)
+    {
+        if (!name || !name[0])
+            return false;
+        return !std::strcmp(name, "kickid") ||
+               !std::strcmp(name, "kick") ||
+               !std::strcmp(name, "bot_kick") ||
+               !std::strcmp(name, "banid");
+    }
+
+    // PRE ICvar::DispatchConCommand — restore fake-player identity on all managed slots
+    void HiderPlugin::Hook_DispatchConCommand_Pre(ConCommandRef cmd, const CCommandContext &,
+                                                  const CCommand &args)
+    {
+        if (m_bSelfDisabled)
+            RETURN_META(MRES_IGNORED);
+        if (!cmd.IsValidRef())
+            RETURN_META(MRES_IGNORED);
+        const char *cmdName = cmd.GetName();
+
+        if (!IsKickCommand(cmdName))
+            RETURN_META(MRES_IGNORED);
+
+        int restored = 0;
+        for (int idx = 0; idx < PersonaPool::kMaxSlots; ++idx)
+        {
+            if (!Personas().IsSlotManaged(idx))
+                continue;
+            void *pClient = ResolveClientBySlot(idx);
+            if (!pClient)
+                continue;
+            auto *raw = reinterpret_cast<unsigned char *>(pClient);
+            ssc::SetFakePlayer(pClient);
+            *reinterpret_cast<uint64_t *>(raw + ssc::OFFSET_m_SteamID) = 0;
+            ++restored;
+        }
+        META_CONPRINTF("[BOTHIDER] kick PRE '%s' — restored %d managed slot(s)\n",
+                       cmdName, restored);
+        RETURN_META(MRES_IGNORED);
+    } // end Hook_DispatchConCommand_Pre
+
+    // POST ICvar::DispatchConCommand — the kick has run and released its target slot(s) via ClientDisconnect
+    // Re-disguise every slot still managed so the surviving bots keep their forged identity
+    void HiderPlugin::Hook_DispatchConCommand_Post(ConCommandRef cmd, const CCommandContext &,
+                                                   const CCommand & /*args*/)
+    {
+        if (m_bSelfDisabled)
+            RETURN_META(MRES_IGNORED);
+        if (!cmd.IsValidRef() || !IsKickCommand(cmd.GetName()))
+            RETURN_META(MRES_IGNORED);
+
+        int redisguised = 0;
+        for (int idx = 0; idx < PersonaPool::kMaxSlots; ++idx)
+        {
+            if (!Manager().IsManaged(idx))
+                continue;
+            void *pClient = ResolveClientBySlot(idx);
+            if (!pClient)
+                continue;
+            auto *raw = reinterpret_cast<unsigned char *>(pClient);
+            if (ssc::IsFakePlayerSet(pClient))
+                ssc::ClearFakePlayer(pClient);
+            uint64_t sid = Manager().GetSyntheticSid(idx);
+            if (sid != 0)
+                *reinterpret_cast<uint64_t *>(raw + ssc::OFFSET_m_SteamID) = sid;
+            ++redisguised;
+        }
+        META_CONPRINTF("[BOTHIDER] kick POST '%s' — re-disguised %d surviving slot(s)\n",
+                       cmd.GetName(), redisguised);
+        RETURN_META(MRES_IGNORED);
+    } // end Hook_DispatchConCommand_Post
 
     // Replace the name with the next name from bot_info.json
     CPlayerSlot HiderPlugin::Hook_CreateFakeClient_Pre(const char *netname)
@@ -350,6 +647,51 @@ namespace cs2bh
         GET_V_IFACE_ANY(GetEngineFactory, g_pNetworkServerService, INetworkServerService,
                         NETWORKSERVERSERVICE_INTERFACE_VERSION);
 
+        // GameResourceServiceServer — needed to resolve CCSPlayerController by slot
+        // Served by engine2.dll
+        // Fetched opaquely; if missing, controller management self-disables
+        g_pGameResourceService = ismm->GetEngineFactory(false)(
+            targets::kIface_GameResourceServiceServer, nullptr);
+        if (!g_pGameResourceService)
+        {
+            META_CONPRINTF("[BOTHIDER] warning: %s unresolved — controller mgmt disabled\n",
+                           targets::kIface_GameResourceServiceServer);
+        }
+        else
+        {
+            META_CONPRINTF("[BOTHIDER] GameResourceService at %p\n", g_pGameResourceService);
+        }
+
+        // Resolve UTIL_Remove
+        // Required to destroy controllers on kick
+        {
+            std::string gdPath = g_SMAPI->GetBaseDir();
+            gdPath += "/addons/BotHider/gamedata.json";
+            nlohmann::json gamedata;
+            if (!sig::LoadGamedata(gdPath.c_str(), gamedata))
+            {
+                META_CONPRINTF("[BOTHIDER] warning: gamedata.json not loaded at '%s' — "
+                               "controller cleanup disabled\n",
+                               gdPath.c_str());
+            }
+            else
+            {
+                HMODULE serverModule = sig::ModuleFromInterfacePtr(gameclients);
+                ResolveUtilRemoveAndEntSys(gamedata, serverModule);
+            }
+        }
+        if (g_pfnUtilRemove)
+        {
+            META_CONPRINTF("[BOTHIDER] UTIL_Remove resolved at %p (entSysGlobal=%p)\n",
+                           reinterpret_cast<void *>(g_pfnUtilRemove),
+                           reinterpret_cast<void *>(g_ppEntSysGlobal));
+        }
+        else
+        {
+            META_CONPRINTF("[BOTHIDER] warning: UTIL_Remove signature unresolved — "
+                           "controller cleanup disabled\n");
+        }
+
         g_pCVar = icvar;
         g_SMAPI->AddListener(this, this);
 
@@ -401,10 +743,16 @@ namespace cs2bh
                     SH_MEMBER(this, &HiderPlugin::Hook_OnClientConnected_Post), true);
         SH_ADD_HOOK(IServerGameClients, ClientPutInServer, gameclients,
                     SH_MEMBER(this, &HiderPlugin::Hook_ClientPutInServer_Post), true);
+        SH_ADD_HOOK(IServerGameClients, ClientDisconnect, gameclients,
+                    SH_MEMBER(this, &HiderPlugin::Hook_ClientDisconnect_Pre), false);
         SH_ADD_HOOK(IVEngineServer, CreateFakeClient, engine,
                     SH_MEMBER(this, &HiderPlugin::Hook_CreateFakeClient_Pre), false);
         SH_ADD_HOOK(IServerGameDLL, GameFrame, server,
                     SH_MEMBER(this, &HiderPlugin::Hook_GameFrame_Post), true);
+        SH_ADD_HOOK(ICvar, DispatchConCommand, icvar,
+                    SH_MEMBER(this, &HiderPlugin::Hook_DispatchConCommand_Pre), false);
+        SH_ADD_HOOK(ICvar, DispatchConCommand, icvar,
+                    SH_MEMBER(this, &HiderPlugin::Hook_DispatchConCommand_Post), true);
 
         META_CONPRINTF("[BOTHIDER] loaded — m_bFakePlayer offset=%d, OCC=#%d CPiS=#%d\n",
                        ssc::OFFSET_m_bFakePlayer,
@@ -419,10 +767,16 @@ namespace cs2bh
                        SH_MEMBER(this, &HiderPlugin::Hook_OnClientConnected_Post), true);
         SH_REMOVE_HOOK(IServerGameClients, ClientPutInServer, gameclients,
                        SH_MEMBER(this, &HiderPlugin::Hook_ClientPutInServer_Post), true);
+        SH_REMOVE_HOOK(IServerGameClients, ClientDisconnect, gameclients,
+                       SH_MEMBER(this, &HiderPlugin::Hook_ClientDisconnect_Pre), false);
         SH_REMOVE_HOOK(IVEngineServer, CreateFakeClient, engine,
                        SH_MEMBER(this, &HiderPlugin::Hook_CreateFakeClient_Pre), false);
         SH_REMOVE_HOOK(IServerGameDLL, GameFrame, server,
                        SH_MEMBER(this, &HiderPlugin::Hook_GameFrame_Post), true);
+        SH_REMOVE_HOOK(ICvar, DispatchConCommand, icvar,
+                       SH_MEMBER(this, &HiderPlugin::Hook_DispatchConCommand_Pre), false);
+        SH_REMOVE_HOOK(ICvar, DispatchConCommand, icvar,
+                       SH_MEMBER(this, &HiderPlugin::Hook_DispatchConCommand_Post), true);
 
         if (m_StartChangeLevelHookId != 0)
         {

@@ -11,6 +11,10 @@
 class CServerSideClient;
 class INetworkGameClient;
 class CCSPlayerController;
+class ConCommandRef;
+class CCommandContext;
+class CCommand;
+enum ENetworkDisconnectionReason : int;
 
 namespace cs2bh
 {
@@ -27,7 +31,7 @@ namespace cs2bh
         const char *GetDescription() override { return "Fake-client persona/steamid/ping hider"; }
         const char *GetURL() override { return ""; }
         const char *GetLicense() override { return "GPLv3"; }
-        const char *GetVersion() override { return "0.1.0"; }
+        const char *GetVersion() override { return "0.1.1"; }
         const char *GetDate() override { return __DATE__; }
         const char *GetLogTag() override { return "BOTHIDER"; }
 
@@ -40,10 +44,20 @@ namespace cs2bh
                                          const char *pszNetworkID, const char *pszAddress,
                                          bool bFakePlayer);
         void Hook_ClientPutInServer_Post(CPlayerSlot slot, char const *pszName, int type, uint64 xuid);
+        void Hook_ClientDisconnect_Pre(CPlayerSlot slot, ENetworkDisconnectionReason reason,
+                                       const char *pszName, uint64 xuid, const char *pszNetworkID);
         CPlayerSlot Hook_CreateFakeClient_Pre(const char *netname);
         CUtlVector<INetworkGameClient *> *Hook_StartChangeLevel_Pre(
             const char *mapName, const char *landmark, void *changelevelState);
         void Hook_GameFrame_Post(bool simulating, bool bFirstTick, bool bLastTick);
+
+        // ICvar::DispatchConCommand funnel — restore bot identity *before* the engine
+        // processes a kick (kickid/bot_kick/…) so the slot tears down as a fake player,
+        // then re-disguise any managed slots that survived the command.
+        void Hook_DispatchConCommand_Pre(ConCommandRef cmd, const CCommandContext &ctx,
+                                         const CCommand &args);
+        void Hook_DispatchConCommand_Post(ConCommandRef cmd, const CCommandContext &ctx,
+                                          const CCommand &args);
 
         // CUtlString::Set resolved from tier0.dll at Load
         using CUtlStringSetFn = void (*)(void * /*CUtlString this*/, const char *);

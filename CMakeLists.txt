@@ -84,6 +84,7 @@ add_library(BotHider SHARED
     src/fake_client_manager.cpp
     src/bot_info.cpp
     src/slot_publisher.cpp
+    src/sig_scan.cpp
     ${PROTO_SRCS}
     ${SDK_SOURCES}
 )

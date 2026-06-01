@@ -37,6 +37,13 @@ namespace cs2bh::ssc
         raw[OFFSET_m_bFakePlayer] = 0;
     }
 
+    // sets m_bFakePlayer = 1 — restore bot identity before disconnect teardown
+    inline void SetFakePlayer(void *client)
+    {
+        auto *raw = reinterpret_cast<unsigned char *>(client);
+        raw[OFFSET_m_bFakePlayer] = 1;
+    }
+
     inline bool IsFakePlayerSet(const void *client)
     {
         auto *raw = reinterpret_cast<const unsigned char *>(client);
