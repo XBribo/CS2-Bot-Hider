@@ -28,10 +28,10 @@ namespace cs2bh
 
         const char *GetAuthor() override { return "XBribo"; }
         const char *GetName() override { return "CS2-Bot-Hider"; }
-        const char *GetDescription() override { return "Fake-client persona/steamid/ping hider"; }
+        const char *GetDescription() override { return "Bot persona/steamid/ping hider"; }
         const char *GetURL() override { return ""; }
         const char *GetLicense() override { return "GPLv3"; }
-        const char *GetVersion() override { return "0.1.1"; }
+        const char *GetVersion() override { return "0.1.2"; }
         const char *GetDate() override { return __DATE__; }
         const char *GetLogTag() override { return "BOTHIDER"; }
 
@@ -51,9 +51,7 @@ namespace cs2bh
             const char *mapName, const char *landmark, void *changelevelState);
         void Hook_GameFrame_Post(bool simulating, bool bFirstTick, bool bLastTick);
 
-        // ICvar::DispatchConCommand funnel — restore bot identity *before* the engine
-        // processes a kick (kickid/bot_kick/…) so the slot tears down as a fake player,
-        // then re-disguise any managed slots that survived the command.
+        // ICvar::DispatchConCommand  — restore bot identity before the engine and processes a kick
         void Hook_DispatchConCommand_Pre(ConCommandRef cmd, const CCommandContext &ctx,
                                          const CCommand &args);
         void Hook_DispatchConCommand_Post(ConCommandRef cmd, const CCommandContext &ctx,
@@ -67,6 +65,7 @@ namespace cs2bh
         void *m_pHookedGameServer = nullptr;
         int m_StartChangeLevelHookId = 0;
         bool m_bSelfDisabled = false;
+        unsigned int m_TickCounter = 0; // throttles per-tick idle-timer reset
     };
 
     extern HiderPlugin g_Plugin;

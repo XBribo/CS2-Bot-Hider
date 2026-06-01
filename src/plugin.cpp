@@ -10,6 +10,7 @@
 #include "slot_publisher.h"
 #include "version_targets.h"
 #include "sig_scan.h"
+#include "schema_resolver.h"
 
 #include <cstdio>
 #include <cstdint>
@@ -89,6 +90,62 @@ namespace cs2bh
         if (count < 0 || count > 256 || slot < 0 || slot >= count)
             return nullptr;
         return vec->Element(slot);
+    }
+
+    // True if sid is already live on any connected client other than exceptSlot.
+    // Scoreboard/TAB dedups by SteamID, so a collision hides a player from the list
+    static bool IsSteamIdInUseByOther(uint64_t sid, int exceptSlot)
+    {
+        if (sid == 0 || !g_pNetworkServerService)
+            return false;
+        auto *gs = g_pNetworkServerService->GetIGameServer();
+        if (!gs)
+            return false;
+        auto *vec = reinterpret_cast<CUtlVector<void *> *>(
+            reinterpret_cast<unsigned char *>(gs) + targets::kClientListOffset);
+        int count = vec->Count();
+        if (count < 0 || count > 256)
+            return false;
+        for (int i = 0; i < count; ++i)
+        {
+            if (i == exceptSlot)
+                continue;
+            void *pClient = vec->Element(i);
+            if (!pClient)
+                continue;
+            uint64_t other = *reinterpret_cast<uint64_t *>(
+                reinterpret_cast<unsigned char *>(pClient) + ssc::OFFSET_m_SteamID);
+            if (other == sid)
+                return true;
+        }
+        return false;
+    }
+
+    /**
+     * Resolve a SteamID for slot that collides with no other live client.
+     * Tries desired, then unused bot_info entries, then bumps the AccountId
+     */
+    static uint64_t MakeUniqueSteamId(int slot, uint64_t desired)
+    {
+        if (desired != 0 && !IsSteamIdInUseByOther(desired, slot))
+            return desired;
+
+        // Scan bot_info entries for a non-colliding SteamID64
+        for (const auto &e : BotInfo().All())
+        {
+            if (e.SteamId64 != 0 && !IsSteamIdInUseByOther(e.SteamId64, slot))
+                return e.SteamId64;
+        }
+
+        // Last resort: bump the AccountId off a base until it is free
+        uint64_t base = desired != 0 ? desired : BotInfoStore::kSteamId64Base + 1;
+        for (int bump = 1; bump <= 4096; ++bump)
+        {
+            uint64_t candidate = base + static_cast<uint64_t>(bump);
+            if (!IsSteamIdInUseByOther(candidate, slot))
+                return candidate;
+        }
+        return desired; // give up — keep original even if duplicated
     }
 
     // Resolve UTIL_Remove from server.dll
@@ -251,6 +308,43 @@ namespace cs2bh
         return true;
     }
 
+    /**
+     * Reset a disguised bot's idle timer so mp_autokick won't kick it.
+     * Clearing m_bFakePlayer makes the engine treat the bot as a real player,
+     * so its idle timer climbs with no usercmds. Resolve controller -> m_hPawn
+     * -> pawn and zero m_flIdleTimeSinceLastAction. Offsets come from schema
+     */
+    static void ResetIdleTimerForClient(void *pClient)
+    {
+        if (!pClient)
+            return;
+        // controller offsets are schema-resolved (cached after first hit)
+        int pawnOff = schema::GetFieldOffset("CBasePlayerController", "m_hPawn");
+        int idleOff = schema::GetFieldOffset("CCSPlayerPawnBase", "m_flIdleTimeSinceLastAction");
+        if (pawnOff < 0 || idleOff < 0)
+            return;
+
+        int entIdx = *reinterpret_cast<int *>(
+            reinterpret_cast<unsigned char *>(pClient) + ssc::OFFSET_m_nEntityIndex);
+        char cls[64];
+        void *controller = ResolveEntityInstance(entIdx, cls, sizeof(cls));
+        if (!controller || std::strcmp(cls, "cs_player_controller") != 0)
+            return;
+
+        // m_hPawn is a CHandle; low 15 bits are the pawn entity index
+        uint32_t hPawn = *reinterpret_cast<uint32_t *>(
+            reinterpret_cast<unsigned char *>(controller) + pawnOff);
+        if (hPawn == 0xFFFFFFFF)
+            return;
+        int pawnIdx = static_cast<int>(hPawn & 0x7FFF);
+        void *pawn = ResolveEntityInstance(pawnIdx, nullptr, 0);
+        if (!pawn)
+            return;
+
+        *reinterpret_cast<float *>(
+            reinterpret_cast<unsigned char *>(pawn) + idleOff) = 0.0f;
+    }
+
     // Engine-side m_Name overwrite via CUtlString::Set
     static const char *OverwriteEngineName(HiderPlugin *plugin, void *pClient, const char *newName)
     {
@@ -348,12 +442,15 @@ namespace cs2bh
             ssc::ClearFakePlayer(pClient);
         }
 
-        // Write real SteamID64 into CServerSideClient.m_SteamID
+        // Write a collision-free SteamID64 into CServerSideClient.m_SteamID
         if (cfgSid != 0)
         {
-            *reinterpret_cast<uint64_t *>(raw + ssc::OFFSET_m_SteamID) = cfgSid;
+            uint64_t sid = MakeUniqueSteamId(idx, cfgSid);
+            *reinterpret_cast<uint64_t *>(raw + ssc::OFFSET_m_SteamID) = sid;
+            Manager().SetSyntheticSid(idx, sid);
+            Publisher().UpdateSyntheticSid(idx, sid);
             META_CONPRINTF("[BOTHIDER] slot=%d steamid64=%llu written at +%d\n",
-                           idx, (unsigned long long)cfgSid, ssc::OFFSET_m_SteamID);
+                           idx, (unsigned long long)sid, ssc::OFFSET_m_SteamID);
         }
         else
         {
@@ -391,7 +488,10 @@ namespace cs2bh
         auto *entry = BotInfo().FindByName(pszName);
         if (entry && entry->SteamId64 != 0)
         {
-            *reinterpret_cast<uint64_t *>(raw + ssc::OFFSET_m_SteamID) = entry->SteamId64;
+            uint64_t sid = MakeUniqueSteamId(idx, entry->SteamId64);
+            *reinterpret_cast<uint64_t *>(raw + ssc::OFFSET_m_SteamID) = sid;
+            Manager().SetSyntheticSid(idx, sid);
+            Publisher().UpdateSyntheticSid(idx, sid);
         }
         META_CONPRINTF("[BOTHIDER] CPiS safety-net slot=%d name='%s'\n", idx, pszName ? pszName : "<null>");
         RETURN_META(MRES_IGNORED);
@@ -571,6 +671,19 @@ namespace cs2bh
             RETURN_META(MRES_IGNORED);
         Manager().OnTick();
 
+        // Reset bots' idle timers (1s)
+        if ((++m_TickCounter & 63u) == 0u)
+        {
+            for (int idx = 0; idx < PersonaPool::kMaxSlots; ++idx)
+            {
+                if (!Manager().IsManaged(idx))
+                    continue;
+                void *pClient = ResolveClientBySlot(idx);
+                if (pClient)
+                    ResetIdleTimerForClient(pClient);
+            }
+        }
+
         // Drain CSS -> C++ write commands posted via shared memory.
         Publisher().DrainCommands(
             // SET_SID: write SteamID64 into CServerSideClient.m_SteamID
@@ -581,10 +694,11 @@ namespace cs2bh
                 void *pClient = ResolveClientBySlot(slot);
                 if (!pClient)
                     return;
+                uint64_t unique = MakeUniqueSteamId(slot, sid);
                 *reinterpret_cast<uint64_t *>(
-                    reinterpret_cast<unsigned char *>(pClient) + ssc::OFFSET_m_SteamID) = sid;
-                Manager().SetSyntheticSid(slot, sid);
-                Publisher().UpdateSyntheticSid(slot, sid);
+                    reinterpret_cast<unsigned char *>(pClient) + ssc::OFFSET_m_SteamID) = unique;
+                Manager().SetSyntheticSid(slot, unique);
+                Publisher().UpdateSyntheticSid(slot, unique);
             },
             // SET_PERSONA: overwrite engine-side m_Name via CUtlString::Set
             [this](int slot, const char *name)
@@ -690,6 +804,19 @@ namespace cs2bh
 
         g_pCVar = icvar;
         g_SMAPI->AddListener(this, this);
+
+        // Resolve schema offsets for idle-timer reset
+        if (schema::Init())
+        {
+            int pawnOff = schema::GetFieldOffset("CBasePlayerController", "m_hPawn");
+            int idleOff = schema::GetFieldOffset("CCSPlayerPawnBase", "m_flIdleTimeSinceLastAction");
+            META_CONPRINTF("[BOTHIDER] schema resolved m_hPawn=%d m_flIdleTimeSinceLastAction=%d\n",
+                           pawnOff, idleOff);
+        }
+        else
+        {
+            META_CONPRINTF("[BOTHIDER] warning: SchemaSystem unresolved — idle-kick fix disabled\n");
+        }
 
         // Resolve CUtlString::Set from tier0.dll
         HMODULE tier0 = GetModuleHandleA("tier0.dll");

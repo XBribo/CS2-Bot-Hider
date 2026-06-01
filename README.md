@@ -191,7 +191,6 @@ if (_api.SetBotSteamId(3, steamId64))
 if (_api.SetPersonaName(3, "ZywOo"))
     Console.WriteLine("Name queued");
 
-// Next frame: the scoreboard shows 'ZywOo' with the new SteamID.
 ```
 
 `SetPersonaName` also drives the scoreboard via the controller schema, so
