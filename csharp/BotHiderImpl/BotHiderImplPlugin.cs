@@ -12,10 +12,10 @@ namespace BotHiderImpl;
 public class BotHiderImplPlugin : BasePlugin
 {
     public override string ModuleName => "BotHiderImpl";
-    public override string ModuleVersion => "0.1.0";
+    public override string ModuleVersion => "0.1.1";
     public override string ModuleAuthor => "XBribo";
     public override string ModuleDescription =>
-        "Bridges BotHider shared memory to a CSS PluginCapability";
+        "BotHider CSS Plugin";
 
     public static PluginCapability<IBotHiderApi> Capability { get; } =
         new("bothider:api");
@@ -26,7 +26,7 @@ public class BotHiderImplPlugin : BasePlugin
     public override void Load(bool hotReload)
     {
         // Inject the visible-write actions so SetPersonaName / SetBotSteamId
-        // also update the scoreboard via controller schema
+        // also update the scoreboard
         _client = new SharedMemoryClient(ApplyVisibleName, ApplyVisibleSid);
         _client.TryConnect();
         Capabilities.RegisterPluginCapability(Capability, () => (IBotHiderApi)_client);
@@ -124,5 +124,29 @@ public class BotHiderImplPlugin : BasePlugin
                 $"name='{_client.GetPersonaName(s)}' ping={_client.GetPing(s)} " +
                 $"crosshair='{_client.GetCrosshairCode(s)}'");
         }
+    }
+
+    // bh_setsid <slot> <sid64> — set a bot's SteamID64
+    [ConsoleCommand("bh_setsid", "Set a bot's SteamID64: bh_setsid <slot> <sid64>")]
+    public void OnSetSid(CCSPlayerController? player, CommandInfo cmd)
+    {
+        if (_client == null) { cmd.ReplyToCommand("[BotHider] not initialized"); return; }
+        if (cmd.ArgCount < 3 || !int.TryParse(cmd.GetArg(1), out int slot)
+            || !ulong.TryParse(cmd.GetArg(2), out ulong sid))
+        { cmd.ReplyToCommand("usage: bh_setsid <slot> <sid64>"); return; }
+        bool ok = _client.SetBotSteamId(slot, sid);
+        cmd.ReplyToCommand($"[BotHider] SetBotSteamId({slot},{sid}) -> {ok}");
+    }
+
+    // bh_setname <slot> <name> — set a bot's persona name
+    [ConsoleCommand("bh_setname", "Set a bot's name: bh_setname <slot> <name>")]
+    public void OnSetName(CCSPlayerController? player, CommandInfo cmd)
+    {
+        if (_client == null) { cmd.ReplyToCommand("[BotHider] not initialized"); return; }
+        if (cmd.ArgCount < 3 || !int.TryParse(cmd.GetArg(1), out int slot))
+        { cmd.ReplyToCommand("usage: bh_setname <slot> <name>"); return; }
+        string name = cmd.GetArg(2);
+        bool ok = _client.SetPersonaName(slot, name);
+        cmd.ReplyToCommand($"[BotHider] SetPersonaName({slot},'{name}') -> {ok}");
     }
 }
