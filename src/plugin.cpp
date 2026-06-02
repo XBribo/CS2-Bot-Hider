@@ -542,6 +542,16 @@ namespace cs2bh
                !std::strcmp(name, "banid");
     }
 
+    // True for console commands that explicitly add a bot
+    static bool IsBotAddCommand(const char *name)
+    {
+        if (!name || !name[0])
+            return false;
+        return !std::strcmp(name, "bot_add") ||
+               !std::strcmp(name, "bot_add_ct") ||
+               !std::strcmp(name, "bot_add_t");
+    }
+
     // PRE ICvar::DispatchConCommand — restore fake-player identity on all managed slots
     void HiderPlugin::Hook_DispatchConCommand_Pre(ConCommandRef cmd, const CCommandContext &,
                                                   const CCommand &args)
@@ -552,8 +562,19 @@ namespace cs2bh
             RETURN_META(MRES_IGNORED);
         const char *cmdName = cmd.GetName();
 
+        // ! Manual bot_add* — open the allow window so CFC PRE lets this creation through the gate
+        if (IsBotAddCommand(cmdName))
+        {
+            m_bAllowBotAdd = true;
+            RETURN_META(MRES_IGNORED);
+        }
+
         if (!IsKickCommand(cmdName))
             RETURN_META(MRES_IGNORED);
+
+        // ! Close the gate so MaintainBotQuota cannot refill the kicked bot(s)
+        m_bBlockBotCreation = true;
+        m_bRefillBlockLogged = false; // re-arm the one-shot block log for this kick episode
 
         int restored = 0;
         for (int idx = 0; idx < PersonaPool::kMaxSlots; ++idx)
@@ -580,7 +601,18 @@ namespace cs2bh
     {
         if (m_bSelfDisabled)
             RETURN_META(MRES_IGNORED);
-        if (!cmd.IsValidRef() || !IsKickCommand(cmd.GetName()))
+        if (!cmd.IsValidRef())
+            RETURN_META(MRES_IGNORED);
+        const char *cmdName = cmd.GetName();
+
+        // ! bot_add* finished dispatching — close the allow window
+        if (IsBotAddCommand(cmdName))
+        {
+            m_bAllowBotAdd = false;
+            RETURN_META(MRES_IGNORED);
+        }
+
+        if (!IsKickCommand(cmdName))
             RETURN_META(MRES_IGNORED);
 
         int redisguised = 0;
@@ -599,8 +631,18 @@ namespace cs2bh
                 *reinterpret_cast<uint64_t *>(raw + ssc::OFFSET_m_SteamID) = sid;
             ++redisguised;
         }
-        META_CONPRINTF("[BOTHIDER] kick POST '%s' — re-disguised %d surviving slot(s)\n",
-                       cmd.GetName(), redisguised);
+        // ! Pin bot_quota to the surviving managed-bot count so MaintainBotQuota's desired
+        // count == current count — the engine stops retrying CreateFakeClient, killing its
+        // native "Unable to create bot" spam at the source. Deferred one frame by the engine.
+        // Mode is left untouched per design; fill/match may still differ from this count.
+        if (engine)
+        {
+            char quotaCmd[48];
+            std::snprintf(quotaCmd, sizeof(quotaCmd), "bot_quota %d\n", redisguised);
+            engine->ServerCommand(quotaCmd);
+        }
+        META_CONPRINTF("[BOTHIDER] kick POST '%s' — re-disguised %d surviving slot(s), bot_quota->%d\n",
+                       cmd.GetName(), redisguised, redisguised);
         RETURN_META(MRES_IGNORED);
     } // end Hook_DispatchConCommand_Post
 
@@ -610,6 +652,18 @@ namespace cs2bh
         if (m_bSelfDisabled)
         {
             RETURN_META_VALUE(MRES_IGNORED, CPlayerSlot(-1));
+        }
+
+        // ! Block engine quota refills after a kick — but let manual bot_add* punch through
+        if (m_bBlockBotCreation && !m_bAllowBotAdd)
+        {
+            // Log once per kick episode — the engine retries this every few ticks
+            if (!m_bRefillBlockLogged)
+            {
+                META_CONPRINTF("[BOTHIDER] CFC PRE blocking engine refills (gate closed since kick)\n");
+                m_bRefillBlockLogged = true;
+            }
+            RETURN_META_VALUE(MRES_SUPERCEDE, CPlayerSlot(-1));
         }
 
         std::string persona;
@@ -650,6 +704,8 @@ namespace cs2bh
         g_ExpectedNames.clear();
         Manager().ReleaseAll();
         BotInfo().ResetAssignments();
+        m_bBlockBotCreation = false; // ! Reopen the gate so the new map can fill its initial bots
+        m_bRefillBlockLogged = false;
         META_CONPRINTF("[BOTHIDER] StartChangeLevel PRE — map='%s' landmark='%s'\n",
                        mapName ? mapName : "?", landmark ? landmark : "");
         RETURN_META_VALUE(MRES_IGNORED, nullptr);

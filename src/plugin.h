@@ -66,6 +66,12 @@ namespace cs2bh
         int m_StartChangeLevelHookId = 0;
         bool m_bSelfDisabled = false;
         unsigned int m_TickCounter = 0; // throttles per-tick idle-timer reset
+        // ! Gate engine bot refills: set on kick, cleared on level change
+        bool m_bBlockBotCreation = false;
+        // ! Allow window for manual bot_add* — punches through the gate during command dispatch
+        bool m_bAllowBotAdd = false;
+        // ! Log the refill block only once per kick episode
+        bool m_bRefillBlockLogged = false;
     };
 
     extern HiderPlugin g_Plugin;
