@@ -35,6 +35,10 @@ public sealed class SharedMemoryClient : IBotHiderApi, IDisposable
     // Command opcodes
     private const byte CmdSetSteamId = 1;
     private const byte CmdSetPersona = 2;
+    private const byte CmdSetDisguise = 3;
+
+    // Sentinel slot for global commands
+    private const byte SlotAll = 255;
 
     private MemoryMappedFile? _mmf;
     private MemoryMappedViewAccessor? _view;
@@ -131,6 +135,14 @@ public sealed class SharedMemoryClient : IBotHiderApi, IDisposable
         bool ok = PostCommand(CmdSetPersona, slot, 0UL, name);
         if (ok) _onVisibleName?.Invoke(slot, name);
         return ok;
+    }
+
+    // Global disguise toggle (slot-agnostic)
+    public bool SetDisguise(bool enabled)
+    {
+        if (_view == null) TryConnect();
+        if (_view == null) return false;
+        return PostCommand(CmdSetDisguise, SlotAll, enabled ? 1UL : 0UL, null);
     }
 
     private bool PostCommand(byte type, int slot, ulong sid, string? name)

@@ -19,4 +19,7 @@ public interface IBotHiderApi
 
     // returns false if the slot/name is invalid.
     bool SetPersonaName(int slot, string name);
+
+    // Global disguise toggle; off lets the bot manager spawn bots on aim_*/practice maps
+    bool SetDisguise(bool enabled);
 }

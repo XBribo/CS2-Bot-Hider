@@ -169,7 +169,8 @@ namespace cs2bh
     // CSS->C++
 
     void SlotPublisher::DrainCommands(const SteamIdSink &onSteamId,
-                                      const PersonaSink &onPersona)
+                                      const PersonaSink &onPersona,
+                                      const DisguiseSink &onDisguise)
     {
         if (!m_pView)
             return;
@@ -184,6 +185,13 @@ namespace cs2bh
         while (r != w && budget-- > 0)
         {
             const shm::Command &c = cmds[r % shm::kCmdCount];
+            // Global command (no per-slot target)
+            if (c.Type == shm::kCmd_SetDisguise && onDisguise)
+            {
+                onDisguise(c.SteamId != 0);
+                ++r;
+                continue;
+            }
             int slot = c.Slot;
             if (slot >= 0 && slot < shm::kMaxSlots)
             {

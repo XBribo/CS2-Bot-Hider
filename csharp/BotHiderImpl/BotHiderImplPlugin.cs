@@ -162,4 +162,16 @@ public class BotHiderImplPlugin : BasePlugin
         bool ok = _client.SetPersonaName(slot, name);
         cmd.ReplyToCommand($"[BotHider] SetPersonaName({slot},'{name}') -> {ok}");
     }
+
+    // bh_disguise <0|1> — toggle the m_bFakePlayer disguise (turn off on aim_*/practice maps)
+    [ConsoleCommand("bh_disguise", "Toggle disguise: bh_disguise <0|1>")]
+    public void OnDisguise(CCSPlayerController? player, CommandInfo cmd)
+    {
+        if (_client == null) { cmd.ReplyToCommand("[BotHider] not initialized"); return; }
+        if (cmd.ArgCount < 2 || !int.TryParse(cmd.GetArg(1), out int v))
+        { cmd.ReplyToCommand("usage: bh_disguise <0|1>"); return; }
+        bool enabled = v != 0;
+        bool ok = _client.SetDisguise(enabled);
+        cmd.ReplyToCommand($"[BotHider] disguise -> {(enabled ? "ON" : "OFF")} ({ok})");
+    }
 }

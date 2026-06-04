@@ -15,8 +15,12 @@
 #include <cstdio>
 #include <cstdint>
 #include <cstring>
+#include <fstream>
 #include <set>
 #include <string>
+#include <vector>
+
+#include <nlohmann/json.hpp>
 
 #include <Windows.h>
 
@@ -76,6 +80,9 @@ namespace cs2bh
 
     static std::set<std::string> g_ExpectedNames;
 
+    // Maps where bots stay disguised, loaded from map_whitelist.json
+    static std::vector<std::string> g_DisguiseWhitelist;
+
     // Resolve CServerSideClient* for a slot via the CUtlVector at +592
     static void *ResolveClientBySlot(int slot)
     {
@@ -90,6 +97,33 @@ namespace cs2bh
         if (count < 0 || count > 256 || slot < 0 || slot >= count)
             return nullptr;
         return vec->Element(slot);
+    }
+
+    // Count online human clients
+    static int CountHumanClients()
+    {
+        if (!g_pNetworkServerService)
+            return 0;
+        auto *gs = g_pNetworkServerService->GetIGameServer();
+        if (!gs)
+            return 0;
+        auto *vec = reinterpret_cast<CUtlVector<void *> *>(
+            reinterpret_cast<unsigned char *>(gs) + targets::kClientListOffset);
+        int count = vec->Count();
+        if (count < 0 || count > 256)
+            return 0;
+        int humans = 0;
+        for (int i = 0; i < count; ++i)
+        {
+            void *pClient = vec->Element(i);
+            if (!pClient)
+                continue;
+            void *netChan = *reinterpret_cast<void **>(
+                reinterpret_cast<unsigned char *>(pClient) + ssc::OFFSET_m_NetChannel);
+            if (netChan)
+                ++humans;
+        }
+        return humans;
     }
 
     // True if sid is already live on any connected client other than exceptSlot
@@ -193,7 +227,7 @@ namespace cs2bh
             return false;
         }
     }
-    // Treat addr as a char** , deref then copy.
+    // Treat addr as a char** , deref then copy
     static bool SehReadCStr(const void *addr, char *out, size_t cap)
     {
         __try
@@ -393,7 +427,7 @@ namespace cs2bh
         if (idx < 0 || idx >= PersonaPool::kMaxSlots)
             RETURN_META(MRES_IGNORED);
 
-        // Match incoming pszName against expected_set populated by CFC PRE
+        // Match incoming pszName
         bool managed = false;
         if (pszName && pszName[0])
         {
@@ -428,7 +462,7 @@ namespace cs2bh
 
         // Flip m_bFakePlayer
         auto *raw = reinterpret_cast<unsigned char *>(pClient);
-        if (ssc::IsFakePlayerSet(pClient))
+        if (m_bDisguiseEnabled && ssc::IsFakePlayerSet(pClient))
         {
             ssc::ClearFakePlayer(pClient);
         }
@@ -471,7 +505,7 @@ namespace cs2bh
             RETURN_META(MRES_IGNORED);
 
         // Re-flip byte 160 + re-write SteamID
-        if (ssc::IsFakePlayerSet(pClient))
+        if (m_bDisguiseEnabled && ssc::IsFakePlayerSet(pClient))
         {
             ssc::ClearFakePlayer(pClient);
         }
@@ -542,14 +576,107 @@ namespace cs2bh
                !std::strcmp(name, "banid");
     }
 
-    // True for console commands that explicitly add a bot
-    static bool IsBotAddCommand(const char *name)
+    // True for commands that force bots/humans onto teams
+    static bool IsHumanTeamCommand(const char *name)
     {
         if (!name || !name[0])
             return false;
-        return !std::strcmp(name, "bot_add") ||
-               !std::strcmp(name, "bot_add_ct") ||
-               !std::strcmp(name, "bot_add_t");
+        return !std::strcmp(name, "mp_humanteam") ||
+               !std::strcmp(name, "bot_join_team");
+    }
+
+    // True if the value forces a specific team
+    static bool IsTeamForceValue(const char *v)
+    {
+        if (!v || !v[0])
+            return false;
+        return std::strcmp(v, "0") != 0 && _stricmp(v, "any") != 0;
+    }
+
+    // Poll mp_humanteam/bot_join_team values directly
+    static bool IsTeamForceActive()
+    {
+        static const char *kNames[] = {"mp_humanteam", "bot_join_team"};
+        for (const char *name : kNames)
+        {
+            ConVarRefAbstract ref(name);
+            if (!ref.IsValidRef())
+                continue;
+            CUtlString val = ref.GetString();
+            if (IsTeamForceValue(val.Get()))
+                return true;
+        }
+        return false;
+    }
+
+    // Used when map_whitelist.json is absent/invalid
+    static void LoadDefaultDisguiseWhitelist()
+    {
+        g_DisguiseWhitelist = {
+            "ar_baggage",
+            "ar_pool_day",
+            "ar_shoots",
+            "ar_shoots_night",
+            "cs_alpine",
+            "cs_italy",
+            "cs_office",
+            "de_ancient",
+            "de_ancient_night",
+            "de_anubis",
+            "de_cache",
+            "de_dust2",
+            "de_inferno",
+            "de_mirage",
+            "de_nuke",
+            "de_overpass",
+            "de_poseidon",
+            "de_sanctum",
+            "de_stronghold",
+            "de_train",
+            "de_vertigo",
+            "de_warden",
+        };
+    }
+
+    // Load the map whitelist from a JSON
+    static void LoadDisguiseWhitelist(const char *path)
+    {
+        g_DisguiseWhitelist.clear();
+        std::ifstream ifs(path);
+        if (ifs.is_open())
+        {
+            try
+            {
+                nlohmann::json root = nlohmann::json::parse(ifs);
+                if (root.is_array())
+                {
+                    for (const auto &e : root)
+                        if (e.is_string())
+                            g_DisguiseWhitelist.push_back(e.get<std::string>());
+                }
+            }
+            catch (...)
+            {
+                g_DisguiseWhitelist.clear();
+            }
+        }
+        if (g_DisguiseWhitelist.empty())
+            LoadDefaultDisguiseWhitelist();
+    }
+
+    // Official maps
+    // Bots should stay disguised
+    static bool IsDisguiseWhitelistMap(const char *mapName)
+    {
+        if (!mapName || !mapName[0])
+            return false;
+        // Strip any workshop/path prefix → bare map name
+        const char *slash = std::strrchr(mapName, '/');
+        const char *base = slash ? slash + 1 : mapName;
+        for (const auto &m : g_DisguiseWhitelist)
+            if (m == base)
+                return true;
+        return false;
     }
 
     // PRE ICvar::DispatchConCommand — restore fake-player identity on all managed slots
@@ -562,19 +689,23 @@ namespace cs2bh
             RETURN_META(MRES_IGNORED);
         const char *cmdName = cmd.GetName();
 
-        // Manual bot_add* — open the allow window
-        if (IsBotAddCommand(cmdName))
+        if (IsHumanTeamCommand(cmdName))
         {
-            m_bAllowBotAdd = true;
+            if (m_bDisguiseEnabled)
+            {
+                META_CONPRINTF("[BOTHIDER] '%s' detected — disabling disguise\n",
+                               cmdName);
+                SetDisguiseEnabled(false);
+            }
             RETURN_META(MRES_IGNORED);
         }
 
         if (!IsKickCommand(cmdName))
             RETURN_META(MRES_IGNORED);
 
-        // Close the gate so MaintainBotQuota
-        m_bBlockBotCreation = true;
-        m_bRefillBlockLogged = false;
+        // Disguise-toggle
+        if (m_bRebuilding)
+            RETURN_META(MRES_IGNORED);
 
         int restored = 0;
         for (int idx = 0; idx < PersonaPool::kMaxSlots; ++idx)
@@ -605,15 +736,16 @@ namespace cs2bh
             RETURN_META(MRES_IGNORED);
         const char *cmdName = cmd.GetName();
 
-        // close the allow window
-        if (IsBotAddCommand(cmdName))
-        {
-            m_bAllowBotAdd = false;
-            RETURN_META(MRES_IGNORED);
-        }
-
         if (!IsKickCommand(cmdName))
             RETURN_META(MRES_IGNORED);
+
+        // Disguise-toggle rebuild: skip re-disguise + quota write, clear the flag
+        if (m_bRebuilding)
+        {
+            m_bRebuilding = false;
+            META_CONPRINTF("[BOTHIDER] disguise-off kick done\n");
+            RETURN_META(MRES_IGNORED);
+        }
 
         int redisguised = 0;
         for (int idx = 0; idx < PersonaPool::kMaxSlots; ++idx)
@@ -624,7 +756,7 @@ namespace cs2bh
             if (!pClient)
                 continue;
             auto *raw = reinterpret_cast<unsigned char *>(pClient);
-            if (ssc::IsFakePlayerSet(pClient))
+            if (m_bDisguiseEnabled && ssc::IsFakePlayerSet(pClient))
                 ssc::ClearFakePlayer(pClient);
             uint64_t sid = Manager().GetSyntheticSid(idx);
             if (sid != 0)
@@ -643,24 +775,72 @@ namespace cs2bh
         RETURN_META(MRES_IGNORED);
     } // end Hook_DispatchConCommand_Post
 
+    // Toggle disguise: off restores m_bFakePlayer=1 so the bot manager spawns bots again
+    void HiderPlugin::SetDisguiseEnabled(bool enabled)
+    {
+        if (m_bDisguiseEnabled == enabled)
+            return;
+        m_bDisguiseEnabled = enabled;
+
+        // Count managed bots
+        int managed = 0;
+        for (int idx = 0; idx < PersonaPool::kMaxSlots; ++idx)
+            if (Manager().IsManaged(idx))
+                ++managed;
+
+        // Rebuild
+        if (engine && managed > 0)
+        {
+            for (int idx = 0; idx < PersonaPool::kMaxSlots; ++idx)
+            {
+                if (!Manager().IsManaged(idx))
+                    continue;
+                void *pClient = ResolveClientBySlot(idx);
+                if (pClient)
+                    ssc::SetFakePlayer(pClient);
+            }
+            m_bRebuilding = true;
+            // fill-mode quota = humans + bot
+            int quota = CountHumanClients() + managed;
+            char quotaCmd[48];
+            std::snprintf(quotaCmd, sizeof(quotaCmd), "bot_quota %d\n", quota);
+            engine->ServerCommand("bot_kick\n");
+            engine->ServerCommand(quotaCmd);
+            META_CONPRINTF("[BOTHIDER] disguise %s — rebuilding %d bot(s), quota=%d\n",
+                           enabled ? "ON" : "OFF", managed, quota);
+            return;
+        }
+
+        // Fallback
+        for (int idx = 0; idx < PersonaPool::kMaxSlots; ++idx)
+        {
+            if (!Manager().IsManaged(idx))
+                continue;
+            void *pClient = ResolveClientBySlot(idx);
+            if (!pClient)
+                continue;
+            auto *raw = reinterpret_cast<unsigned char *>(pClient);
+            if (enabled)
+            {
+                ssc::ClearFakePlayer(pClient);
+                uint64_t sid = Manager().GetSyntheticSid(idx);
+                if (sid != 0)
+                    *reinterpret_cast<uint64_t *>(raw + ssc::OFFSET_m_SteamID) = sid;
+            }
+            else
+            {
+                ssc::SetFakePlayer(pClient);
+            }
+        }
+        META_CONPRINTF("[BOTHIDER] disguise %s (no rebuild)\n", enabled ? "ON" : "OFF");
+    }
+
     // Replace the name with the next name from bot_info.json
     CPlayerSlot HiderPlugin::Hook_CreateFakeClient_Pre(const char *netname)
     {
         if (m_bSelfDisabled)
         {
             RETURN_META_VALUE(MRES_IGNORED, CPlayerSlot(-1));
-        }
-
-        // Block engine quota refills after a kick — but let manual bot_add* punch through
-        if (m_bBlockBotCreation && !m_bAllowBotAdd)
-        {
-            // Log once per kick episode
-            if (!m_bRefillBlockLogged)
-            {
-                META_CONPRINTF("[BOTHIDER] CFC PRE blocking engine refills (gate closed since kick)\n");
-                m_bRefillBlockLogged = true;
-            }
-            RETURN_META_VALUE(MRES_SUPERCEDE, CPlayerSlot(-1));
         }
 
         std::string persona;
@@ -701,8 +881,6 @@ namespace cs2bh
         g_ExpectedNames.clear();
         Manager().ReleaseAll();
         BotInfo().ResetAssignments();
-        m_bBlockBotCreation = false; // Reopen the gate
-        m_bRefillBlockLogged = false;
         META_CONPRINTF("[BOTHIDER] StartChangeLevel PRE — map='%s' landmark='%s'\n",
                        mapName ? mapName : "?", landmark ? landmark : "");
         RETURN_META_VALUE(MRES_IGNORED, nullptr);
@@ -718,6 +896,13 @@ namespace cs2bh
         // Reset bots' idle timers (1s)
         if ((++m_TickCounter & 63u) == 0u)
         {
+            // Poll mp_humanteam/bot_join_team
+            if (m_bDisguiseEnabled && IsTeamForceActive())
+            {
+                META_CONPRINTF("[BOTHIDER] team-force convar active — disabling disguise\n");
+                SetDisguiseEnabled(false);
+            }
+
             for (int idx = 0; idx < PersonaPool::kMaxSlots; ++idx)
             {
                 if (!Manager().IsManaged(idx))
@@ -755,6 +940,11 @@ namespace cs2bh
                 OverwriteEngineName(this, pClient, name);
                 Personas().MarkSlotManaged(slot, name);
                 Publisher().UpdatePersonaName(slot, name);
+            },
+            // SET_DISGUISE: global toggle for the m_bFakePlayer disguise
+            [this](bool enabled)
+            {
+                SetDisguiseEnabled(enabled);
             });
         RETURN_META(MRES_IGNORED);
     }
@@ -780,6 +970,13 @@ namespace cs2bh
                            static_cast<void *>(gameServer), m_StartChangeLevelHookId);
         }
         META_CONPRINTF("[BOTHIDER] OnLevelInit map=%s\n", pMapName ? pMapName : "?");
+
+        // Whitelisted maps run disguised; enable once on level init (idempotent)
+        if (IsDisguiseWhitelistMap(pMapName) && !m_bDisguiseEnabled)
+        {
+            META_CONPRINTF("[BOTHIDER] whitelist map '%s' — enabling disguise\n", pMapName);
+            SetDisguiseEnabled(true);
+        }
     }
 
     void HiderPlugin::OnLevelShutdown()
@@ -905,6 +1102,13 @@ namespace cs2bh
                            "CFC PRE will fall back to curated roster\n",
                            jsonPath.c_str());
         }
+
+        // Load the disguise map whitelist
+        std::string wlPath = g_SMAPI->GetBaseDir();
+        wlPath += "/addons/BotHider/map_whitelist.json";
+        LoadDisguiseWhitelist(wlPath.c_str());
+        META_CONPRINTF("[BOTHIDER] disguise whitelist — %zu map(s) from '%s'\n",
+                       g_DisguiseWhitelist.size(), wlPath.c_str());
 
         SH_ADD_HOOK(IServerGameClients, OnClientConnected, gameclients,
                     SH_MEMBER(this, &HiderPlugin::Hook_OnClientConnected_Post), true);

@@ -47,7 +47,11 @@ namespace cs2bh::shm
         kCmd_None = 0,
         kCmd_SetSteamId = 1,
         kCmd_SetPersona = 2,
+        kCmd_SetDisguise = 3, // global toggle, on/off carried in Command.SteamId
     };
+
+    // Sentinel slot for global (non-per-slot) commands
+    inline constexpr uint8_t kSlot_All = 255;
 
 // One ring-buffer command. Fixed 48 bytes, covers both opcodes
 #pragma pack(push, 1)

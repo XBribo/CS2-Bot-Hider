@@ -61,17 +61,18 @@ namespace cs2bh
         using CUtlStringSetFn = void (*)(void * /*CUtlString this*/, const char *);
         CUtlStringSetFn m_pUtlStringSet = nullptr;
 
+        // Toggle disguise globally; re-applies or restores m_bFakePlayer on all managed slots
+        void SetDisguiseEnabled(bool enabled);
+
     private:
         void *m_pHookedGameServer = nullptr;
         int m_StartChangeLevelHookId = 0;
         bool m_bSelfDisabled = false;
         unsigned int m_TickCounter = 0; // throttles per-tick idle-timer reset
-        // ! Gate engine bot refills: set on kick, cleared on level change
-        bool m_bBlockBotCreation = false;
-        // ! Allow window for manual bot_add* — punches through the gate during command dispatch
-        bool m_bAllowBotAdd = false;
-        // ! Log the refill block only once per kick episode
-        bool m_bRefillBlockLogged = false;
+        // ! Master disguise switch: false on bot-manager-driven maps (e.g. aim_*) so bots still spawn
+        bool m_bDisguiseEnabled = true;
+        // ! Set while rebuilding bots on a disguise toggle so our own kick handlers skip
+        bool m_bRebuilding = false;
     };
 
     extern HiderPlugin g_Plugin;
