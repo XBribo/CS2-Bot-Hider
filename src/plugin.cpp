@@ -22,16 +22,17 @@
 
 #include <nlohmann/json.hpp>
 
+#if defined(_WIN32)
 #include <Windows.h>
+#else
+#include <dlfcn.h>
+#include <strings.h>
+#endif
 
 #include <iserver.h>
 #include <eiface.h>
 #include <tier1/utlvector.h>
 #include <tier1/convar.h>
-
-#if !defined(_WIN32) || !defined(_WIN64)
-#error "CS2-Bot-Hider is Windows x64 only."
-#endif
 
 SH_DECL_HOOK6_void(IServerGameClients, OnClientConnected, SH_NOATTRIB, 0,
                    CPlayerSlot, const char *, uint64, const char *, const char *, bool);
@@ -69,10 +70,14 @@ static void *g_pGameResourceService = nullptr;
 // * UTIL_Remove(CEntityInstance*)
 // Used to destroy the CCSPlayerController a kicked bot leaves behind
 
+#if defined(_WIN32)
 using UtilRemoveFn = void(__fastcall *)(void * /*CEntityInstance*/);
+#else
+using UtilRemoveFn = void (*)(void * /*CEntityInstance*/);
+#endif
 static UtilRemoveFn g_pfnUtilRemove = nullptr;
 
-// ? Cross-check anchor: address of the CGameEntitySystem singleton global that UTIL_Remove references (mov rcx, [rip+disp])
+// Cross-check anchor: address of the CGameEntitySystem singleton global that UTIL_Remove references.
 static void **g_ppEntSysGlobal = nullptr;
 
 namespace cs2bh
@@ -178,20 +183,22 @@ namespace cs2bh
         return desired; // give up
     }
 
-    // Resolve UTIL_Remove from server.dll
-    static void ResolveUtilRemoveAndEntSys(const nlohmann::json &gamedata, HMODULE serverModule)
+    // Resolve UTIL_Remove from the server module
+    static void ResolveUtilRemoveAndEntSys(const nlohmann::json &gamedata, const sig::ModuleInfo &serverModule)
     {
         if (!serverModule)
         {
-            META_CONPRINTF("[BOTHIDER] warning: server.dll module unresolved for signature scan\n");
+            META_CONPRINTF("[BOTHIDER] warning: %s module unresolved for signature scan\n",
+                           targets::kServerModuleName);
             return;
         }
-        std::string sigStr = sig::FindWindowsSig(gamedata, "UTIL_Remove");
+        std::string sigStr = sig::FindPlatformSig(gamedata, "UTIL_Remove");
         std::vector<uint8_t> bytes;
         std::vector<bool> wild;
         if (sigStr.empty() || !sig::ParseSigString(sigStr, bytes, wild))
         {
-            META_CONPRINTF("[BOTHIDER] warning: UTIL_Remove sig missing/malformed in gamedata.json\n");
+            META_CONPRINTF("[BOTHIDER] warning: UTIL_Remove %s sig missing/malformed in gamedata.json\n",
+                           sig::PlatformName());
             return;
         }
         auto *hit = static_cast<unsigned char *>(sig::FindPatternIn(serverModule, bytes, wild));
@@ -199,10 +206,13 @@ namespace cs2bh
             return;
         g_pfnUtilRemove = reinterpret_cast<UtilRemoveFn>(hit);
 
-        // Locate the "48 8B 0D" (mov rcx, [rip+disp32])
+        // Windows: mov rcx, [rip+disp32]
+        // Linux:   lea rax, [rip+disp32]; mov rdi, [rax]
         for (size_t i = 0; i + 7 <= bytes.size(); ++i)
         {
-            if (bytes[i] == 0x48 && bytes[i + 1] == 0x8B && bytes[i + 2] == 0x0D)
+            bool isWindowsMov = bytes[i] == 0x48 && bytes[i + 1] == 0x8B && bytes[i + 2] == 0x0D;
+            bool isLinuxLea = bytes[i] == 0x48 && bytes[i + 1] == 0x8D && bytes[i + 2] == 0x05;
+            if (isWindowsMov || isLinuxLea)
             {
                 unsigned char *dispAt = hit + i + 3; // first byte of disp32
                 int32_t disp = *reinterpret_cast<int32_t *>(dispAt);
@@ -216,6 +226,7 @@ namespace cs2bh
     // SEH-isolated single reads, used by the controller-resolution walk
     static bool SehReadPtr(const void *addr, void **out)
     {
+#if defined(_WIN32)
         __try
         {
             *out = *reinterpret_cast<void *const *>(addr);
@@ -226,10 +237,20 @@ namespace cs2bh
             *out = nullptr;
             return false;
         }
+#else
+        if (!addr)
+        {
+            *out = nullptr;
+            return false;
+        }
+        *out = *reinterpret_cast<void *const *>(addr);
+        return true;
+#endif
     }
     // Treat addr as a char** , deref then copy
     static bool SehReadCStr(const void *addr, char *out, size_t cap)
     {
+#if defined(_WIN32)
         __try
         {
             const char *p = *reinterpret_cast<const char *const *>(addr);
@@ -249,6 +270,24 @@ namespace cs2bh
             out[0] = '\0';
             return false;
         }
+#else
+        if (!addr)
+        {
+            out[0] = '\0';
+            return false;
+        }
+        const char *p = *reinterpret_cast<const char *const *>(addr);
+        if (!p)
+        {
+            out[0] = '\0';
+            return false;
+        }
+        size_t i = 0;
+        for (; i + 1 < cap && p[i]; ++i)
+            out[i] = p[i];
+        out[i] = '\0';
+        return true;
+#endif
     }
 
     // Resolve a CEntityInstance* by entity index
@@ -585,12 +624,21 @@ namespace cs2bh
                !std::strcmp(name, "bot_join_team");
     }
 
+    static int CaseCmp(const char *a, const char *b)
+    {
+#if defined(_WIN32)
+        return _stricmp(a, b);
+#else
+        return strcasecmp(a, b);
+#endif
+    }
+
     // True if the value forces a specific team
     static bool IsTeamForceValue(const char *v)
     {
         if (!v || !v[0])
             return false;
-        return std::strcmp(v, "0") != 0 && _stricmp(v, "any") != 0;
+        return std::strcmp(v, "0") != 0 && CaseCmp(v, "any") != 0;
     }
 
     // Poll mp_humanteam/bot_join_team values directly
@@ -1142,7 +1190,9 @@ namespace cs2bh
             }
             else
             {
-                HMODULE serverModule = sig::ModuleFromInterfacePtr(gameclients);
+                sig::ModuleInfo serverModule = sig::ModuleFromInterfacePtr(gameclients);
+                if (!serverModule)
+                    serverModule = sig::ModuleFromName(targets::kServerModuleName);
                 ResolveUtilRemoveAndEntSys(gamedata, serverModule);
             }
         }
@@ -1174,13 +1224,22 @@ namespace cs2bh
             META_CONPRINTF("[BOTHIDER] warning: SchemaSystem unresolved — idle-kick fix disabled\n");
         }
 
-        // Resolve CUtlString::Set from tier0.dll
-        HMODULE tier0 = GetModuleHandleA("tier0.dll");
+        // Resolve CUtlString::Set from tier0
+#if defined(_WIN32)
+        HMODULE tier0 = GetModuleHandleA(targets::kTier0ModuleName);
         if (tier0)
         {
             m_pUtlStringSet = reinterpret_cast<CUtlStringSetFn>(
                 GetProcAddress(tier0, targets::kSym_CUtlString_Set));
         }
+#else
+        void *tier0 = dlopen(targets::kTier0ModuleName, RTLD_NOLOAD | RTLD_NOW);
+        if (tier0)
+        {
+            m_pUtlStringSet = reinterpret_cast<CUtlStringSetFn>(
+                dlsym(tier0, targets::kSym_CUtlString_Set));
+        }
+#endif
         if (!m_pUtlStringSet)
         {
             META_CONPRINTF("[BOTHIDER] warning: CUtlString::Set unresolved — name overwrite disabled\n");

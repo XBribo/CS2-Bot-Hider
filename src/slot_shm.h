@@ -9,8 +9,12 @@
 namespace cs2bh::shm
 {
 
-    // Named mapping in the Local session namespace
+    // Windows named mapping / POSIX shm name.
+#if defined(_WIN32)
     inline constexpr const char *kMappingName = "Local\\CS2BotHider_Slots";
+#else
+    inline constexpr const char *kMappingName = "/CS2BotHider_Slots";
+#endif
 
     inline constexpr uint32_t kMagic = 0x44494842; // 'BHID'
     inline constexpr uint32_t kVersion = 1;

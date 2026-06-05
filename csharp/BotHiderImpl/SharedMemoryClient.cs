@@ -1,4 +1,5 @@
 using System.IO.MemoryMappedFiles;
+using System.Runtime.InteropServices;
 using System.Text;
 using System.Threading;
 using BotHiderApi;
@@ -10,6 +11,7 @@ namespace BotHiderImpl;
 public sealed class SharedMemoryClient : IBotHiderApi, IDisposable
 {
     private const string MappingName = "CS2BotHider_Slots";
+    private const string PosixMappingPath = "/dev/shm/CS2BotHider_Slots";
     private const uint Magic = 0x44494842; // 'BHID'
     private const int MaxSlots = 64;
     private const int NameLen = 32;
@@ -64,8 +66,10 @@ public sealed class SharedMemoryClient : IBotHiderApi, IDisposable
         if (_view != null) return true;
         try
         {
-            _mmf = MemoryMappedFile.OpenExisting(
-                MappingName, MemoryMappedFileRights.ReadWrite);
+            _mmf = RuntimeInformation.IsOSPlatform(OSPlatform.Windows)
+                ? MemoryMappedFile.OpenExisting(MappingName, MemoryMappedFileRights.ReadWrite)
+                : MemoryMappedFile.CreateFromFile(PosixMappingPath, FileMode.Open, null,
+                    TotalSize, MemoryMappedFileAccess.ReadWrite);
             _view = _mmf.CreateViewAccessor(0, TotalSize,
                 MemoryMappedFileAccess.ReadWrite);
             if (_view.ReadUInt32(OffMagic) != Magic) { Dispose(); return false; }

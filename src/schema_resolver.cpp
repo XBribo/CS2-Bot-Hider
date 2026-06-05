@@ -1,12 +1,18 @@
 // schema_resolver.cpp
 //
-// Resolves networked field offsets from the live ISchemaSystem at runtime
+// Resolves networked field offsets from the live ISchemaSystem at runtime.
 
 #include "schema_resolver.h"
+#include "version_targets.h"
 
 #include <schemasystem/schemasystem.h>
 
+#if defined(_WIN32)
 #include <Windows.h>
+#else
+#include <dlfcn.h>
+#include <link.h>
+#endif
 
 #include <cstring>
 #include <string>
@@ -14,42 +20,98 @@
 
 namespace cs2bh::schema
 {
-    // Local alias for the module CreateInterface export signature
     using CreateIfaceFn = void *(*)(const char *, int *);
 
     namespace
     {
         ISchemaSystem *g_pSchema = nullptr;
-        // Cache "<class>::<field>" -> offset so repeated lookups skip the walk
         std::unordered_map<std::string, int> g_OffsetCache;
+
+#if !defined(_WIN32)
+        const char *BaseName(const char *path)
+        {
+            if (!path)
+                return "";
+            const char *slash = std::strrchr(path, '/');
+            return slash ? slash + 1 : path;
+        }
+
+        struct FindModuleCtx
+        {
+            const char *Name = nullptr;
+            const char *Path = nullptr;
+        };
+
+        int FindModuleCallback(dl_phdr_info *info, size_t, void *data)
+        {
+            auto *ctx = static_cast<FindModuleCtx *>(data);
+            if (info->dlpi_name && std::strcmp(BaseName(info->dlpi_name), ctx->Name) == 0)
+            {
+                ctx->Path = info->dlpi_name;
+                return 1;
+            }
+            return 0;
+        }
+
+        void *OpenLoadedModule(const char *moduleName)
+        {
+            void *mod = dlopen(moduleName, RTLD_NOW | RTLD_NOLOAD);
+            if (mod)
+                return mod;
+
+            FindModuleCtx ctx{};
+            ctx.Name = moduleName;
+            dl_iterate_phdr(FindModuleCallback, &ctx);
+            if (ctx.Path && ctx.Path[0])
+                return dlopen(ctx.Path, RTLD_NOW | RTLD_NOLOAD);
+            return nullptr;
+        }
+#endif
     } // namespace
 
-    // Fetch ISchemaSystem via schemasystem.dll's CreateInterface export
     bool Init()
     {
         if (g_pSchema)
             return true;
-        HMODULE mod = GetModuleHandleA("schemasystem.dll");
+
+#if defined(_WIN32)
+        HMODULE mod = GetModuleHandleA(targets::kSchemaSystemModuleName);
         if (!mod)
             return false;
-        auto createIface = reinterpret_cast<CreateInterfaceFn>(
+        auto createIface = reinterpret_cast<CreateIfaceFn>(
             GetProcAddress(mod, "CreateInterface"));
+#else
+        void *mod = OpenLoadedModule(targets::kSchemaSystemModuleName);
+        if (!mod)
+            return false;
+        auto createIface = reinterpret_cast<CreateIfaceFn>(
+            dlsym(mod, "CreateInterface"));
+#endif
         if (!createIface)
             return false;
+
         g_pSchema = reinterpret_cast<ISchemaSystem *>(
             createIface(SCHEMASYSTEM_INTERFACE_VERSION, nullptr));
         return g_pSchema != nullptr;
     }
 
-    // Find a class binding across the relevant type scopes
     static CSchemaClassInfo *FindClass(const char *className)
     {
-        if (auto *scope = g_pSchema->FindTypeScopeForModule("server.dll", nullptr))
+        static const char *kScopes[] = {
+            targets::kSchemaServerTypeScope,
+            "server.dll",
+            "libserver.so",
+        };
+
+        for (const char *scopeName : kScopes)
         {
-            if (auto *info = scope->FindDeclaredClass(className).Get())
-                return info;
+            if (auto *scope = g_pSchema->FindTypeScopeForModule(scopeName, nullptr))
+            {
+                if (auto *info = scope->FindDeclaredClass(className).Get())
+                    return info;
+            }
         }
-        // Fallback
+
         if (auto *scope = g_pSchema->GlobalTypeScope())
         {
             if (auto *info = scope->FindDeclaredClass(className).Get())
@@ -58,7 +120,6 @@ namespace cs2bh::schema
         return nullptr;
     }
 
-    // Walk the class fields for fieldName and return its single-inheritance offset
     int GetFieldOffset(const char *className, const char *fieldName)
     {
         if (!className || !fieldName)

@@ -49,8 +49,25 @@ namespace cs2bh::targets
     inline constexpr int kController_PlayerNameOffset = 1780;
 
     // CUtlString::Set mangled name in tier0.dll
+#if defined(_WIN32)
     inline constexpr const char *kSym_CUtlString_Set =
         "?Set@CUtlString@@QEAAXPEBD@Z";
+#else
+    inline constexpr const char *kSym_CUtlString_Set =
+        "_ZN10CUtlString3SetEPKc";
+#endif
+
+#if defined(_WIN32)
+    inline constexpr const char *kServerModuleName = "server.dll";
+    inline constexpr const char *kTier0ModuleName = "tier0.dll";
+    inline constexpr const char *kSchemaSystemModuleName = "schemasystem.dll";
+    inline constexpr const char *kSchemaServerTypeScope = "server.dll";
+#else
+    inline constexpr const char *kServerModuleName = "libserver.so";
+    inline constexpr const char *kTier0ModuleName = "libtier0.so";
+    inline constexpr const char *kSchemaSystemModuleName = "libschemasystem.so";
+    inline constexpr const char *kSchemaServerTypeScope = "libserver.so";
+#endif
 
     // Interface version strings
     inline constexpr const char *kIface_ServerGameClients = "Source2GameClients001";

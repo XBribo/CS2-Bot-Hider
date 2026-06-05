@@ -4,7 +4,15 @@
 
 #include "slot_publisher.h"
 
+#if defined(_WIN32)
 #include <Windows.h>
+#else
+#include <fcntl.h>
+#include <sys/mman.h>
+#include <sys/stat.h>
+#include <unistd.h>
+#endif
+
 #include <cstring>
 
 namespace cs2bh
@@ -25,6 +33,7 @@ namespace cs2bh
         if (m_pView)
             return true;
 
+#if defined(_WIN32)
         HANDLE h = CreateFileMappingA(INVALID_HANDLE_VALUE, nullptr,
                                       PAGE_READWRITE, 0, shm::kTotalSize,
                                       shm::kMappingName);
@@ -40,6 +49,26 @@ namespace cs2bh
         }
 
         m_hMapping = h;
+#else
+        int fd = shm_open(shm::kMappingName, O_CREAT | O_RDWR, 0666);
+        if (fd < 0)
+            return false;
+
+        if (ftruncate(fd, shm::kTotalSize) != 0)
+        {
+            close(fd);
+            shm_unlink(shm::kMappingName);
+            return false;
+        }
+
+        auto *view = static_cast<unsigned char *>(
+            mmap(nullptr, shm::kTotalSize, PROT_READ | PROT_WRITE, MAP_SHARED, fd, 0));
+        close(fd);
+        if (view == MAP_FAILED)
+            return false;
+
+        m_hMapping = reinterpret_cast<void *>(1);
+#endif
         m_pView = view;
 
         // ReadIdx/WriteIdx start at 0
@@ -55,12 +84,19 @@ namespace cs2bh
     {
         if (m_pView)
         {
+#if defined(_WIN32)
             UnmapViewOfFile(m_pView);
+#else
+            munmap(m_pView, shm::kTotalSize);
+            shm_unlink(shm::kMappingName);
+#endif
             m_pView = nullptr;
         }
         if (m_hMapping)
         {
+#if defined(_WIN32)
             CloseHandle(m_hMapping);
+#endif
             m_hMapping = nullptr;
         }
     }
