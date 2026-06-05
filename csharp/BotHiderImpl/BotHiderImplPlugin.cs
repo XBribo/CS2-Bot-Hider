@@ -54,10 +54,10 @@ public class BotHiderImplPlugin : BasePlugin
     [GameEventHandler]
     public HookResult OnWinPanelMatch(EventCsWinPanelMatch @event, GameEventInfo info)
     {
-        // 5s
-        AddTimer(5.0f, () => _client?.RequestKickAll());
-        // 7s
-        AddTimer(7.0f, () => _client?.RequestRefill());
+        // 16.6s
+        AddTimer(16.6f, () => _client?.RequestKickAll());
+        // 16.8s
+        AddTimer(16.8f, () => _client?.RequestRefill());
         return HookResult.Continue;
     }
 
