@@ -18,17 +18,16 @@
       <ExcludeAssets>runtime</ExcludeAssets>
     </PackageReference>
     <PackageReference Include="Lib.Harmony" Version="2.3.3" GeneratePathProperty="true">
-      <Private>true</Private>
+      <Private>false</Private>
     </PackageReference>
     <ProjectReference Include="..\BotHiderApi\BotHiderApi.csproj">
       <Private>false</Private>
     </ProjectReference>
   </ItemGroup>
 
+  <!-- Harmony is a shared lib: emit it only under shared/0Harmony (-> counterstrikesharp/shared),
+       never next to BotHiderImpl.dll. -->
   <Target Name="CopyHarmony" AfterTargets="Build;Publish">
-    <Copy SourceFiles="$(PkgLib_Harmony)\lib\net8.0\0Harmony.dll"
-          DestinationFolder="$(OutDir)"
-          SkipUnchangedFiles="true" />
     <Copy SourceFiles="$(PkgLib_Harmony)\lib\net8.0\0Harmony.dll"
           DestinationFolder="$(OutDir)shared\0Harmony"
           SkipUnchangedFiles="true" />

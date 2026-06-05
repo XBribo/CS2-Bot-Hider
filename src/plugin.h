@@ -31,7 +31,7 @@ namespace cs2bh
         const char *GetDescription() override { return "Bot persona/steamid/ping hider"; }
         const char *GetURL() override { return ""; }
         const char *GetLicense() override { return "GPLv3"; }
-        const char *GetVersion() override { return "0.1.5"; }
+        const char *GetVersion() override { return "0.1.7"; }
         const char *GetDate() override { return __DATE__; }
         const char *GetLogTag() override { return "BOTHIDER"; }
 

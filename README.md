@@ -13,15 +13,12 @@ servers that makes bots indistinguishable from humans.
 
 When the engine spawns a fake client, BotHider:
 
-- Strips the `BOT` scoreboard label (clears `m_bFakePlayer`)
-- Assigns a real-looking **SteamID64**
+- Strips the `BOT` scoreboard label
+- Assigns a **SteamID64**
 - Renames the bot to a curated **persona name**
 - Applies a **jittered ping** and a **crosshair share-code(not completed)**
 
-Identities are sourced from `bot_info.json`. A companion
-**CounterStrikeSharp** plugin applies the live ping / crosshair and
-exposes an inter-plugin API, `IBotHiderApi`, consumable from any other
-C# plugin.
+`IBotHiderApi`, consumable from any other C# plugin.
 
 ------------------------------------------------------------------------
 
@@ -40,47 +37,21 @@ C# plugin.
 - `bh_status` — list every managed slot: sid, name, ping, crosshair.
 - `bh_setname <slot> <name>` — set bot's name.
 - `bh_setsid <slot> <SteamID64>` — set bot's SteamID.
-- `bh_disguise <1/0>` — toggle bot disguise on/off
+- `bh_disguise <0/1>` — toggle bot disguise off/on
 
 ------------------------------------------------------------------------
 
 ## Install
 
-1. Copy the Metamod plugin + config into the game tree:
+1. Download the latest release for your platform from the
+   [**GitHub Releases**](https://github.com/XBribo/CS2-Bot-Hider/releases/latest) page:
 
-        addons/BotHider/bin/win64/BotHider.dll
-        addons/metamod/BotHider.vdf
-        addons/BotHider/bot_info.json
+        BotHider-windows.zip   # for Windows servers
+        BotHider-linux.zip     # for Linux servers
 
-2. Install **BotHiderImpl** as a CS# plugin, together with `0Harmony.dll`:
+2. Extract the archive and copy the `/addons/` directory into `/game/csgo/`.
 
-        addons/counterstrikesharp/plugins/BotHiderImpl/BotHiderImpl.dll
-        addons/counterstrikesharp/plugins/BotHiderImpl/0Harmony.dll
-
-3. Install **BotHiderApi** as a shared assembly:
-
-        addons/counterstrikesharp/shared/BotHiderApi/BotHiderApi.dll
-
-4. Install **0Harmony** as a shared assembly as well — this is
-   **required**. the same DLL must live in both places:
-
-        addons/counterstrikesharp/plugins/BotHiderImpl/0Harmony.dll
-        addons/counterstrikesharp/shared/0Harmony/0Harmony.dll
-
-5. Restart the server.
-
-------------------------------------------------------------------------
-
-## Components
-
-| Project        | Output             | Role                                            |
-|----------------|--------------------|-------------------------------------------------|
-| `src/`         | `BotHider.dll`     | Metamod plugin (C++). Core disguise logic.      |
-| `BotHiderImpl` | `BotHiderImpl.dll` | CSS plugin. Applies ping/crosshair, serves API. |
-| `BotHiderApi`  | `BotHiderApi.dll`  | Shared interface (`IBotHiderApi`) for consumers.|
-
-The C++ and C# sides share state through a named memory mapping
-(`CS2BotHider_Slots`); CSS runs in the same process as the server.
+3. Restart your game server.
 
 ------------------------------------------------------------------------
 
@@ -107,18 +78,43 @@ public interface IBotHiderApi
 
 ------------------------------------------------------------------------
 
-## Build
+## How to Build
 
-### C++ (Metamod plugin)
+### One-click (Windows host, all targets)
 
-Env: `HL2SDKCS2`, `MMSOURCE_DEV`, `CSGO_PROTO`, `protoc` on PATH.
+`build.ps1` builds the Windows `.dll`, the Linux `.so` (via WSL), and the
+C# plugins, then assembles ready-to-ship packages under `dist/windows/`
+and `dist/linux/`.
+
+``` powershell
+./build.ps1            # build everything
+./build.ps1 -Windows   # Windows
+./build.ps1 -Linux     # Linux (via WSL)
+./build.ps1 -CSharp    # C# plugins
+./build.ps1 -Clean     # wipe first, then build all
+```
+
+Env required: `HL2SDKCS2`, `MMSOURCE_DEV`, `CSGO_PROTO`, plus `protoc`
+(3.21.x) on PATH. The Linux target needs a WSL distro (default
+`Ubuntu-24.04`) with `g++`, `cmake`, and `protobuf-compiler` installed.
+
+### Manual
+
+**C++ (Metamod plugin) — Windows:**
 
 ``` text
 cmake -B build -G "Visual Studio 18 2026" -A x64
 cmake --build build --config Release
 ```
 
-### C# (CSS plugins)
+**C++ (Metamod plugin) — Linux:**
+
+``` text
+cmake -B build -DCMAKE_BUILD_TYPE=Release
+cmake --build build -j$(nproc)
+```
+
+**C# (CSS plugins):**
 
 ``` text
 dotnet build csharp/BotHiderImpl/BotHiderImpl.csproj -c Release
@@ -215,6 +211,7 @@ if (_api.SetPersonaName(3, "ZywOo"))
 
 - [cs2-insanity](https://github.com/Frad70/cs2-insanity) Helped me determine the framework
 - [CS2Fixes](https://github.com/Source2ZE/CS2Fixes) Helped me identify the 'UTIL_Remove' signature
+- [Misaka17032](https://github.com/Misaka17032) Contributed Linux support for the plugin
 
 ------------------------------------------------------------------------
 

@@ -112,7 +112,6 @@ target_include_directories(BotHider PRIVATE
     ${HL2SDK}/public/game/shared
     ${HL2SDK}/public/mathlib
     ${HL2SDK}/public/tier0
-    ${HL2SDK}/public/tier1
     ${HL2SDK}/public/entity2
     ${HL2SDK}/game/shared
     ${HL2SDK}/common
@@ -129,6 +128,8 @@ if(WIN32)
     set(BOT_HIDER_PLATFORM_DIR win64)
     set(BOT_HIDER_SUFFIX ".dll")
     set(HL2SDK_LIBDIR ${HL2SDK}/lib/public/win64)
+    # MSVC has no <byteswap.h> clash, so tier1 goes on the normal include path
+    target_include_directories(BotHider PRIVATE ${HL2SDK}/public/tier1)
     target_link_libraries(BotHider PRIVATE
         psapi
         ${HL2SDK_LIBDIR}/tier0.lib
@@ -175,6 +176,8 @@ elseif(CMAKE_SYSTEM_NAME STREQUAL "Linux")
         -fPIC
         -fno-rtti
         -fvisibility=hidden
+        # tier1 last on the search path: glibc's <byteswap.h> wins over SDK's same-named header
+        -idirafter ${HL2SDK}/public/tier1
         -Wno-non-virtual-dtor
         -Wno-overloaded-virtual
         -Wno-register
