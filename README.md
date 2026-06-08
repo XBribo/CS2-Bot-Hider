@@ -1,6 +1,6 @@
 # BotHider
 
-**Disguise CS2 bots as real players — for Metamod:Source & CounterStrikeSharp plugins**
+**Make Bot Vivid Again**
 
 ## Your stars⭐ are my motivation to keep updating
 
@@ -8,7 +8,7 @@
 
 ## Overview
 
-`BotHider` is a **Metamod:Source plugin** for **Counter-Strike 2**
+`BotHider` is a **Metamod:Source & CounterStrikeSharp plugins** for **Counter-Strike 2**
 servers that makes bots indistinguishable from humans.
 
 When the engine spawns a fake client, BotHider:
