@@ -141,8 +141,16 @@ dotnet build csharp/BotHiderApi/BotHiderApi.csproj -c Release
 }
 ```
 
-On spawn, BotHider prefers an entry whose key matches the engine's proposed bot name
-Otherwise it picks a random unused entry.
+On spawn, BotHider always picks a `bot_info.json` entry as the identity source
+(SteamID / crosshair / ping), preferring an entry whose key matches the engine's
+proposed bot name, otherwise a random unused entry.
+
+The **display name** is controlled separately by `bh_namesource`:
+
+- `0` (default) — keep the engine's `botprofile.db` name
+- `1` — use the matched `bot_info.json` entry's name
+
+The switch applies to newly created bots only.
 
 ## Getting the API (C#)
 
