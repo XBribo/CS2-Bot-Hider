@@ -235,7 +235,7 @@ add_custom_command(TARGET BotHider POST_BUILD
 if(MSVC)
     target_compile_options(BotHider PRIVATE
         /W3 /permissive-
-        /utf-8   # source + execution charset = UTF-8 (console expects UTF-8 narrow literals)
+        /utf-8   # UTF-8
         /wd4267  # size_t -> int conversion
         /wd4244  # narrowing conversion
         /wd4146  # unary minus on unsigned

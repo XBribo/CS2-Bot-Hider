@@ -222,9 +222,10 @@ if (_api.SetPersonaName(3, "ZywOo"))
 
 ## Special thanks
 
-- [cs2-insanity](https://github.com/Frad70/cs2-insanity) Helped me determine the framework
-- [CS2Fixes](https://github.com/Source2ZE/CS2Fixes) Helped me identify the 'UTIL_Remove' signature
-- [Misaka17032](https://github.com/Misaka17032) Contributed Linux support for the plugin
+- [cs2-insanity](https://github.com/Frad70/cs2-insanity) for helping determine the framework.
+- [CS2Fixes](https://github.com/Source2ZE/CS2Fixes) for helping identify the `UTIL_Remove` signature.
+- [Misaka17032](https://github.com/Misaka17032) for adding Linux support to the plugin.
+- [ed0ard](https://github.com/ed0ard) for helping with testing and bug fixes.
 
 ------------------------------------------------------------------------
 
