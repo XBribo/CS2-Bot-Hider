@@ -6,5 +6,13 @@
       "linux": "48 89 FE 48 85 FF 74 ? 48 8D 05 ? ? ? ? 48"
     },
     "comment": "UTIL_Remove: null-checks the entity then tail-calls CGameEntitySystem::QueueDestroyEntity, Used to destroy the CCSPlayerController a kicked bot leaves behind."
+  },
+  "SV_KickOneFromTeam": {
+    "signatures": {
+      "library": "server",
+      "windows": "48 89 5C 24 ? 55 56 57 41 56 41 57 48 8B EC 48 83 EC ? 48 8B 05",
+      "linux": ""
+    },
+    "comment": "picks and kicks one client from team"
   }
 }

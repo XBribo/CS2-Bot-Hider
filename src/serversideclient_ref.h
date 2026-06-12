@@ -19,6 +19,7 @@ namespace cs2bh::ssc
     inline constexpr int OFFSET_m_bFakePlayer = 160; // bool  ← we flip this to 0
     inline constexpr int OFFSET_m_UserID = 168;      // short
     inline constexpr int OFFSET_m_SteamID = 171;     // CSteamID
+    inline constexpr int OFFSET_m_bIsHLTV = 322;     // bool (0x142) — set on the SourceTV client
 
     // Read CUtlString { char* m_pString } at member offset
     inline const char *ReadName(const void *client)

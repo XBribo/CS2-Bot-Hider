@@ -26,12 +26,12 @@ namespace cs2bh
         bool Load(PluginId id, ISmmAPI *ismm, char *error, size_t maxlen, bool late) override;
         bool Unload(char *error, size_t maxlen) override;
 
-        const char *GetAuthor() override { return "XBribo"; }
+        const char *GetAuthor() override { return "XBribo(๑•.•๑)"; }
         const char *GetName() override { return "CS2-Bot-Hider"; }
         const char *GetDescription() override { return "Bot persona/steamid/ping hider"; }
         const char *GetURL() override { return ""; }
         const char *GetLicense() override { return "GPLv3"; }
-        const char *GetVersion() override { return "0.1.9"; }
+        const char *GetVersion() override { return "0.2.0"; }
         const char *GetDate() override { return __DATE__; }
         const char *GetLogTag() override { return "BOTHIDER"; }
 
