@@ -103,9 +103,14 @@ static char __fastcall Detour_KickOneFromTeam(int team)
 static char Detour_KickOneFromTeam(int team)
 #endif
 {
-    // Phantom kick: report success so the caller stops without evicting SourceTV
+    // Phantom kick: Windows callers expect success here. Linux must keep the
+    // caller's fallback pruning path alive, otherwise no real slot is freed.
     if (team == 0 && cs2bh::ServerHasHltvClient())
+#if defined(_WIN32)
         return 1;
+#else
+        return 0;
+#endif
     return g_pfnKickOneTramp ? g_pfnKickOneTramp(team) : 0;
 }
 
