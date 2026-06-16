@@ -30,6 +30,13 @@
     },
     "comment": "CUtlVector<CServerSideClient*> base offset."
   },
+  "CBasePlayerController::FakeClientFlags": {
+    "offsets": {
+      "windows": 904,
+      "linux": 904
+    },
+    "comment": "controller fakeclient flags."
+  },
   "CServerSideClient::m_UserIDString": {
     "offsets": {
       "windows": 56,

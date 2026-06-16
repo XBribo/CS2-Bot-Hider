@@ -346,6 +346,8 @@ namespace cs2bh
         ssc::OFFSET_m_bIsHLTV = FindPlatformOffset(gamedata, "CServerSideClient::m_bIsHLTV", ssc::OFFSET_m_bIsHLTV);
         // CNetworkGameServerBase::m_Clients vector base
         targets::kClientListOffset = FindPlatformOffset(gamedata, "CNetworkGameServerBase::m_Clients", targets::kClientListOffset);
+        // CBasePlayerController fakeclient flags
+        targets::kController_FakeClientFlagsOffset = FindPlatformOffset(gamedata, "CBasePlayerController::FakeClientFlags", targets::kController_FakeClientFlagsOffset);
     }
 
     // Resolve SV_KickOneFromTeam by sig and install the team-0 kick-guard detour
