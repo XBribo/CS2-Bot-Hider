@@ -137,11 +137,6 @@ static int64_t __fastcall Detour_MaintainBotQuota(void *mgr)
 static int64_t Detour_MaintainBotQuota(void *mgr)
 #endif
 {
-    /* Disguised bots clear the controller fakeclient bit (+904 & 0x100) to fool the
-       scoreboard, but that also makes the engine's human counter count them as humans
-       while the bot counter (IsBot vtable) still counts them as bots. The fill/match
-       target formula (quota - humans) then cancels out, freezing add/remove.
-       Flip the bit back for the duration of the pass so both counters agree. */
     std::array<bool, 64> flipped;
     cs2bh::FlipManagedController904(false, &flipped);
     int64_t r = g_pfnQuotaTramp ? g_pfnQuotaTramp(mgr) : 0;
