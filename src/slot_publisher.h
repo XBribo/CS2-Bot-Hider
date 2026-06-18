@@ -35,6 +35,9 @@ namespace cs2bh
         void UpdatePersonaName(int slot, const char *name);
         void UpdatePing(int slot, int ping);
 
+        // Append a signature/hook status entry (addr==0 means unresolved)
+        void PublishSignature(const char *name, const void *addr);
+
         // CSS->C++
         void DrainCommands(const SteamIdSink &onSteamId, const PersonaSink &onPersona,
                            const DisguiseSink &onDisguise, const RebuildSink &onRebuild,

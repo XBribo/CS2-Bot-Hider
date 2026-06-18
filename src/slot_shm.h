@@ -43,6 +43,14 @@ namespace cs2bh::shm
     inline constexpr int kOff_Crosshair = 5976;   // char[64][64]
     // Ends at 5976 + 64*64 = 10072
 
+    // Signature/hook status region (C++ writes / C# reads)
+    inline constexpr int kMaxSigs = 8;             // capacity
+    inline constexpr int kSigNameLen = 32;         // name buffer (incl. NUL)
+    inline constexpr int kSigEntrySize = 40;       // char[32] name + uint64 addr
+    inline constexpr int kOff_SigCount = 10072;    // uint32, number of valid entries
+    inline constexpr int kOff_SigEntries = 10080;  // SigEntry[kMaxSigs], 8-byte aligned
+    // Ends at 10080 + 8*40 = 10400
+
     inline constexpr int kTotalSize = 16384; // 4 pages
 
     // Command opcodes.
@@ -73,5 +81,16 @@ namespace cs2bh::shm
 #pragma pack(pop)
 
     static_assert(sizeof(Command) == 48, "Command must be 48 bytes");
+
+// One signature/hook status entry. addr==0 means unresolved
+#pragma pack(push, 1)
+    struct SigEntry
+    {
+        char Name[kSigNameLen]; // signature name
+        uint64_t Addr;          // resolved address, 0 if unresolved
+    };
+#pragma pack(pop)
+
+    static_assert(sizeof(SigEntry) == kSigEntrySize, "SigEntry must be 40 bytes");
 
 } // namespace cs2bh::shm

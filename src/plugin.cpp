@@ -623,6 +623,55 @@ namespace cs2bh
         return touched;
     }
 
+    // EXPERIMENT: !restore clears +904 0x100 on managed bots reading as bot (bit==1) and
+    // records them; restore sets the bit back. Used only around bot_add for root-cause test.
+    int ClearManagedController904(bool restore, std::array<bool, 64> *saved)
+    {
+        if (!saved)
+            return 0;
+        const int kCtrlOff = targets::kController_FakeClientFlagsOffset;
+        constexpr uint32_t kBit = 0x100;
+        int touched = 0;
+        for (int idx = 0; idx < PersonaPool::kMaxSlots; ++idx)
+        {
+            if (!restore)
+                (*saved)[idx] = false;
+            if (!restore && !Manager().IsManaged(idx))
+                continue;
+            if (restore && !(*saved)[idx])
+                continue;
+
+            void *pClient = ResolveClientBySlot(idx);
+            if (!pClient)
+                continue;
+            int entIdx = *reinterpret_cast<int *>(
+                reinterpret_cast<unsigned char *>(pClient) + ssc::OFFSET_m_nEntityIndex);
+            char cls[64];
+            void *ctrl = ResolveEntityInstance(entIdx, cls, sizeof(cls));
+            if (!ctrl || std::strcmp(cls, "cs_player_controller") != 0)
+                continue;
+
+            auto *p = reinterpret_cast<uint32_t *>(
+                reinterpret_cast<unsigned char *>(ctrl) + kCtrlOff);
+            if (!restore)
+            {
+                if ((*p & kBit) != 0) // only clear slots currently reading as bot
+                {
+                    *p &= ~kBit;
+                    (*saved)[idx] = true;
+                    ++touched;
+                }
+            }
+            else
+            {
+                *p |= kBit;
+                (*saved)[idx] = false;
+                ++touched;
+            }
+        }
+        return touched;
+    }
+
     // Reset a disguised bot's idle timer
     static void ResetIdleTimerForClient(void *pClient)
     {
@@ -869,6 +918,16 @@ namespace cs2bh
                !std::strcmp(name, "bot_join_team");
     }
 
+    // True for bot_add variants — their quota census must see disguised bots as bots
+    static bool IsBotAddCommand(const char *name)
+    {
+        if (!name || !name[0])
+            return false;
+        return !std::strcmp(name, "bot_add") ||
+               !std::strcmp(name, "bot_add_t") ||
+               !std::strcmp(name, "bot_add_ct");
+    }
+
     static int CaseCmp(const char *a, const char *b)
     {
 #if defined(_WIN32)
@@ -982,6 +1041,16 @@ namespace cs2bh
             RETURN_META(MRES_IGNORED);
         const char *cmdName = cmd.GetName();
 
+        // Capture the current quota so POST can set it to old+1
+        if (IsBotAddCommand(cmdName))
+        {
+            m_QuotaBeforeAdd = 0;
+            ConVarRefAbstract botQuota("bot_quota");
+            if (botQuota.IsValidRef())
+                m_QuotaBeforeAdd = botQuota.GetInt();
+            RETURN_META(MRES_IGNORED);
+        }
+
         if (IsHumanTeamCommand(cmdName))
         {
             if (m_bDisguiseEnabled)
@@ -1027,6 +1096,24 @@ namespace cs2bh
         if (!cmd.IsValidRef())
             RETURN_META(MRES_IGNORED);
         const char *cmdName = cmd.GetName();
+
+        // bot_add adds exactly one bot → correct quota is old+1. bot_add's own census
+        // reads the controller +904 flag and double-counts disguised (human-reading)
+        // clients, writing 2*N+1. Overwrite with old+1 so MaintainBotQuota keeps the right count
+        if (IsBotAddCommand(cmdName))
+        {
+            if (m_bDisguiseEnabled && !m_bRebuilding)
+            {
+                ConVarRefAbstract botQuota("bot_quota");
+                if (botQuota.IsValidRef())
+                {
+                    int want = m_QuotaBeforeAdd + 1;
+                    if (botQuota.GetInt() != want)
+                        botQuota.SetInt(want);
+                }
+            }
+            RETURN_META(MRES_IGNORED);
+        }
 
         if (!IsKickCommand(cmdName))
             RETURN_META(MRES_IGNORED);
@@ -1439,6 +1526,10 @@ namespace cs2bh
         if (Publisher().Init())
         {
             META_CONPRINTF("[BOTHIDER] shared memory '%s' mapped\n", shm::kMappingName);
+            // Publish resolved hook/sig addresses for bh_status (0 = unresolved)
+            Publisher().PublishSignature("UTIL_Remove", reinterpret_cast<void *>(g_pfnUtilRemove));
+            Publisher().PublishSignature("SV_KickOneFromTeam", g_KickHook.Target());
+            Publisher().PublishSignature("MaintainBotQuota", g_QuotaHook.Target());
         }
         else
         {

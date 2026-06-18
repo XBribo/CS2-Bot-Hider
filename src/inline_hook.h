@@ -155,6 +155,8 @@ namespace cs2bh::hook
         }
 
         void *Trampoline() const { return m_trampoline; }
+        // Resolved target address, or nullptr if not installed
+        void *Target() const { return m_target; }
         bool Active() const { return m_active; }
 
     private:

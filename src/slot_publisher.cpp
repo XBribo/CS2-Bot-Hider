@@ -202,6 +202,23 @@ namespace cs2bh
         BumpGen();
     }
 
+    // Append a signature status entry at the current count slot
+    void SlotPublisher::PublishSignature(const char *name, const void *addr)
+    {
+        if (!m_pView || !name)
+            return;
+        auto *count = reinterpret_cast<uint32_t *>(m_pView + shm::kOff_SigCount);
+        if (*count >= static_cast<uint32_t>(shm::kMaxSigs))
+            return;
+        auto *entry = reinterpret_cast<shm::SigEntry *>(
+            m_pView + shm::kOff_SigEntries + (*count) * shm::kSigEntrySize);
+        std::memset(entry->Name, 0, shm::kSigNameLen);
+        std::strncpy(entry->Name, name, shm::kSigNameLen - 1);
+        entry->Addr = reinterpret_cast<uint64_t>(addr);
+        ++(*count);
+        BumpGen();
+    }
+
     // CSS->C++
 
     void SlotPublisher::DrainCommands(const SteamIdSink &onSteamId,

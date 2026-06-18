@@ -14,6 +14,9 @@ public interface IBotHiderApi
 
     string GetCrosshairCode(int slot);
 
+    // Resolved hook/signature addresses (addr==0 means unresolved)
+    (string Name, ulong Addr)[] GetSignatures();
+
     // returns false if the slot is out of range.
     bool SetBotSteamId(int slot, ulong steamId64);
 

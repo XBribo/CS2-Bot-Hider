@@ -27,6 +27,12 @@ public sealed class SharedMemoryClient : IBotHiderApi, IDisposable
     private const int OffCurrentPing = 5720;  // int32[64]
     private const int OffCrosshair = 5976;  // char[64][64]
     private const int CrosshairLen = 64;
+    // Signature/hook status region
+    private const int OffSigCount = 10072;  // uint32
+    private const int OffSigEntries = 10080;  // SigEntry[8]
+    private const int SigNameLen = 32;
+    private const int SigEntrySize = 40;  // char[32] + uint64
+    private const int MaxSigs = 8;
 
     // Command region offsets
     private const int OffWriteIdx = 2640;
@@ -124,6 +130,28 @@ public sealed class SharedMemoryClient : IBotHiderApi, IDisposable
         int len = Array.IndexOf(buf, (byte)0);
         if (len < 0) len = CrosshairLen;
         return Encoding.UTF8.GetString(buf, 0, len);
+    }
+
+    // Read the resolved hook/signature status table
+    public (string Name, ulong Addr)[] GetSignatures()
+    {
+        if (_view == null) TryConnect();
+        if (_view == null) return Array.Empty<(string, ulong)>();
+        uint count = _view.ReadUInt32(OffSigCount);
+        if (count > MaxSigs) count = MaxSigs;
+        var list = new List<(string, ulong)>((int)count);
+        var buf = new byte[SigNameLen];
+        for (int i = 0; i < count; i++)
+        {
+            int baseOff = OffSigEntries + i * SigEntrySize;
+            _view.ReadArray(baseOff, buf, 0, SigNameLen);
+            int len = Array.IndexOf(buf, (byte)0);
+            if (len < 0) len = SigNameLen;
+            string name = Encoding.UTF8.GetString(buf, 0, len);
+            ulong addr = _view.ReadUInt64(baseOff + SigNameLen);
+            list.Add((name, addr));
+        }
+        return list.ToArray();
     }
 
     // IBotHiderApi: write side

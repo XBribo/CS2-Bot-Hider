@@ -7,6 +7,7 @@
 #include <ISmmPlugin.h>
 #include <playerslot.h>
 #include <tier1/utlvector.h>
+#include <array>
 
 class CServerSideClient;
 class INetworkGameClient;
@@ -78,6 +79,10 @@ namespace cs2bh
         bool m_bDisguiseEnabled = true;
 
         bool m_bRebuilding = false;
+
+        // bot_quota captured in DispatchConCommand PRE for a bot_add, so POST can
+        // set it to old+1 (bot_add's own census miscomputes the target when disguised)
+        int m_QuotaBeforeAdd = 0;
 
         // Display-name source: false=botprofile name, true=bot_info.json name
         bool m_bUseBotInfoName = false;
