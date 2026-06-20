@@ -14,7 +14,7 @@ namespace BotHiderImpl;
 public class BotHiderImplPlugin : BasePlugin
 {
     public override string ModuleName => "BotHiderImpl";
-    public override string ModuleVersion => "0.2.5";
+    public override string ModuleVersion => "0.2.6";
     public override string ModuleAuthor => "XBribo";
     public override string ModuleDescription =>
         "BotHider CSS Plugin";
@@ -158,8 +158,8 @@ public class BotHiderImplPlugin : BasePlugin
             {
                 try
                 {
+                    // m_iPing not networked: write the field only, no SetStateChanged
                     Schema.SetSchemaValue(player.Handle, "CCSPlayerController", "m_iPing", ping);
-                    Utilities.SetStateChanged(player, "CCSPlayerController", "m_iPing");
                 }
                 catch (Exception e)
                 {
@@ -172,8 +172,8 @@ public class BotHiderImplPlugin : BasePlugin
             {
                 try
                 {
+                    // m_szCrosshairCodes not networked: write the field only, no SetStateChanged
                     player.CrosshairCodes = cross;
-                    Utilities.SetStateChanged(player, "CCSPlayerController", "m_szCrosshairCodes");
                     _appliedCrosshair[slot] = cross;
                 }
                 catch (Exception e)
