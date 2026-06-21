@@ -2,221 +2,99 @@
 
 **Make Bot Vivid Again**
 
+> For developer, see [TECH.md](TECH.md).
+
 ## Your stars⭐ are my motivation to keep updating
 
 ------------------------------------------------------------------------
 
 ## Overview
 
-`BotHider` is a **Metamod:Source & CounterStrikeSharp plugins** for **Counter-Strike 2**
-servers that makes bots indistinguishable from humans.
+`BotHider` is a plugin for **Counter-Strike 2** servers that makes bots look like real human players.
 
-When the engine spawns a fake client, BotHider:
+When a bot joins, BotHider automatically:
 
-- Strips the `BOT` scoreboard label
-- Assigns a **SteamID64**
-- Renames the bot to a curated **persona name**
-- Applies a **jittered ping** and a **crosshair share-code(not completed)**
-
-`IBotHiderApi`, consumable from any other C# plugin.
+- Hides the `BOT` label on the scoreboard
+- Gives the bot a unique SteamID
+- Gives the bot a realistic player name
+- Adds a fake ping (with random jitter)
 
 ------------------------------------------------------------------------
 
 ## Features
 
 - Removes the `BOT` tag from the scoreboard
-- Per-bot SteamID64, name, ping, and crosshair
-- `IBotHiderApi` capability for other CSS plugins
-- Read **and** write access (override a bot's SteamID / name at runtime)
-- `IsBot` override: managed bots report `IsBot == true` to every CSS plugin
+- Each bot gets its own SteamID64, display name, ping, and crosshair
+- Toggle disguise on/off with a simple command
+- Choose whether bot names come from `botprofile.db` or a custom list
 
 ------------------------------------------------------------------------
 
-## Console commands
+## Console Commands
 
-- `bh_status` — list every managed slot: sid, name, ping, crosshair.
-- `bh_setname <slot> <name>` — set bot's name.
-- `bh_setsid <slot> <SteamID64>` — set bot's SteamID.
-- `bh_disguise <0/1>` — toggle bot disguise off/on
-- `bh_namesource <0/1>` — display-name source: `0` = botprofile.db name (default), `1` = bot_info.json name. Affects newly created bots only.
+| Command | Description |
+|---------|-------------|
+| `bh_status` | Show every bot's details: slot, SteamID, name, ping, crosshair |
+| `bh_setname <slot> <name>` | Change a bot's name |
+| `bh_setsid <slot> <SteamID64>` | Change a bot's SteamID |
+| `bh_disguise <0/1>` | Turn bot disguise off (0) or on (1) |
+| `bh_namesource <0/1>` | **0** = use name from `botprofile.db` (default)<br>**1** = use name from `bot_info.json` (only affects new bots) |
 
 ------------------------------------------------------------------------
 
 ## Install
 
-1. Download the latest release for your platform from the
-   [**GitHub Releases**](https://github.com/XBribo/CS2-Bot-Hider/releases/latest) page:
-
-        BotHider-windows.zip   # for Windows servers
-        BotHider-linux.zip     # for Linux servers
-
-2. Extract the archive and copy the `/addons/` directory into `/game/csgo/`.
-
-3. Restart your game server.
+1. Download the latest `BotHider-windows.zip` or `BotHider-linux.zip` from the [Releases page](https://github.com/XBribo/CS2-Bot-Hider/releases/latest).
+2. Extract the archive and copy the `/addons/` folder into your server's `/game/csgo/` directory.
+3. Restart the server.
 
 ------------------------------------------------------------------------
 
-## Exposed Interface (C#)
+## Custom Identities (bot_info.json)
 
-``` csharp
-public interface IBotHiderApi
-{
-    // --- read ---
-    bool     IsManagedBot(int slot);        // is this one of ours?
-    ulong    GetSyntheticSteamId(int slot); // assigned SteamID64 (0 if none)
-    int[]    GetManagedSlots();             // all managed bot slots
-    string   GetPersonaName(int slot);      // assigned display name
-    int      GetPing(int slot);             // current jittered ping (ms)
-    string   GetCrosshairCode(int slot);    // assigned crosshair share-code
+You can create a file named `bot_info.json` inside `/game/csgo/addons/bothider/` to define custom identities for your bots. Example:
 
-    // --- write (applied on the next server frame) ---
-    bool     SetBotSteamId(int slot, ulong steamId64);
-    bool     SetPersonaName(int slot, string name);
-
-    // --- global toggles ---
-    bool     SetDisguise(bool enabled);     // off lets the bot manager spawn bots again
-    bool     SetNameSource(bool useBotInfo); // true=bot_info name, false=botprofile name
-}
-```
-
-`slot` is the engine player slot (`CCSPlayerController.Slot.Value`).
-
-------------------------------------------------------------------------
-
-## How to Build
-
-### One-click (Windows host, all targets)
-
-`build.ps1` builds the Windows `.dll`, the Linux `.so` (via WSL), and the
-C# plugins, then assembles ready-to-ship packages under `dist/windows/`
-and `dist/linux/`.
-
-``` powershell
-./build.ps1            # build everything
-./build.ps1 -Windows   # Windows
-./build.ps1 -Linux     # Linux (via WSL)
-./build.ps1 -CSharp    # C# plugins
-./build.ps1 -Clean     # wipe first, then build all
-```
-
-Env required: `HL2SDKCS2`, `MMSOURCE_DEV`, `CSGO_PROTO`, plus `protoc`
-(3.21.x) on PATH. The Linux target needs a WSL distro (default
-`Ubuntu-24.04`) with `g++`, `cmake`, and `protobuf-compiler` installed.
-
-### Manual
-
-**C++ (Metamod plugin) — Windows:**
-
-``` text
-cmake -B build -G "Visual Studio 18 2026" -A x64
-cmake --build build --config Release
-```
-
-**C++ (Metamod plugin) — Linux:**
-
-``` text
-cmake -B build -DCMAKE_BUILD_TYPE=Release
-cmake --build build -j$(nproc)
-```
-
-**C# (CSS plugins):**
-
-``` text
-dotnet build csharp/BotHiderImpl/BotHiderImpl.csproj -c Release
-dotnet build csharp/BotHiderApi/BotHiderApi.csproj -c Release
-```
-
-------------------------------------------------------------------------
-
-## Configuration
-
-`bot_info.json` maps a player name to a SteamID (32-bit account id) and a crosshair share-code:
-
-``` json
+```json
 {
     "s1mple": {
         "steamid": 73936547,
         "crosshair_code": "CSGO-pE5f8-6RQvk-HLpdN-KW3J6-BQwLA"
+    },
+    "ZywOo": {
+        "steamid": 12345678,
+        "crosshair_code": "CSGO-xxxxx-xxxxx-xxxxx-xxxxx-xxxxx"
     }
 }
 ```
 
-On spawn, BotHider always picks a `bot_info.json` entry as the identity source
-(SteamID / crosshair / ping), preferring an entry whose key matches the engine's
-proposed bot name, otherwise a random unused entry.
+- **steamid**: The 32-bit account ID (will be converted to a full SteamID64 automatically).
+- **crosshair_code**: The crosshair share code to apply to the bot (optional).
 
-The **display name** is controlled separately by `bh_namesource`:
-
-- `0` (default) — keep the engine's `botprofile.db` name
-- `1` — use the matched `bot_info.json` entry's name
-
-The switch applies to newly created bots only.
-
-## Getting the API (C#)
-
-Reference `BotHiderApi.dll` in your plugin `.csproj`:
-
-``` xml
-<ItemGroup>
-  <Reference Include="BotHiderApi">
-    <HintPath>libs/BotHiderApi.dll</HintPath>
-  </Reference>
-</ItemGroup>
-```
-
-Resolve the capability once all plugins are loaded:
-
-``` csharp
-using BotHiderApi;
-using CounterStrikeSharp.API.Core.Capabilities;
-
-private static readonly PluginCapability<IBotHiderApi> Cap = new("bothider:api");
-private IBotHiderApi? _api;
-
-public override void OnAllPluginsLoaded(bool hotReload) => _api = Cap.Get();
-```
+When a bot is spawned, BotHider will pick an identity from this list (preferring a name match if possible).  
+To use the names from this file as the bot's **display name**, set `bh_namesource 1`.
 
 ------------------------------------------------------------------------
 
-## Reading bot state (C#)
+## FAQ
 
-| Check                         | bot result                       |
-|-------------------------------|----------------------------------|
-| `player.IsBot`                | `true` (restored by the patch)   |
-| `_api.IsManagedBot(slot)`     | `true` (direct, patch-free)      |
+**Q: I changed the `steamid` in an existing `bot_info.json` entry, but the bot still loads the old account. Why?**
 
-`player.IsBot` is the convenient path. Prefer `_api.IsManagedBot(slot)`
-when you need a guarantee independent of the patch
-e.g. a call site the JIT may have already inlined before the patch was applied,
-which the Harmony override cannot reach.
+A: The plugin selects an identity entry by matching the bot's name (from `botprofile.db`) against the JSON **keys**, not by the SteamID value. If no name match is found, a random entry is used. To force a specific bot to use a specific Steam profile:
 
-``` csharp
-foreach (int slot in _api.GetManagedSlots())
-{
-    Console.WriteLine(
-        $"slot={slot} sid={_api.GetSyntheticSteamId(slot)} " +
-        $"name='{_api.GetPersonaName(slot)}' ping={_api.GetPing(slot)}");
-}
-```
+1. Use a real `botprofile.db` bot name as the key in `bot_info.json`.
+2. Set your custom `steamid` (32-bit account ID) and `crosshair_code` under that key.
+3. Set `bh_namesource 1` so the display name also comes from this entry (ensuring a one-to-one name/SteamID link).
+4. Spawn the bot with `bot_add <that name>`.
 
-## Overriding identity at runtime (C#)
+**Q: Can I give the same SteamID to multiple bots (e.g., to share a team logo avatar)?**
 
-`SetBotSteamId` and `SetPersonaName` post a command to the C++ side, so re-query to confirm.
-Both return `false` for an invalid slot (and `SetPersonaName` rejects an empty name).
+A: No. The CS2 scoreboard distinguishes players by SteamID. If multiple bots share the same SteamID, some will not appear correctly. Each bot that needs a specific avatar must have its own distinct SteamID (a separate Steam account with that avatar).
 
-``` csharp
-// Give the bot in slot 3 a specific SteamID64 + name.
-ulong steamId64 = 76561197960287930;   // a full SteamID64
+**Q: Can I change a bot's identity without restarting the server?**
 
-if (_api.SetBotSteamId(3, steamId64))
-    Console.WriteLine("SteamID queued");
+A: Yes. Use `bh_setsid <slot> <SteamID64>` and `bh_setname <slot> <name>` to assign a new SteamID or name to a bot already in the game.
 
-if (_api.SetPersonaName(3, "ZywOo"))
-    Console.WriteLine("Name queued");
-
-```
-
-`SetPersonaName` also drives the scoreboard via the controller schema
+For more technical details on how identities are assigned, see [TECHNICAL.md](TECHNICAL.md).
 
 ------------------------------------------------------------------------
 
@@ -224,7 +102,7 @@ if (_api.SetPersonaName(3, "ZywOo"))
 
 - [cs2-insanity](https://github.com/Frad70/cs2-insanity) for helping determine the framework.
 - [CS2Fixes](https://github.com/Source2ZE/CS2Fixes) for helping identify the `UTIL_Remove` signature.
-- [Misaka17032](https://github.com/Misaka17032) for adding Linux support to the plugin.
+- [Misaka17032](https://github.com/Misaka17032) for adding Linux support.
 - [ed0ard](https://github.com/ed0ard) for helping with testing and bug fixes.
 
 ------------------------------------------------------------------------
