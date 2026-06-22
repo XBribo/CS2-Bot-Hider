@@ -10,7 +10,7 @@
 
 ## Overview
 
-`BotHider` is a plugin for **Counter-Strike 2** servers that makes bots look like real human players.
+`BotHider` is a plugin for **Counter-Strike 2** that makes bots look like real human players.
 
 When a bot joins, BotHider automatically:
 
@@ -94,7 +94,7 @@ A: No. The CS2 scoreboard distinguishes players by SteamID. If multiple bots sha
 
 A: Yes. Use `bh_setsid <slot> <SteamID64>` and `bh_setname <slot> <name>` to assign a new SteamID or name to a bot already in the game.
 
-For more technical details on how identities are assigned, see [TECHNICAL.md](TECHNICAL.md).
+For more technical details on how identities are assigned, see [TECH.md](TECH.md).
 
 ------------------------------------------------------------------------
 
