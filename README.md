@@ -109,7 +109,9 @@ For more technical details on how identities are assigned, see [TECH.md](TECH.md
 
 ## License
 
-GPL-v3.0
+CS2-Bot-Hider is licensed under the GNU Affero General Public License version 3 (AGPL-3.0).
+Commercial use involving closed-source distribution or hosted services may require a separate license.
+See the LICENSE file for details.
 
 ------------------------------------------------------------------------
 
