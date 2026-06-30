@@ -1,7 +1,7 @@
 <Project Sdk="Microsoft.NET.Sdk">
 
   <PropertyGroup>
-    <TargetFramework>net8.0</TargetFramework>
+    <TargetFramework>net10.0</TargetFramework>
     <ImplicitUsings>enable</ImplicitUsings>
     <Nullable>enable</Nullable>
     <LangVersion>latest</LangVersion>
@@ -26,7 +26,7 @@
   </ItemGroup>
 
   <Target Name="CopyHarmony" AfterTargets="Build;Publish">
-    <Copy SourceFiles="$(PkgLib_Harmony)\lib\net8.0\0Harmony.dll"
+    <Copy SourceFiles="$(PkgLib_Harmony)\lib\net10.0\0Harmony.dll"
           DestinationFolder="$(OutDir)shared\0Harmony"
           SkipUnchangedFiles="true" />
   </Target>

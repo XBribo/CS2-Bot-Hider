@@ -623,8 +623,7 @@ namespace cs2bh
         return touched;
     }
 
-    // EXPERIMENT: !restore clears +904 0x100 on managed bots reading as bot (bit==1) and
-    // records them; restore sets the bit back. Used only around bot_add for root-cause test.
+    // EXPERIMENT: !restore clears +904 0x100 on managed bots reading as bot and records them
     int ClearManagedController904(bool restore, std::array<bool, 64> *saved)
     {
         if (!saved)
@@ -928,6 +927,32 @@ namespace cs2bh
                !std::strcmp(name, "bot_add_ct");
     }
 
+    // Returns true when the bot_kick target is a built-in group selector.
+    static bool IsBotKickGroupTarget(const char *target)
+    {
+        if (!target || !target[0])
+            return false;
+        return !std::strcmp(target, "all") ||
+               !std::strcmp(target, "t") ||
+               !std::strcmp(target, "ct");
+    }
+
+    // Finds a managed bot slot by its current persona name.
+    static int FindManagedSlotByPersonaName(const char *name)
+    {
+        if (!name || !name[0])
+            return -1;
+        for (int idx = 0; idx < PersonaPool::kMaxSlots; ++idx)
+        {
+            if (!Manager().IsManaged(idx))
+                continue;
+            std::string persona = Personas().GetSlotName(idx);
+            if (persona == name)
+                return idx;
+        }
+        return -1;
+    }
+
     static int CaseCmp(const char *a, const char *b)
     {
 #if defined(_WIN32)
@@ -1062,12 +1087,46 @@ namespace cs2bh
             RETURN_META(MRES_IGNORED);
         }
 
+        if (!std::strcmp(cmdName, "bot_kick"))
+        {
+            const char *target = (args.ArgC() >= 2) ? args.Arg(1) : "";
+            if (target[0] && !IsBotKickGroupTarget(target))
+            {
+                int slot = FindManagedSlotByPersonaName(target);
+                if (slot >= 0 && engine)
+                {
+                    char kickCmd[640];
+                    std::snprintf(kickCmd, sizeof(kickCmd), "kick \"%s\"\n", target);
+                    engine->ServerCommand(kickCmd);
+                    META_CONPRINTF("[BOTHIDER] bot_kick '%s' redirected to kick for managed slot=%d\n",
+                                   target, slot);
+                    RETURN_META(MRES_SUPERCEDE);
+                }
+            }
+        }
+
         if (!IsKickCommand(cmdName))
             RETURN_META(MRES_IGNORED);
 
         // Disguise-toggle rebuild in progress: skip
         if (m_bRebuilding)
             RETURN_META(MRES_IGNORED);
+
+        m_ManagedBeforeKick = 0;
+        m_QuotaBeforeKick = -1;
+        m_AdjustQuotaAfterKick = std::strcmp(cmdName, "bot_kick") != 0;
+        if (m_AdjustQuotaAfterKick)
+        {
+            for (int idx = 0; idx < PersonaPool::kMaxSlots; ++idx)
+            {
+                if (Manager().IsManaged(idx))
+                    ++m_ManagedBeforeKick;
+            }
+
+            ConVarRefAbstract botQuota("bot_quota");
+            if (botQuota.IsValidRef())
+                m_QuotaBeforeKick = botQuota.GetInt();
+        }
 
         int restored = 0;
         for (int idx = 0; idx < PersonaPool::kMaxSlots; ++idx)
@@ -1097,9 +1156,6 @@ namespace cs2bh
             RETURN_META(MRES_IGNORED);
         const char *cmdName = cmd.GetName();
 
-        // bot_add adds exactly one bot → correct quota is old+1. bot_add's own census
-        // reads the controller +904 flag and double-counts disguised (human-reading)
-        // clients, writing 2*N+1. Overwrite with old+1 so MaintainBotQuota keeps the right count
         if (IsBotAddCommand(cmdName))
         {
             if (m_bDisguiseEnabled && !m_bRebuilding)
@@ -1127,10 +1183,12 @@ namespace cs2bh
         }
 
         int redisguised = 0;
+        int managedAfterKick = 0;
         for (int idx = 0; idx < PersonaPool::kMaxSlots; ++idx)
         {
             if (!Manager().IsManaged(idx))
                 continue;
+            ++managedAfterKick;
             void *pClient = ResolveClientBySlot(idx);
             if (!pClient)
                 continue;
@@ -1142,8 +1200,30 @@ namespace cs2bh
                 *reinterpret_cast<uint64_t *>(raw + ssc::OFFSET_m_SteamID) = sid;
             ++redisguised;
         }
+
+        if (m_AdjustQuotaAfterKick && m_QuotaBeforeKick >= 0)
+        {
+            int removedManaged = m_ManagedBeforeKick - managedAfterKick;
+            if (removedManaged > 0)
+            {
+                ConVarRefAbstract botQuota("bot_quota");
+                if (botQuota.IsValidRef())
+                {
+                    int want = m_QuotaBeforeKick - removedManaged;
+                    if (want < 0)
+                        want = 0;
+                    if (botQuota.GetInt() != want)
+                        botQuota.SetInt(want);
+                }
+            }
+        }
+
+        m_ManagedBeforeKick = 0;
+        m_QuotaBeforeKick = -1;
+        m_AdjustQuotaAfterKick = false;
+
         META_CONPRINTF("[BOTHIDER] kick POST '%s' redisguised=%d quota=%d\n",
-                       cmd.GetName(), redisguised, redisguised);
+                       cmd.GetName(), redisguised, managedAfterKick);
         RETURN_META(MRES_IGNORED);
     } // end Hook_DispatchConCommand_Post
 
@@ -1237,7 +1317,7 @@ namespace cs2bh
         char quotaCmd[48];
         std::snprintf(quotaCmd, sizeof(quotaCmd), "bot_quota %d\n", quota);
         // Drop quota to 0 before kicking: otherwise the engine keeps bots alive to
-        // satisfy the live quota mid-kick, and survivors skip CreateFakeClient (stay undisguised)
+        // satisfy the live quota mid-kick, and survivors skip CreateFakeClient
         engine->ServerCommand("bot_quota 0\n");
         engine->ServerCommand("bot_kick all\n");
         engine->ServerCommand(quotaCmd);

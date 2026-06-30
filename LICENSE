@@ -1,5 +1,6 @@
 CS2-Bot-Hider is licensed under the GNU Affero General Public License, version 3 (AGPL-3.0).
 
+Prior to v0.2.4, BotHider was licensed under GPL-3.0-only.  
 Starting with version 0.2.5, the project as a whole is licensed under AGPL-3.0-only, with the following exceptions:
 - Components inside the third_party/ directory retain their original upstream licenses.
 

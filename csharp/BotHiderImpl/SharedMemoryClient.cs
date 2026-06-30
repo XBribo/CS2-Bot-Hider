@@ -58,6 +58,7 @@ public sealed class SharedMemoryClient : IBotHiderApi, IDisposable
     private readonly Action<int, string>? _onVisibleName;
 
     private readonly Action<int, ulong>? _onVisibleSid;
+    private readonly string?[] _personaNameOverrides = new string?[MaxSlots];
 
     public SharedMemoryClient(Action<int, string>? onVisibleName = null,
                               Action<int, ulong>? onVisibleSid = null)
@@ -112,6 +113,8 @@ public sealed class SharedMemoryClient : IBotHiderApi, IDisposable
     public string GetPersonaName(int slot)
     {
         if (!Valid(slot)) return string.Empty;
+        if (!string.IsNullOrEmpty(_personaNameOverrides[slot]))
+            return _personaNameOverrides[slot]!;
         var buf = new byte[NameLen];
         _view!.ReadArray(OffPersonaName + slot * NameLen, buf, 0, NameLen);
         int len = Array.IndexOf(buf, (byte)0);
@@ -167,6 +170,8 @@ public sealed class SharedMemoryClient : IBotHiderApi, IDisposable
     public bool SetPersonaName(int slot, string name)
     {
         if (!Valid(slot) || string.IsNullOrEmpty(name)) return false;
+        // Update both the engine-side persona and the visible PlayerName.
+        _personaNameOverrides[slot] = name;
         bool ok = PostCommand(CmdSetPersona, slot, 0UL, name);
         if (ok) _onVisibleName?.Invoke(slot, name);
         return ok;

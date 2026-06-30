@@ -84,6 +84,11 @@ namespace cs2bh
         // set it to old+1 (bot_add's own census miscomputes the target when disguised)
         int m_QuotaBeforeAdd = 0;
 
+        // Captured before a regular kick so POST can shrink bot_quota when managed bots were removed.
+        int m_ManagedBeforeKick = 0;
+        int m_QuotaBeforeKick = -1;
+        bool m_AdjustQuotaAfterKick = false;
+
         // Display-name source: false=botprofile name, true=bot_info.json name
         bool m_bUseBotInfoName = false;
     };
