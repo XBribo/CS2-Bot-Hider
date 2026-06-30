@@ -117,4 +117,5 @@ See the LICENSE file for details.
 
 ## Author
 
-**XBribo**
+- **XBribo**
+- Other contributors
