@@ -32,7 +32,7 @@ namespace cs2bh
         const char *GetDescription() override { return "Bot persona/steamid/ping hider"; }
         const char *GetURL() override { return ""; }
         const char *GetLicense() override { return "AGPL-3.0"; }
-        const char *GetVersion() override { return "0.2.3"; }
+        const char *GetVersion() override { return "0.2.7"; }
         const char *GetDate() override { return __DATE__; }
         const char *GetLogTag() override { return "BOTHIDER"; }
 
@@ -80,11 +80,8 @@ namespace cs2bh
 
         bool m_bRebuilding = false;
 
-        // bot_quota captured in DispatchConCommand PRE for a bot_add, so POST can
-        // set it to old+1 (bot_add's own census miscomputes the target when disguised)
         int m_QuotaBeforeAdd = 0;
 
-        // Captured before a regular kick so POST can shrink bot_quota when managed bots were removed.
         int m_ManagedBeforeKick = 0;
         int m_QuotaBeforeKick = -1;
         bool m_AdjustQuotaAfterKick = false;
