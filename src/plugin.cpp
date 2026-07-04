@@ -787,8 +787,9 @@ namespace cs2bh
         g_SlotEntry[idx] = cfg;
         uint64_t cfgSid = (cfg && cfg->SteamId64 != 0) ? cfg->SteamId64 : 0;
         const char *cfgCross = cfg ? cfg->CrosshairCode.c_str() : nullptr;
+        uint32_t cfgFlair = cfg ? cfg->ScoreboardFlair : 0;
 
-        Manager().AdoptSlot(idx, pszName, cfgSid, cfgCross);
+        Manager().AdoptSlot(idx, pszName, cfgSid, cfgCross, cfgFlair);
 
         void *pClient = ResolveClientBySlot(idx);
         if (!pClient)

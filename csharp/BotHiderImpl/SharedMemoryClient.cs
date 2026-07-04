@@ -33,6 +33,8 @@ public sealed class SharedMemoryClient : IBotHiderApi, IDisposable
     private const int SigNameLen = 32;
     private const int SigEntrySize = 40;  // char[32] + uint64
     private const int MaxSigs = 8;
+    // Scoreboard flair region
+    private const int OffScoreboardFlair = 10400;  // uint32[64]
 
     // Command region offsets
     private const int OffWriteIdx = 2640;
@@ -58,13 +60,18 @@ public sealed class SharedMemoryClient : IBotHiderApi, IDisposable
     private readonly Action<int, string>? _onVisibleName;
 
     private readonly Action<int, ulong>? _onVisibleSid;
+    private readonly Action<int, uint>? _onScoreboardFlair;
     private readonly string?[] _personaNameOverrides = new string?[MaxSlots];
+    private readonly uint[] _scoreboardFlairs = new uint[MaxSlots];
+    private readonly bool[] _scoreboardFlairAssigned = new bool[MaxSlots];
 
     public SharedMemoryClient(Action<int, string>? onVisibleName = null,
-                              Action<int, ulong>? onVisibleSid = null)
+                              Action<int, ulong>? onVisibleSid = null,
+                              Action<int, uint>? onScoreboardFlair = null)
     {
         _onVisibleName = onVisibleName;
         _onVisibleSid = onVisibleSid;
+        _onScoreboardFlair = onScoreboardFlair;
     }
 
     // Try to open the existing mapping. Returns false if BotHider isn't loaded yet
@@ -92,6 +99,13 @@ public sealed class SharedMemoryClient : IBotHiderApi, IDisposable
         return _view != null && slot >= 0 && slot < MaxSlots;
     }
 
+    // Returns whether the shared memory bridge is connected
+    public bool IsConnected()
+    {
+        if (_view != null) return true;
+        return TryConnect();
+    }
+
     // IBotHiderApi: read side
 
     public bool IsManagedBot(int slot) =>
@@ -105,8 +119,14 @@ public sealed class SharedMemoryClient : IBotHiderApi, IDisposable
         if (_view == null) TryConnect();
         if (_view == null) return Array.Empty<int>();
         var list = new List<int>();
+        var managed = new bool[MaxSlots];
         for (int s = 0; s < MaxSlots; s++)
-            if (_view.ReadByte(OffSlotState + s) != 0) list.Add(s);
+        {
+            if (_view.ReadByte(OffSlotState + s) == 0) continue;
+            managed[s] = true;
+            list.Add(s);
+        }
+        ClearReleasedScoreboardFlairs(managed);
         return list.ToArray();
     }
 
@@ -133,6 +153,18 @@ public sealed class SharedMemoryClient : IBotHiderApi, IDisposable
         int len = Array.IndexOf(buf, (byte)0);
         if (len < 0) len = CrosshairLen;
         return Encoding.UTF8.GetString(buf, 0, len);
+    }
+
+    // Returns the assigned or newly randomized scoreboard flair
+    public uint GetScoreboardFlair(int slot)
+    {
+        if (!IsManagedBot(slot)) return 0U;
+        if (!_scoreboardFlairAssigned[slot])
+        {
+            _scoreboardFlairs[slot] = _view!.ReadUInt32(OffScoreboardFlair + slot * 4);
+            _scoreboardFlairAssigned[slot] = true;
+        }
+        return _scoreboardFlairs[slot];
     }
 
     // Read the resolved hook/signature status table
@@ -175,6 +207,16 @@ public sealed class SharedMemoryClient : IBotHiderApi, IDisposable
         bool ok = PostCommand(CmdSetPersona, slot, 0UL, name);
         if (ok) _onVisibleName?.Invoke(slot, name);
         return ok;
+    }
+
+    // Overrides the C#-side scoreboard flair for a managed bot
+    public bool SetScoreboardFlair(int slot, uint itemDefIndex)
+    {
+        if (!IsManagedBot(slot) || itemDefIndex > ushort.MaxValue) return false;
+        _scoreboardFlairs[slot] = itemDefIndex;
+        _scoreboardFlairAssigned[slot] = true;
+        _onScoreboardFlair?.Invoke(slot, itemDefIndex);
+        return true;
     }
 
     // Global disguise toggle
@@ -224,6 +266,17 @@ public sealed class SharedMemoryClient : IBotHiderApi, IDisposable
             _view.Write(OffWriteIdx, w + 1);
         }
         return true;
+    }
+
+    // Drops local flair state when C++ releases a slot
+    private void ClearReleasedScoreboardFlairs(bool[] managed)
+    {
+        for (int slot = 0; slot < MaxSlots; slot++)
+        {
+            if (managed[slot]) continue;
+            _scoreboardFlairs[slot] = 0U;
+            _scoreboardFlairAssigned[slot] = false;
+        }
     }
 
     public void Dispose()

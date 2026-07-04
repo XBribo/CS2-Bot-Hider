@@ -29,7 +29,7 @@ namespace cs2bh
 
         // Data-region writers
         void PublishAdopt(int slot, uint64_t syntheticSid, const char *personaName,
-                          const char *crosshairCode);
+                          const char *crosshairCode, uint32_t scoreboardFlair);
         void PublishRelease(int slot);
         void UpdateSyntheticSid(int slot, uint64_t sid);
         void UpdatePersonaName(int slot, const char *name);
@@ -51,6 +51,7 @@ namespace cs2bh
         char *NamePtr(int slot) const;
         int *PingPtr(int slot) const;
         char *CrosshairPtr(int slot) const;
+        uint32_t *ScoreboardFlairPtr(int slot) const;
         void BumpGen();
 
         void *m_hMapping = nullptr; // HANDLE

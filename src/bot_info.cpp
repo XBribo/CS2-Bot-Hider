@@ -68,6 +68,16 @@ namespace cs2bh
             e.SteamId64 = kSteamId64Base + static_cast<uint64_t>(e.AccountId);
             if (val.contains("crosshair_code") && val["crosshair_code"].is_string())
                 e.CrosshairCode = val["crosshair_code"].get<std::string>();
+            if (val.contains("scoreboard_flair") && val["scoreboard_flair"].is_number_unsigned())
+            {
+                uint64_t flair = val["scoreboard_flair"].get<uint64_t>();
+                e.ScoreboardFlair = flair <= 0xFFFFu ? static_cast<uint32_t>(flair) : 0;
+            }
+            else if (val.contains("scoreboard_flair") && val["scoreboard_flair"].is_number_integer())
+            {
+                int64_t flair = val["scoreboard_flair"].get<int64_t>();
+                e.ScoreboardFlair = (flair >= 0 && flair <= 0xFFFF) ? static_cast<uint32_t>(flair) : 0;
+            }
             m_ByName[e.Name] = m_Entries.size();
             m_Entries.push_back(std::move(e));
         }

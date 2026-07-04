@@ -43,7 +43,8 @@ namespace cs2bh
     }
 
     bool FakeClientManager::AdoptSlot(int slot, const char *pszName,
-                                      uint64_t steamId64, const char *crosshairCode)
+                                      uint64_t steamId64, const char *crosshairCode,
+                                      uint32_t scoreboardFlair)
     {
         if (slot < 0 || slot >= PersonaPool::kMaxSlots)
             return false;
@@ -60,12 +61,14 @@ namespace cs2bh
         s.Active = true;
         // Prefer the bot_info.json id
         s.SyntheticSid = steamId64 != 0 ? steamId64 : m_pSteamIds->Generate(slot);
+        s.ScoreboardFlair = scoreboardFlair;
         s.Jitter = PingJitter(baseline);
         s.Display = PingDisplay{};
         s.SteamIdWritten = false;
 
         Personas().MarkSlotManaged(slot, pszName);
-        Publisher().PublishAdopt(slot, s.SyntheticSid, pszName, crosshairCode);
+        Publisher().PublishAdopt(slot, s.SyntheticSid, pszName, crosshairCode, s.ScoreboardFlair);
+        Publisher().UpdatePing(slot, baseline);
         return true;
     }
 
@@ -76,6 +79,7 @@ namespace cs2bh
         std::lock_guard<std::mutex> g(m_Mutex);
         m_Slots[slot].Active = false;
         m_Slots[slot].SteamIdWritten = false;
+        m_Slots[slot].ScoreboardFlair = 0;
         m_Slots[slot].Display.Reset();
         Personas().ClearSlot(slot);
         Publisher().PublishRelease(slot);
@@ -88,6 +92,7 @@ namespace cs2bh
         {
             m_Slots[i].Active = false;
             m_Slots[i].SteamIdWritten = false;
+            m_Slots[i].ScoreboardFlair = 0;
             m_Slots[i].Display.Reset();
             Personas().ClearSlot(i);
             Publisher().PublishRelease(i);

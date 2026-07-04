@@ -18,13 +18,15 @@ When a bot joins, BotHider automatically:
 - Gives the bot a unique SteamID
 - Gives the bot a realistic player name
 - Adds a fake ping (with random jitter)
+- Applies a scoreboard flair medal
 
 ------------------------------------------------------------------------
 
 ## Features
 
 - Removes the `BOT` tag from the scoreboard
-- Each bot gets its own SteamID64, display name, ping, and crosshair
+- Each bot gets its own SteamID64, display name, ping, crosshair, and scoreboard flair
+- Supports per-bot `scoreboard_flair` values in `bot_info.json`; missing values show no flair
 - Toggle disguise on/off with a simple command
 - Choose whether bot names come from `botprofile.db` or a custom list
 
@@ -37,6 +39,7 @@ When a bot joins, BotHider automatically:
 | `bh_status` | Show every bot's details: slot, SteamID, name, ping, crosshair |
 | `bh_setname <slot> <name>` | Change a bot's name |
 | `bh_setsid <slot> <SteamID64>` | Change a bot's SteamID |
+| `bh_setflair <slot> <item_def_index>` | Change a bot's scoreboard flair (`0` clears it) |
 | `bh_disguise <0/1>` | Turn bot disguise off (0) or on (1) |
 | `bh_namesource <0/1>` | **0** = use name from `botprofile.db` (default)<br>**1** = use name from `bot_info.json` (only affects new bots) |
 
@@ -52,23 +55,29 @@ When a bot joins, BotHider automatically:
 
 ## Custom Identities (bot_info.json)
 
-You can create a file named `bot_info.json` inside `/game/csgo/addons/bothider/` to define custom identities for your bots. Example:
+You can create a file named `bot_info.json` inside `/game/csgo/addons/BotHider/` to define custom identities for your bots. Example:
 
 ```json
 {
     "s1mple": {
         "steamid": 73936547,
-        "crosshair_code": "CSGO-pE5f8-6RQvk-HLpdN-KW3J6-BQwLA"
+        "crosshair_code": "CSGO-pE5f8-6RQvk-HLpdN-KW3J6-BQwLA",
+        "scoreboard_flair": 874
     },
     "ZywOo": {
         "steamid": 12345678,
-        "crosshair_code": "CSGO-xxxxx-xxxxx-xxxxx-xxxxx-xxxxx"
+        "crosshair_code": "CSGO-xxxxx-xxxxx-xxxxx-xxxxx-xxxxx",
+        "scoreboard_flair": 4974
     }
 }
 ```
 
 - **steamid**: The 32-bit account ID (will be converted to a full SteamID64 automatically).
 - **crosshair_code**: The crosshair share code to apply to the bot (optional).
+- **scoreboard_flair**: The item definition index used as the bot's scoreboard flair (optional, `0` clears it).
+
+If `scoreboard_flair` is missing, invalid, or set to `0`, BotHider leaves the scoreboard flair empty.
+Use [unicbm/cs2-econ-id-index](https://github.com/unicbm/cs2-econ-id-index) to look up valid scoreboard flair item definition IDs.
 
 When a bot is spawned, BotHider will pick an identity from this list (preferring a name match if possible).  
 To use the names from this file as the bot's **display name**, set `bh_namesource 1`.

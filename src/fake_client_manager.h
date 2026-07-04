@@ -18,6 +18,7 @@ namespace cs2bh
     {
         bool Active = false;
         uint64_t SyntheticSid = 0;
+        uint32_t ScoreboardFlair = 0;
         PingJitter Jitter{50}; // 50ms baseline
         PingDisplay Display;
         bool SteamIdWritten = false;
@@ -31,7 +32,7 @@ namespace cs2bh
         void Init();
 
         bool AdoptSlot(int slot, const char *pszName, uint64_t steamId64,
-                       const char *crosshairCode);
+                       const char *crosshairCode, uint32_t scoreboardFlair);
 
         // Release a slot on disconnect / mapchange
         void ReleaseSlot(int slot);

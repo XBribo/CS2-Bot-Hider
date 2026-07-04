@@ -18,6 +18,7 @@ namespace cs2bh
         uint32_t AccountId = 0;
         uint64_t SteamId64 = 0;
         std::string CrosshairCode;
+        uint32_t ScoreboardFlair = 0;
     };
 
     class BotInfoStore

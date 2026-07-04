@@ -132,6 +132,12 @@ namespace cs2bh
             m_pView + shm::kOff_Crosshair + slot * shm::kCrosshairLen);
     }
 
+    uint32_t *SlotPublisher::ScoreboardFlairPtr(int slot) const
+    {
+        return reinterpret_cast<uint32_t *>(
+            m_pView + shm::kOff_ScoreboardFlair + slot * sizeof(uint32_t));
+    }
+
     void SlotPublisher::BumpGen()
     {
         auto *gen = reinterpret_cast<volatile uint32_t *>(m_pView + shm::kOff_DataGen);
@@ -141,7 +147,8 @@ namespace cs2bh
     // Data-region writers
 
     void SlotPublisher::PublishAdopt(int slot, uint64_t syntheticSid,
-                                     const char *personaName, const char *crosshairCode)
+                                     const char *personaName, const char *crosshairCode,
+                                     uint32_t scoreboardFlair)
     {
         if (!m_pView || slot < 0 || slot >= shm::kMaxSlots)
             return;
@@ -158,6 +165,7 @@ namespace cs2bh
         {
             std::strncpy(cross, crosshairCode, shm::kCrosshairLen - 1);
         }
+        *ScoreboardFlairPtr(slot) = scoreboardFlair;
         *PingPtr(slot) = 0;
         SlotStatePtr()[slot] = 1;
         BumpGen();
@@ -171,6 +179,7 @@ namespace cs2bh
         *SidPtr(slot) = 0;
         std::memset(NamePtr(slot), 0, shm::kNameLen);
         std::memset(CrosshairPtr(slot), 0, shm::kCrosshairLen);
+        *ScoreboardFlairPtr(slot) = 0;
         *PingPtr(slot) = 0;
         BumpGen();
     }

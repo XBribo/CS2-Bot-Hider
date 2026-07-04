@@ -51,6 +51,10 @@ namespace cs2bh::shm
     inline constexpr int kOff_SigEntries = 10080;  // SigEntry[kMaxSigs], 8-byte aligned
     // Ends at 10080 + 8*40 = 10400
 
+    // Scoreboard flair region (C++ writes / C# reads)
+    inline constexpr int kOff_ScoreboardFlair = 10400; // uint32[64]
+    // Ends at 10400 + 64*4 = 10656
+
     inline constexpr int kTotalSize = 16384; // 4 pages
 
     // Command opcodes.

@@ -14,6 +14,9 @@ public interface IBotHiderApi
 
     string GetCrosshairCode(int slot);
 
+    // Returns the current scoreboard flair item definition index
+    uint GetScoreboardFlair(int slot);
+
     // Resolved hook/signature addresses (addr==0 means unresolved)
     (string Name, ulong Addr)[] GetSignatures();
 
@@ -22,6 +25,9 @@ public interface IBotHiderApi
 
     // returns false if the slot/name is invalid.
     bool SetPersonaName(int slot, string name);
+
+    // returns false if the slot/flair is invalid
+    bool SetScoreboardFlair(int slot, uint itemDefIndex);
 
     // Global disguise toggle; off lets the bot manager spawn bots on aim_*/practice maps
     bool SetDisguise(bool enabled);

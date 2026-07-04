@@ -16,6 +16,7 @@ When the engine spawns a fake client, BotHider:
 - Assigns a synthetic **SteamID64**
 - Renames the bot to a curated **persona name**
 - Applies a **jittered ping** and a **crosshair share-code**
+- Applies a **scoreboard flair** via `CCSPlayerController_InventoryServices.m_rank`
 - Patches `CCSPlayerController.IsBot` to report `true` for managed bots (preserving compatibility with other plugins)
 
 ------------------------------------------------------------------------
@@ -67,21 +68,24 @@ dotnet build csharp/BotHiderApi/BotHiderApi.csproj -c Release
 
 ## Configuration File (bot_info.json)
 
-Located in `/game/csgo/addons/bothider/bot_info.json`.  
-Maps a persona name to a **32-bit Steam account ID** and an optional crosshair share code.
+Located in `/game/csgo/addons/BotHider/bot_info.json`.
+Maps a persona name to a **32-bit Steam account ID**, optional crosshair share code, and optional scoreboard flair defidx.
 
 ```json
 {
     "s1mple": {
         "steamid": 73936547,
-        "crosshair_code": "CSGO-pE5f8-6RQvk-HLpdN-KW3J6-BQwLA"
+        "crosshair_code": "CSGO-pE5f8-6RQvk-HLpdN-KW3J6-BQwLA",
+        "scoreboard_flair": 874
     }
 }
 ```
 
-On spawn, BotHider selects an entry from this file (preferring one matching the engine's proposed bot name, otherwise random unused entry).  
-The selected entry supplies the **SteamID**, **crosshair**, and **ping** for the bot.  
+On spawn, BotHider selects an entry from this file (preferring one matching the engine's proposed bot name, otherwise random unused entry).
+The selected entry supplies the **SteamID**, **crosshair**, **scoreboard flair**, and **ping** for the bot.
 Display name is controlled separately by `bh_namesource`.
+
+`scoreboard_flair` is a CS2 item definition index. Missing, invalid, or `0` values are treated as clear/no flair. Use [unicbm/cs2-econ-id-index](https://github.com/unicbm/cs2-econ-id-index) to look up valid scoreboard flair item definition IDs.
 
 ------------------------------------------------------------------------
 
@@ -97,10 +101,13 @@ public interface IBotHiderApi
     string   GetPersonaName(int slot);      // assigned display name
     int      GetPing(int slot);             // current jittered ping (ms)
     string   GetCrosshairCode(int slot);    // assigned crosshair share-code
+    uint     GetScoreboardFlair(int slot);  // assigned scoreboard flair defidx
+    (string Name, ulong Addr)[] GetSignatures();
 
     // --- write (applied on the next server frame) ---
     bool     SetBotSteamId(int slot, ulong steamId64);
     bool     SetPersonaName(int slot, string name);
+    bool     SetScoreboardFlair(int slot, uint itemDefIndex);
 
     // --- global toggles ---
     bool     SetDisguise(bool enabled);     // off lets the bot manager spawn bots again
@@ -173,6 +180,34 @@ if (_api.SetPersonaName(3, "ZywOo"))
 ```
 
 `SetPersonaName` also immediately updates the scoreboard via the controller schema.
+
+------------------------------------------------------------------------
+
+## Scoreboard Flair
+
+Default flair selection happens in the C++ plugin:
+
+1. `BotInfoStore` reads `scoreboard_flair` from `bot_info.json`.
+2. Missing, invalid, or `0` values are kept as clear/no flair.
+3. The selected value is published through shared memory at `kOff_ScoreboardFlair`.
+4. The C# plugin reads that value and writes every entry in `InventoryServices.Rank`.
+
+Runtime overrides stay in C#:
+
+```csharp
+uint current = _api.GetScoreboardFlair(3);
+
+if (_api.SetScoreboardFlair(3, 4974))
+    Console.WriteLine("Scoreboard flair applied");
+```
+
+The console equivalent is:
+
+```text
+bh_setflair <slot> <item_def_index>
+```
+
+Use `0` to clear the flair.
 
 ------------------------------------------------------------------------
 
