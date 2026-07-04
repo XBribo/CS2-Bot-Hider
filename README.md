@@ -26,7 +26,7 @@ When a bot joins, BotHider automatically:
 
 - Removes the `BOT` tag from the scoreboard
 - Each bot gets its own SteamID64, display name, ping, crosshair, and scoreboard flair
-- Supports per-bot `scoreboard_flair` values in `bot_info.json`; missing values show no flair
+- Supports per-bot `scoreboard_flair` values in `bot_info.json`
 - Toggle disguise on/off with a simple command
 - Choose whether bot names come from `botprofile.db` or a custom list
 
@@ -95,11 +95,11 @@ A: The plugin selects an identity entry by matching the bot's name (from `botpro
 3. Set `bh_namesource 1` so the display name also comes from this entry (ensuring a one-to-one name/SteamID link).
 4. Spawn the bot with `bot_add <that name>`.
 
-**Q: Can I give the same SteamID to multiple bots (e.g., to share a team logo avatar)?**
+**Q: Can I give the same SteamID to multiple bots?**
 
-A: No. The CS2 scoreboard distinguishes players by SteamID. If multiple bots share the same SteamID, some will not appear correctly. Each bot that needs a specific avatar must have its own distinct SteamID (a separate Steam account with that avatar).
+A: No. The CS2 scoreboard distinguishes players by SteamID. If multiple bots share the same SteamID, some will not appear correctly. Each bot that needs a specific avatar must have its own distinct SteamID.
 
-**Q: Can I change a bot's identity without restarting the server?**
+**Q: Can I change a bot's identity in game?**
 
 A: Yes. Use `bh_setsid <slot> <SteamID64>` and `bh_setname <slot> <name>` to assign a new SteamID or name to a bot already in the game.
 
@@ -113,6 +113,7 @@ For more technical details on how identities are assigned, see [TECH.md](TECH.md
 - [CS2Fixes](https://github.com/Source2ZE/CS2Fixes) for helping identify the `UTIL_Remove` signature.
 - [Misaka17032](https://github.com/Misaka17032) for adding Linux support.
 - [ed0ard](https://github.com/ed0ard) for helping with testing and bug fixes.
+- [unicbm](https://github.com/unicbm) for the ScoreboardFlair idea.
 
 ------------------------------------------------------------------------
 
