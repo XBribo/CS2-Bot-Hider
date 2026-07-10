@@ -19,13 +19,14 @@
 #include <fstream>
 #include <array>
 #include <string>
-#include <vector>
 #include <utility>
+#include <vector>
 
 #include <nlohmann/json.hpp>
 
 #if defined(_WIN32)
 #include <Windows.h>
+#include <entity2/entityinstance.h>
 #else
 #include <dlfcn.h>
 #include <strings.h>
@@ -47,8 +48,10 @@ SH_DECL_HOOK3(INetworkGameServer, StartChangeLevel, SH_NOATTRIB, 0,
 SH_DECL_HOOK3_void(IServerGameDLL, GameFrame, SH_NOATTRIB, 0, bool, bool, bool);
 SH_DECL_HOOK3_void(ICvar, DispatchConCommand, SH_NOATTRIB, 0,
                    ConCommandRef, const CCommandContext &, const CCommand &);
+#if !defined(_WIN32)
 SH_DECL_MANUALHOOK1(CreateFakeClientSlotHook, cs2bh::targets::kVTSlot_CreateFakeClient, 0, 0,
                     cs2bh::PlayerSlotHookResult, const char *);
+#endif
 
 namespace cs2bh
 {
@@ -147,6 +150,7 @@ static int64_t Detour_MaintainBotQuota(void *mgr)
 namespace cs2bh
 {
 
+#if !defined(_WIN32)
     struct FakeClientCallContext
     {
         const BotEntry *Entry = nullptr;
@@ -159,8 +163,9 @@ namespace cs2bh
         int ConnectedSlot = -1;
     };
 
-    // Tracks nested CreateFakeClient calls without using names as identity keys
+    // Keep the upstream Linux CreateFakeClient context path unchanged.
     static thread_local std::vector<FakeClientCallContext> g_FakeClientCallStack;
+#endif
 
     // Per-slot bound bot_info entry
     static std::array<const BotEntry *, PersonaPool::kMaxSlots> g_SlotEntry{};
@@ -168,13 +173,14 @@ namespace cs2bh
     // Maps where bots stay disguised, loaded from map_whitelist.json
     static std::vector<std::string> g_DisguiseWhitelist;
 
-    // Releases unbound bot_info assignments before discarding call contexts
+#if !defined(_WIN32)
     static void ClearFakeClientCallStack()
     {
         for (const auto &context : g_FakeClientCallStack)
             BotInfo().ReleaseAssignment(context.Entry);
         g_FakeClientCallStack.clear();
     }
+#endif
 
     // Resolve CServerSideClient* for a slot
     static void *ResolveClientBySlot(int slot)
@@ -190,6 +196,24 @@ namespace cs2bh
         if (count < 0 || count > 256 || slot < 0 || slot >= count)
             return nullptr;
         return vec->Element(slot);
+    }
+
+    // Rebuild CMsgPlayerInfo from CServerSideClient and broadcast it.
+    static bool RefreshClientUserInfo(int slot)
+    {
+#if !defined(_WIN32)
+        (void)slot;
+        return false;
+#else
+        if (!g_pNetworkServerService || slot < 0 || slot >= PersonaPool::kMaxSlots)
+            return false;
+        auto *gameServer = g_pNetworkServerService->GetIGameServer();
+        if (!gameServer)
+            return false;
+
+        gameServer->UserInfoChanged(CPlayerSlot(slot));
+        return true;
+#endif
     }
 
     // Count online human clients
@@ -358,11 +382,17 @@ namespace cs2bh
         ssc::OFFSET_m_nEntityIndex = FindPlatformOffset(gamedata, "CServerSideClient::m_nEntityIndex", ssc::OFFSET_m_nEntityIndex);
         ssc::OFFSET_m_Server = FindPlatformOffset(gamedata, "CServerSideClient::m_Server", ssc::OFFSET_m_Server);
         ssc::OFFSET_m_NetChannel = FindPlatformOffset(gamedata, "CServerSideClient::m_NetChannel", ssc::OFFSET_m_NetChannel);
+#if defined(_WIN32)
+        ssc::OFFSET_m_nConnectionTypeFlags = FindPlatformOffset(gamedata, "CServerSideClient::m_nConnectionTypeFlags", ssc::OFFSET_m_nConnectionTypeFlags);
+#endif
         ssc::OFFSET_m_nSignonState = FindPlatformOffset(gamedata, "CServerSideClient::m_nSignonState", ssc::OFFSET_m_nSignonState);
         ssc::OFFSET_m_pAttachedTo = FindPlatformOffset(gamedata, "CServerSideClient::m_pAttachedTo", ssc::OFFSET_m_pAttachedTo);
         ssc::OFFSET_m_bFakePlayer = FindPlatformOffset(gamedata, "CServerSideClient::m_bFakePlayer", ssc::OFFSET_m_bFakePlayer);
         ssc::OFFSET_m_UserID = FindPlatformOffset(gamedata, "CServerSideClient::m_UserID", ssc::OFFSET_m_UserID);
         ssc::OFFSET_m_SteamID = FindPlatformOffset(gamedata, "CServerSideClient::m_SteamID", ssc::OFFSET_m_SteamID);
+#if defined(_WIN32)
+        ssc::OFFSET_m_SteamIDMirror = FindPlatformOffset(gamedata, "CServerSideClient::m_SteamIDMirror", ssc::OFFSET_m_SteamIDMirror);
+#endif
         ssc::OFFSET_m_bIsHLTV = FindPlatformOffset(gamedata, "CServerSideClient::m_bIsHLTV", ssc::OFFSET_m_bIsHLTV);
         // CNetworkGameServerBase::m_Clients vector base
         targets::kClientListOffset = FindPlatformOffset(gamedata, "CNetworkGameServerBase::m_Clients", targets::kClientListOffset);
@@ -592,6 +622,45 @@ namespace cs2bh
         return true;
     }
 
+    // Keep the networked controller identity in sync with CServerSideClient.
+    // The quota detour temporarily restores this bit while counting bots.
+    static bool SetControllerFakeClientFlag(int slot, bool fakeClient)
+    {
+#if !defined(_WIN32)
+        (void)slot;
+        (void)fakeClient;
+        return false;
+#else
+        void *pClient = ResolveClientBySlot(slot);
+        if (!pClient)
+            return false;
+
+        int entIdx = *reinterpret_cast<int *>(
+            reinterpret_cast<unsigned char *>(pClient) + ssc::OFFSET_m_nEntityIndex);
+        char cls[64];
+        void *ctrl = ResolveEntityInstance(entIdx, cls, sizeof(cls));
+        if (!ctrl || std::strcmp(cls, "cs_player_controller") != 0)
+            return false;
+
+        constexpr uint32_t kBit = 0x100;
+        auto *flags = reinterpret_cast<uint32_t *>(
+            reinterpret_cast<unsigned char *>(ctrl) +
+            targets::kController_FakeClientFlagsOffset);
+        const uint32_t before = *flags;
+        if (fakeClient)
+            *flags |= kBit;
+        else
+            *flags &= ~kBit;
+        if (*flags != before)
+        {
+            NetworkStateChangedData changed(
+                static_cast<uint32_t>(targets::kController_FakeClientFlagsOffset));
+            reinterpret_cast<CEntityInstance *>(ctrl)->NetworkStateChanged(changed);
+        }
+        return true;
+#endif
+    }
+
     // Flip managed bots' controller fakeclient bit around the quota pass.
     int FlipManagedController904(bool restore, std::array<bool, 64> *saved)
     {
@@ -720,15 +789,39 @@ namespace cs2bh
             reinterpret_cast<unsigned char *>(pawn) + idleOff) = 0.0f;
     }
 
-    // Engine-side m_Name overwrite via CUtlString::Set
-    static const char *OverwriteEngineName(HiderPlugin *plugin, void *pClient, const char *newName)
+    // Use the engine setter on Windows so the internal userinfo key and
+    // networked player info are updated together with m_Name.
+    static const char *SetEngineName(HiderPlugin *plugin, void *pClient, const char *newName)
     {
-        if (!plugin->m_pUtlStringSet || !pClient || !newName || !newName[0])
+        if (!pClient || !newName || !newName[0])
+            return nullptr;
+#if defined(_WIN32)
+        (void)plugin;
+        __try
+        {
+            auto **vtable = *reinterpret_cast<void ***>(pClient);
+            if (!vtable)
+                return nullptr;
+            using SetNameFn = void(__fastcall *)(void *, const char *);
+            auto setName = reinterpret_cast<SetNameFn>(
+                vtable[targets::kVTSlot_ClientSetName]);
+            if (!setName)
+                return nullptr;
+            setName(pClient, newName);
+            return ssc::ReadName(pClient);
+        }
+        __except (EXCEPTION_EXECUTE_HANDLER)
+        {
+            return nullptr;
+        }
+#else
+        if (!plugin->m_pUtlStringSet)
             return nullptr;
         void *pUtlString =
             reinterpret_cast<unsigned char *>(pClient) + ssc::OFFSET_m_Name;
         plugin->m_pUtlStringSet(pUtlString, newName);
         return *reinterpret_cast<const char **>(pUtlString);
+#endif
     }
 
     // Schema field writes
@@ -765,11 +858,77 @@ namespace cs2bh
 
     // Hook bodies
 
-    // Records the client identity before CreateFakeClient publishes its return slot
+    // Windows binds from the authoritative OnClientConnected slot and avoids
+    // the unstable IVEngineServer::CreateFakeClient return hook. Linux keeps
+    // the upstream CreateFakeClient context path below.
     void HiderPlugin::Hook_OnClientConnected_Post(CPlayerSlot slot, const char *pszName, uint64 /*xuid*/,
                                                   const char * /*pszNetworkID*/, const char * /*pszAddress*/,
                                                   bool bFakePlayer)
     {
+#if defined(_WIN32)
+        if (m_bSelfDisabled || !bFakePlayer)
+            RETURN_META(MRES_IGNORED);
+
+        int idx = slot.Get();
+        if (idx < 0 || idx >= PersonaPool::kMaxSlots)
+            RETURN_META(MRES_IGNORED);
+        if (Manager().IsManaged(idx))
+            RETURN_META(MRES_IGNORED);
+
+        void *pClient = ResolveClientBySlot(idx);
+        if (!pClient || ssc::IsHltv(pClient))
+            RETURN_META(MRES_IGNORED);
+
+        const BotEntry *entry = BotInfo().PickForBot(pszName);
+        std::string displayName;
+        if (m_bUseBotInfoName && entry)
+            displayName = entry->Name;
+        else if (pszName && pszName[0])
+            displayName = pszName;
+        else if (entry)
+            displayName = entry->Name;
+        else
+            displayName = Personas().PickFromRoster();
+
+        if (displayName.empty())
+        {
+            BotInfo().ReleaseAssignment(entry);
+            RETURN_META(MRES_IGNORED);
+        }
+
+        const uint64_t configuredSid =
+            (entry && entry->SteamId64 != 0) ? entry->SteamId64 : 0;
+        const char *crosshairCode = entry ? entry->CrosshairCode.c_str() : nullptr;
+        const uint32_t scoreboardFlair = entry ? entry->ScoreboardFlair : 0;
+        if (!Manager().AdoptSlot(
+                idx, displayName.c_str(), configuredSid,
+                crosshairCode, scoreboardFlair))
+        {
+            BotInfo().ReleaseAssignment(entry);
+            RETURN_META(MRES_IGNORED);
+        }
+        g_SlotEntry[idx] = entry;
+
+        if (m_bDisguiseEnabled)
+        {
+            ssc::ClearFakePlayer(pClient);
+            SetControllerFakeClientFlag(idx, false);
+        }
+
+        uint64_t sid = 0;
+        if (configuredSid != 0)
+        {
+            sid = MakeUniqueSteamId(idx, configuredSid);
+            ssc::WriteSteamId(pClient, sid);
+            Manager().SetSyntheticSid(idx, sid);
+            Publisher().UpdateSyntheticSid(idx, sid);
+        }
+
+        META_CONPRINTF("[BOTHIDER] slot=%d adopted name='%s' steamid64=%llu\n",
+                       idx, displayName.c_str(),
+                       static_cast<unsigned long long>(sid));
+        RETURN_META(MRES_IGNORED);
+#else
         if (m_bSelfDisabled || !bFakePlayer || g_FakeClientCallStack.empty())
             RETURN_META(MRES_IGNORED);
 
@@ -787,11 +946,55 @@ namespace cs2bh
         META_CONPRINTF("[BOTHIDER] CreateFakeClient observed slot=%d name='%s'\n",
                        idx, context.ConnectedName.empty() ? "<empty>" : context.ConnectedName.c_str());
         RETURN_META(MRES_IGNORED);
+#endif
     }
 
     void HiderPlugin::Hook_ClientPutInServer_Post(CPlayerSlot slot, char const *pszName,
                                                   int type, uint64 /*xuid*/)
     {
+#if defined(_WIN32)
+        if (m_bSelfDisabled)
+            RETURN_META(MRES_IGNORED);
+        // OnClientConnected already classified the client before disguise
+        // changed its fake-client fields; this later type can therefore read 0.
+        (void)type;
+        int idx = slot.Get();
+        if (idx < 0 || idx >= PersonaPool::kMaxSlots)
+            RETURN_META(MRES_IGNORED);
+        if (!Personas().IsSlotManaged(idx))
+            RETURN_META(MRES_IGNORED);
+
+        void *pClient = ResolveClientBySlot(idx);
+        if (!pClient)
+            RETURN_META(MRES_IGNORED);
+
+        // Re-flip byte 160 + re-write SteamID
+        if (m_bDisguiseEnabled)
+        {
+            ssc::ClearFakePlayer(pClient);
+            SetControllerFakeClientFlag(idx, false);
+        }
+
+        auto *entry = g_SlotEntry[idx];
+        if (entry && entry->SteamId64 != 0)
+        {
+            uint64_t sid = MakeUniqueSteamId(idx, entry->SteamId64);
+            ssc::WriteSteamId(pClient, sid);
+            Manager().SetSyntheticSid(idx, sid);
+            Publisher().UpdateSyntheticSid(idx, sid);
+        }
+
+        std::string visibleName = Personas().GetSlotName(idx);
+        if (visibleName.empty() && pszName)
+            visibleName = pszName;
+        if (!visibleName.empty())
+            SetEngineName(this, pClient, visibleName.c_str());
+        else
+            RefreshClientUserInfo(idx);
+
+        META_CONPRINTF("[BOTHIDER] CPiS safety-net slot=%d name='%s'\n", idx, pszName ? pszName : "<null>");
+        RETURN_META(MRES_IGNORED);
+#else
         if (m_bSelfDisabled)
             RETURN_META(MRES_IGNORED);
         if (type != 1)
@@ -806,11 +1009,8 @@ namespace cs2bh
         if (!pClient)
             RETURN_META(MRES_IGNORED);
 
-        // Re-flip byte 160 + re-write SteamID
         if (m_bDisguiseEnabled && ssc::IsFakePlayerSet(pClient))
-        {
             ssc::ClearFakePlayer(pClient);
-        }
         auto *raw = reinterpret_cast<unsigned char *>(pClient);
         auto *entry = g_SlotEntry[idx];
         if (entry && entry->SteamId64 != 0)
@@ -822,11 +1022,31 @@ namespace cs2bh
         }
         META_CONPRINTF("[BOTHIDER] CPiS safety-net slot=%d name='%s'\n", idx, pszName ? pszName : "<null>");
         RETURN_META(MRES_IGNORED);
+#endif
     }
+
+#if defined(_WIN32)
+    static bool IsTargetedClientRemovalReason(ENetworkDisconnectionReason reason)
+    {
+        switch (reason)
+        {
+        case NETWORK_DISCONNECT_KICKED:
+        case NETWORK_DISCONNECT_BANADDED:
+        case NETWORK_DISCONNECT_KICKBANADDED:
+            return true;
+        default:
+            break;
+        }
+
+        const int value = static_cast<int>(reason);
+        return value >= static_cast<int>(NETWORK_DISCONNECT_KICKED_TEAMKILLING) &&
+               value <= static_cast<int>(NETWORK_DISCONNECT_KICKED_INSECURECLIENT);
+    }
+#endif
 
     // Clean teardown on disconnect
     // Restore the bot identity
-    void HiderPlugin::Hook_ClientDisconnect_Pre(CPlayerSlot slot, ENetworkDisconnectionReason /*reason*/,
+    void HiderPlugin::Hook_ClientDisconnect_Pre(CPlayerSlot slot, ENetworkDisconnectionReason reason,
                                                 const char * /*pszName*/, uint64 /*xuid*/,
                                                 const char * /*pszNetworkID*/)
     {
@@ -845,13 +1065,21 @@ namespace cs2bh
         void *pClient = ResolveClientBySlot(idx);
         if (pClient)
         {
+#if defined(_WIN32)
+            ssc::SetFakePlayer(pClient);
+            SetControllerFakeClientFlag(idx, true);
+            ssc::WriteSteamId(pClient, 0);
+
+            // Targeted removals can leave a controller behind. During map or
+            // server teardown the engine owns controller destruction.
+            if (IsTargetedClientRemovalReason(reason))
+                DestroyControllerForClient(pClient);
+#else
             auto *raw = reinterpret_cast<unsigned char *>(pClient);
             ssc::SetFakePlayer(pClient);
             *reinterpret_cast<uint64_t *>(raw + ssc::OFFSET_m_SteamID) = 0;
-
-            // * The engine drops the CServerSideClient on kick but leaves the CCSPlayerController
-            // UTIL_IsNameTaken read its entity index and queue the controller for destruction
             DestroyControllerForClient(pClient);
+#endif
         }
 
         // Free the bot_info assignment bound to this slot
@@ -1045,6 +1273,7 @@ namespace cs2bh
             RETURN_META(MRES_IGNORED);
         }
 
+#if !defined(_WIN32)
         if (IsHumanTeamCommand(cmdName))
         {
             if (m_bDisguiseEnabled)
@@ -1055,6 +1284,7 @@ namespace cs2bh
             }
             RETURN_META(MRES_IGNORED);
         }
+#endif
 
         if (!std::strcmp(cmdName, "bot_kick"))
         {
@@ -1105,9 +1335,9 @@ namespace cs2bh
             void *pClient = ResolveClientBySlot(idx);
             if (!pClient)
                 continue;
-            auto *raw = reinterpret_cast<unsigned char *>(pClient);
             ssc::SetFakePlayer(pClient);
-            *reinterpret_cast<uint64_t *>(raw + ssc::OFFSET_m_SteamID) = 0;
+            SetControllerFakeClientFlag(idx, true);
+            ssc::WriteSteamId(pClient, 0);
             ++restored;
         }
         META_CONPRINTF("[BOTHIDER] kick PRE '%s' restored=%d\n", cmdName, restored);
@@ -1161,12 +1391,15 @@ namespace cs2bh
             void *pClient = ResolveClientBySlot(idx);
             if (!pClient)
                 continue;
-            auto *raw = reinterpret_cast<unsigned char *>(pClient);
-            if (m_bDisguiseEnabled && ssc::IsFakePlayerSet(pClient))
+            if (m_bDisguiseEnabled)
+            {
                 ssc::ClearFakePlayer(pClient);
+                SetControllerFakeClientFlag(idx, false);
+            }
             uint64_t sid = Manager().GetSyntheticSid(idx);
             if (sid != 0)
-                *reinterpret_cast<uint64_t *>(raw + ssc::OFFSET_m_SteamID) = sid;
+                ssc::WriteSteamId(pClient, sid);
+            RefreshClientUserInfo(idx);
             ++redisguised;
         }
 
@@ -1218,7 +1451,10 @@ namespace cs2bh
                     continue;
                 void *pClient = ResolveClientBySlot(idx);
                 if (pClient)
+                {
                     ssc::SetFakePlayer(pClient);
+                    SetControllerFakeClientFlag(idx, true);
+                }
             }
             m_bRebuilding = true;
             // fill-mode quota = humans + bot
@@ -1240,18 +1476,20 @@ namespace cs2bh
             void *pClient = ResolveClientBySlot(idx);
             if (!pClient)
                 continue;
-            auto *raw = reinterpret_cast<unsigned char *>(pClient);
             if (enabled)
             {
                 ssc::ClearFakePlayer(pClient);
+                SetControllerFakeClientFlag(idx, false);
                 uint64_t sid = Manager().GetSyntheticSid(idx);
                 if (sid != 0)
-                    *reinterpret_cast<uint64_t *>(raw + ssc::OFFSET_m_SteamID) = sid;
+                    ssc::WriteSteamId(pClient, sid);
             }
             else
             {
                 ssc::SetFakePlayer(pClient);
+                SetControllerFakeClientFlag(idx, true);
             }
+            RefreshClientUserInfo(idx);
         }
         META_CONPRINTF("[BOTHIDER] disguise %s (no rebuild)\n", enabled ? "ON" : "OFF");
     }
@@ -1270,7 +1508,10 @@ namespace cs2bh
                 continue;
             void *pClient = ResolveClientBySlot(idx);
             if (pClient)
+            {
                 ssc::SetFakePlayer(pClient);
+                SetControllerFakeClientFlag(idx, true);
+            }
             ++managed;
         }
         if (managed == 0)
@@ -1294,7 +1535,8 @@ namespace cs2bh
                        managed, quota);
     }
 
-    // Begins a fake-client call without changing the engine's allocation parameters
+#if !defined(_WIN32)
+    // Preserve the upstream Linux CreateFakeClient binding path.
     PlayerSlotHookResult HiderPlugin::Hook_CreateFakeClient_Pre(const char *netname)
     {
         FakeClientCallContext context;
@@ -1322,7 +1564,6 @@ namespace cs2bh
         RETURN_META_VALUE(MRES_IGNORED, PlayerSlotHookResult(-1));
     }
 
-    // Binds the published client after CreateFakeClient returns its authoritative slot
     PlayerSlotHookResult HiderPlugin::Hook_CreateFakeClient_Post(const char * /*netname*/)
     {
         if (g_FakeClientCallStack.empty())
@@ -1379,7 +1620,7 @@ namespace cs2bh
         bool nameChanged = false;
         if (!displayName.empty() && displayName != engineName)
         {
-            const char *storedName = OverwriteEngineName(this, pClient, displayName.c_str());
+            const char *storedName = SetEngineName(this, pClient, displayName.c_str());
             if (storedName && storedName[0])
             {
                 boundName = storedName;
@@ -1399,7 +1640,7 @@ namespace cs2bh
         if (!Manager().AdoptSlot(returnedSlot, boundName, cfgSid, cfgCross, cfgFlair))
         {
             if (nameChanged && !engineName.empty())
-                OverwriteEngineName(this, pClient, engineName.c_str());
+                SetEngineName(this, pClient, engineName.c_str());
             BotInfo().ReleaseAssignment(context.Entry);
             META_CONPRINTF("[BOTHIDER] CreateFakeClient bind failed: manager rejected slot=%d\n",
                            returnedSlot);
@@ -1421,12 +1662,13 @@ namespace cs2bh
         }
 
         META_CONPRINTF("[BOTHIDER] slot=%d steamid64=%llu name='%s'\n",
-                       returnedSlot, (unsigned long long)sid,
+                       returnedSlot, static_cast<unsigned long long>(sid),
                        boundName && boundName[0] ? boundName : "<null>");
         META_CONPRINTF("[BOTHIDER] CreateFakeClient end slot=%d depth=%zu\n",
                        returnedSlot, g_FakeClientCallStack.size());
         RETURN_META_VALUE(MRES_IGNORED, PlayerSlotHookResult(-1));
     }
+#endif
 
     CUtlVector<INetworkGameClient *> *HiderPlugin::Hook_StartChangeLevel_Pre(
         const char *mapName, const char *landmark, void * /*changelevelState*/)
@@ -1435,7 +1677,9 @@ namespace cs2bh
         {
             RETURN_META_VALUE(MRES_IGNORED, nullptr);
         }
+#if !defined(_WIN32)
         ClearFakeClientCallStack();
+#endif
         Manager().ReleaseAll();
         BotInfo().ResetAssignments();
         META_CONPRINTF("[BOTHIDER] StartChangeLevel PRE — map='%s' landmark='%s'\n",
@@ -1453,12 +1697,15 @@ namespace cs2bh
         // Reset bots' idle timers (1s)
         if ((++m_TickCounter & 63u) == 0u)
         {
-            // Poll mp_humanteam/bot_join_team
+#if !defined(_WIN32)
+            // Poll mp_humanteam/bot_join_team. Windows replay servers use
+            // these convars while their managed bots remain disguised.
             if (m_bDisguiseEnabled && IsTeamForceActive())
             {
                 META_CONPRINTF("[BOTHIDER] team-force convar active — disabling disguise\n");
                 SetDisguiseEnabled(false);
             }
+#endif
 
             for (int idx = 0; idx < PersonaPool::kMaxSlots; ++idx)
             {
@@ -1472,7 +1719,7 @@ namespace cs2bh
 
         // Drain CSS -> C++ write commands posted via shared memory.
         Publisher().DrainCommands(
-            // SET_SID: write SteamID64 into CServerSideClient.m_SteamID
+            // SET_SID: update both engine identity fields and publish userinfo
             [this](int slot, uint64_t sid)
             {
                 if (!Manager().IsManaged(slot))
@@ -1481,12 +1728,17 @@ namespace cs2bh
                 if (!pClient)
                     return;
                 uint64_t unique = MakeUniqueSteamId(slot, sid);
-                *reinterpret_cast<uint64_t *>(
-                    reinterpret_cast<unsigned char *>(pClient) + ssc::OFFSET_m_SteamID) = unique;
+                if (m_bDisguiseEnabled)
+                {
+                    ssc::ClearFakePlayer(pClient);
+                    SetControllerFakeClientFlag(slot, false);
+                }
+                ssc::WriteSteamId(pClient, unique);
                 Manager().SetSyntheticSid(slot, unique);
                 Publisher().UpdateSyntheticSid(slot, unique);
+                RefreshClientUserInfo(slot);
             },
-            // SET_PERSONA: overwrite engine-side m_Name via CUtlString::Set
+            // SET_PERSONA: the Windows engine setter also publishes userinfo
             [this](int slot, const char *name)
             {
                 if (!Manager().IsManaged(slot) || !name || !name[0])
@@ -1494,7 +1746,7 @@ namespace cs2bh
                 void *pClient = ResolveClientBySlot(slot);
                 if (!pClient)
                     return;
-                OverwriteEngineName(this, pClient, name);
+                SetEngineName(this, pClient, name);
                 Personas().MarkSlotManaged(slot, name);
                 Publisher().UpdatePersonaName(slot, name);
             },
@@ -1550,7 +1802,9 @@ namespace cs2bh
 
     void HiderPlugin::OnLevelShutdown()
     {
+#if !defined(_WIN32)
         ClearFakeClientCallStack();
+#endif
         Manager().ReleaseAll();
         BotInfo().ResetAssignments();
         META_CONPRINTF("[BOTHIDER] OnLevelShutdown — state drained\n");
@@ -1638,22 +1892,15 @@ namespace cs2bh
             META_CONPRINTF("[BOTHIDER] warning: SchemaSystem unresolved — idle-kick fix disabled\n");
         }
 
-        // Resolve CUtlString::Set from tier0
-#if defined(_WIN32)
-        HMODULE tier0 = GetModuleHandleA(targets::kTier0ModuleName);
-        if (tier0)
-        {
-            m_pUtlStringSet = reinterpret_cast<CUtlStringSetFn>(
-                GetProcAddress(tier0, targets::kSym_CUtlString_Set));
-        }
-#else
+        // Linux retains the upstream CUtlString::Set name path. Windows uses
+        // CServerSideClient::SetName directly and does not depend on this symbol.
+#if !defined(_WIN32)
         void *tier0 = dlopen(targets::kTier0ModuleName, RTLD_NOLOAD | RTLD_NOW);
         if (tier0)
         {
             m_pUtlStringSet = reinterpret_cast<CUtlStringSetFn>(
                 dlsym(tier0, targets::kSym_CUtlString_Set));
         }
-#endif
         if (!m_pUtlStringSet)
         {
             META_CONPRINTF("[BOTHIDER] warning: CUtlString::Set unresolved — name overwrite disabled\n");
@@ -1663,6 +1910,7 @@ namespace cs2bh
             META_CONPRINTF("[BOTHIDER] CUtlString::Set resolved at %p\n",
                            reinterpret_cast<void *>(m_pUtlStringSet));
         }
+#endif
 
         Manager().Init();
 
@@ -1691,7 +1939,7 @@ namespace cs2bh
         else
         {
             META_CONPRINTF("[BOTHIDER] warning: bot_info.json not found or parse error at '%s' — "
-                           "CFC PRE will fall back to curated roster\n",
+                           "bot identity will fall back to curated roster\n",
                            jsonPath.c_str());
         }
 
@@ -1708,10 +1956,12 @@ namespace cs2bh
                     SH_MEMBER(this, &HiderPlugin::Hook_ClientPutInServer_Post), true);
         SH_ADD_HOOK(IServerGameClients, ClientDisconnect, gameclients,
                     SH_MEMBER(this, &HiderPlugin::Hook_ClientDisconnect_Pre), false);
+#if !defined(_WIN32)
         SH_ADD_MANUALHOOK(CreateFakeClientSlotHook, engine,
                           SH_MEMBER(this, &HiderPlugin::Hook_CreateFakeClient_Pre), false);
         SH_ADD_MANUALHOOK(CreateFakeClientSlotHook, engine,
                           SH_MEMBER(this, &HiderPlugin::Hook_CreateFakeClient_Post), true);
+#endif
         SH_ADD_HOOK(IServerGameDLL, GameFrame, server,
                     SH_MEMBER(this, &HiderPlugin::Hook_GameFrame_Post), true);
         SH_ADD_HOOK(ICvar, DispatchConCommand, icvar,
@@ -1734,10 +1984,12 @@ namespace cs2bh
                        SH_MEMBER(this, &HiderPlugin::Hook_ClientPutInServer_Post), true);
         SH_REMOVE_HOOK(IServerGameClients, ClientDisconnect, gameclients,
                        SH_MEMBER(this, &HiderPlugin::Hook_ClientDisconnect_Pre), false);
+#if !defined(_WIN32)
         SH_REMOVE_MANUALHOOK(CreateFakeClientSlotHook, engine,
                              SH_MEMBER(this, &HiderPlugin::Hook_CreateFakeClient_Pre), false);
         SH_REMOVE_MANUALHOOK(CreateFakeClientSlotHook, engine,
                              SH_MEMBER(this, &HiderPlugin::Hook_CreateFakeClient_Post), true);
+#endif
         SH_REMOVE_HOOK(IServerGameDLL, GameFrame, server,
                        SH_MEMBER(this, &HiderPlugin::Hook_GameFrame_Post), true);
         SH_REMOVE_HOOK(ICvar, DispatchConCommand, icvar,

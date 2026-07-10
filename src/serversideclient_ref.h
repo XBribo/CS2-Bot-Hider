@@ -3,6 +3,7 @@
 #pragma once
 
 #include <cstdint>
+#include <cstring>
 
 namespace cs2bh::ssc
 {
@@ -14,11 +15,17 @@ namespace cs2bh::ssc
     inline int OFFSET_m_nEntityIndex = 76;  // CEntityIndex (int)
     inline int OFFSET_m_Server = 80;        // CNetworkGameServerBase*
     inline int OFFSET_m_NetChannel = 88;    // INetChannel*
+#if defined(_WIN32)
+    inline int OFFSET_m_nConnectionTypeFlags = 96; // byte, fake-client mask 0x08
+#endif
     inline int OFFSET_m_nSignonState = 100; // SignonState_t
     inline int OFFSET_m_pAttachedTo = 144;
     inline int OFFSET_m_bFakePlayer = 160; // bool
     inline int OFFSET_m_UserID = 168;      // short
     inline int OFFSET_m_SteamID = 171;     // CSteamID
+#if defined(_WIN32)
+    inline int OFFSET_m_SteamIDMirror = 179; // mirrored CSteamID
+#endif
     inline int OFFSET_m_bIsHLTV = 322;     // bool
 
     // Read CUtlString { char* m_pString } at member offset
@@ -35,6 +42,10 @@ namespace cs2bh::ssc
     inline void ClearFakePlayer(void *client)
     {
         auto *raw = reinterpret_cast<unsigned char *>(client);
+#if defined(_WIN32)
+        auto &connectionFlags = raw[OFFSET_m_nConnectionTypeFlags];
+        connectionFlags = static_cast<unsigned char>((connectionFlags & ~0x08u) | 0x01u);
+#endif
         raw[OFFSET_m_bFakePlayer] = 0;
     }
 
@@ -42,13 +53,33 @@ namespace cs2bh::ssc
     inline void SetFakePlayer(void *client)
     {
         auto *raw = reinterpret_cast<unsigned char *>(client);
+#if defined(_WIN32)
+        raw[OFFSET_m_nConnectionTypeFlags] |= 0x08u;
+#endif
         raw[OFFSET_m_bFakePlayer] = 1;
+    }
+
+    inline void WriteSteamId(void *client, uint64_t steamId)
+    {
+        auto *raw = reinterpret_cast<unsigned char *>(client);
+        std::memcpy(raw + OFFSET_m_SteamID, &steamId, sizeof(steamId));
+#if defined(_WIN32)
+        std::memcpy(raw + OFFSET_m_SteamIDMirror, &steamId, sizeof(steamId));
+#endif
     }
 
     inline bool IsFakePlayerSet(const void *client)
     {
         auto *raw = reinterpret_cast<const unsigned char *>(client);
         return raw[OFFSET_m_bFakePlayer] == 0x01;
+    }
+
+    inline bool IsHltv(const void *client)
+    {
+        if (!client)
+            return false;
+        auto *raw = reinterpret_cast<const unsigned char *>(client);
+        return raw[OFFSET_m_bIsHLTV] != 0;
     }
 
 } // namespace cs2bh::ssc
