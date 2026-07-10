@@ -1,7 +1,4 @@
 // version_targets.h
-//
-// Single source of truth for every reverse-engineered offset, vtable slot,
-// and schema candidate referenced by the plugin
 
 #pragma once
 
@@ -11,9 +8,7 @@ namespace cs2bh::targets
 {
 
     // CNetworkGameServerBase::m_Clients — CUtlVector<CServerSideClient*>
-    // at +592 (m_nCount), +600 (m_pElements), +608 (m_nAllocCount), +612 (flags)
-    // runtime-overridable from gamedata.json; default is the fallback
-    inline int kClientListOffset = 592;
+    inline int kClientListOffset = 584;
 
     // CServerSideClient::m_bFakePlayer
     inline int kFakePlayerOffset = 160;
@@ -26,7 +21,7 @@ namespace cs2bh::targets
     inline constexpr int kVTSlot_ClientPutInServer = 13;
 
     // IVEngineServer::CreateFakeClient vtable slot
-    inline constexpr int kVTSlot_CreateFakeClient = 53;
+    inline constexpr int kVTSlot_CreateFakeClient = 52;
 
     // INetworkGameServer::StartChangeLevel vtable slot
     inline constexpr int kVTSlot_StartChangeLevel = 39;
@@ -36,8 +31,6 @@ namespace cs2bh::targets
     inline constexpr int kSchemaFallback_m_iPing = 2048;         // 0x800
 
     // * UTIL_Remove(CEntityInstance*) in server.dll
-    // It null-checks the entity, then calls CGameEntitySystem::QueueDestroyEntity to mark it EF_MARKED_FOR_DELETE
-    // Used to destroy the CCSPlayerController a kicked bot leaves behind
 
     inline constexpr const char *kIface_GameResourceServiceServer = "GameResourceServiceServerV001";
     inline constexpr int kEntSys_OffsetInGameResSvc = 0x58;   // GameResourceService → CGameEntitySystem*
@@ -49,8 +42,6 @@ namespace cs2bh::targets
     // CBasePlayerController::m_iszPlayerName
     inline constexpr int kController_PlayerNameOffset = 1780;
 
-    // We re-set it only for the duration of MaintainBotQuota so humans/bots are counted consistently.
-    // runtime-overridable from gamedata.json; default is the fallback
     inline int kController_FakeClientFlagsOffset = 904; // 0x388
 
     // CUtlString::Set mangled name in tier0.dll

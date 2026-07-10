@@ -20,6 +20,22 @@ enum ENetworkDisconnectionReason : int;
 namespace cs2bh
 {
 
+    class PlayerSlotHookResult
+    {
+    public:
+        // Constructs a SourceHook-compatible CPlayerSlot return value
+        explicit PlayerSlotHookResult(int slot = -1) : m_Data(slot) {}
+
+        // Returns the underlying player slot index
+        int Get() const { return m_Data; }
+
+    private:
+        int m_Data;
+    };
+
+    static_assert(sizeof(PlayerSlotHookResult) == sizeof(CPlayerSlot));
+    static_assert(alignof(PlayerSlotHookResult) == alignof(CPlayerSlot));
+
     class HiderPlugin : public ISmmPlugin, public IMetamodListener
     {
     public:
@@ -47,7 +63,8 @@ namespace cs2bh
         void Hook_ClientPutInServer_Post(CPlayerSlot slot, char const *pszName, int type, uint64 xuid);
         void Hook_ClientDisconnect_Pre(CPlayerSlot slot, ENetworkDisconnectionReason reason,
                                        const char *pszName, uint64 xuid, const char *pszNetworkID);
-        CPlayerSlot Hook_CreateFakeClient_Pre(const char *netname);
+        PlayerSlotHookResult Hook_CreateFakeClient_Pre(const char *netname);
+        PlayerSlotHookResult Hook_CreateFakeClient_Post(const char *netname);
         CUtlVector<INetworkGameClient *> *Hook_StartChangeLevel_Pre(
             const char *mapName, const char *landmark, void *changelevelState);
         void Hook_GameFrame_Post(bool simulating, bool bFirstTick, bool bLastTick);

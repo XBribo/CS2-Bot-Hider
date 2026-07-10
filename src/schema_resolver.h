@@ -1,7 +1,6 @@
 // schema_resolver.h
 //
-// Runtime schema field-offset resolver. Reads CCSPlayerController/pawn member
-// offsets from the live ISchemaSystem so they track game updates automatically
+// Runtime schema field-offset resolver
 
 #pragma once
 

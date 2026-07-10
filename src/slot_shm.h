@@ -22,7 +22,7 @@ namespace cs2bh::shm
     inline constexpr int kNameLen = 32;  // persona name buffer (incl. NUL)
     inline constexpr int kCmdCount = 64; // ring-buffer entries
 
-    // Data region (C++ writes / C# reads)
+    // Data region
     inline constexpr int kOff_Magic = 0;         // uint32
     inline constexpr int kOff_Version = 4;       // uint32
     inline constexpr int kOff_MaxSlots = 8;      // uint32
@@ -31,27 +31,27 @@ namespace cs2bh::shm
     inline constexpr int kOff_SyntheticSid = 80; // uint64[64]
     inline constexpr int kOff_PersonaName = 592; // char[64][32]
 
-    // Command region (C# writes / C++ reads)
+    // Command region
     inline constexpr int kOff_WriteIdx = 2640; // uint32, C# Interlocked bump
     inline constexpr int kOff_ReadIdx = 2644;  // uint32, C++ bump
     inline constexpr int kOff_Cmds = 2648;     // Command[64], 48B each
     // Ends at 2648 + 64*48 = 5720
 
-    // Extra data region (C++ writes / C# reads)
+    // Extra data region
     inline constexpr int kCrosshairLen = 64;      // crosshair code buffer
     inline constexpr int kOff_CurrentPing = 5720; // int32[64]  jittered ping
     inline constexpr int kOff_Crosshair = 5976;   // char[64][64]
     // Ends at 5976 + 64*64 = 10072
 
-    // Signature/hook status region (C++ writes / C# reads)
-    inline constexpr int kMaxSigs = 8;             // capacity
-    inline constexpr int kSigNameLen = 32;         // name buffer (incl. NUL)
-    inline constexpr int kSigEntrySize = 40;       // char[32] name + uint64 addr
-    inline constexpr int kOff_SigCount = 10072;    // uint32, number of valid entries
-    inline constexpr int kOff_SigEntries = 10080;  // SigEntry[kMaxSigs], 8-byte aligned
+    // Signature/hook status region
+    inline constexpr int kMaxSigs = 8;            // capacity
+    inline constexpr int kSigNameLen = 32;        // name buffer (incl. NUL)
+    inline constexpr int kSigEntrySize = 40;      // char[32] name + uint64 addr
+    inline constexpr int kOff_SigCount = 10072;   // uint32, number of valid entries
+    inline constexpr int kOff_SigEntries = 10080; // SigEntry[kMaxSigs], 8-byte aligned
     // Ends at 10080 + 8*40 = 10400
 
-    // Scoreboard flair region (C++ writes / C# reads)
+    // Scoreboard flair region
     inline constexpr int kOff_ScoreboardFlair = 10400; // uint32[64]
     // Ends at 10400 + 64*4 = 10656
 
@@ -65,14 +65,14 @@ namespace cs2bh::shm
         kCmd_SetPersona = 2,
         kCmd_SetDisguise = 3, // global toggle, on/off carried in Command.SteamId
         kCmd_Rebuild = 4,     // global clean-rebuild on same-map rematch
-        // 5 (KickAll) and 6 (Refill) retired — match-end clean-rebuild removed; values kept reserved
+        // 5 (KickAll) and 6 (Refill) match-end clean-rebuild removed
         kCmd_SetNameSource = 7, // global toggle, name source carried in Command.SteamId (1=bot_info 0=botprofile)
     };
 
-    // Sentinel slot for global (non-per-slot) commands
+    // Sentinel slot for global commands
     inline constexpr uint8_t kSlot_All = 255;
 
-// One ring-buffer command. Fixed 48 bytes, covers both opcodes
+// One ring-buffer command.
 #pragma pack(push, 1)
     struct Command
     {

@@ -9,17 +9,17 @@ namespace cs2bh::ssc
 
     // offsets — defaults are fallbacks, overridden at load from gamedata.json
     inline int OFFSET_m_UserIDString = 56;  // CUtlString
-    inline int OFFSET_m_Name = 64;          // CUtlString  ← we write this
+    inline int OFFSET_m_Name = 64;          // CUtlString
     inline int OFFSET_m_nClientSlot = 72;   // CPlayerSlot (int)
     inline int OFFSET_m_nEntityIndex = 76;  // CEntityIndex (int)
     inline int OFFSET_m_Server = 80;        // CNetworkGameServerBase*
     inline int OFFSET_m_NetChannel = 88;    // INetChannel*
     inline int OFFSET_m_nSignonState = 100; // SignonState_t
     inline int OFFSET_m_pAttachedTo = 144;
-    inline int OFFSET_m_bFakePlayer = 160; // bool  ← we flip this to 0
+    inline int OFFSET_m_bFakePlayer = 160; // bool
     inline int OFFSET_m_UserID = 168;      // short
     inline int OFFSET_m_SteamID = 171;     // CSteamID
-    inline int OFFSET_m_bIsHLTV = 322;     // bool (0x142) — set on the SourceTV client
+    inline int OFFSET_m_bIsHLTV = 322;     // bool
 
     // Read CUtlString { char* m_pString } at member offset
     inline const char *ReadName(const void *client)
@@ -38,7 +38,7 @@ namespace cs2bh::ssc
         raw[OFFSET_m_bFakePlayer] = 0;
     }
 
-    // sets m_bFakePlayer = 1 — restore bot identity before disconnect teardown
+    // sets m_bFakePlayer = 1
     inline void SetFakePlayer(void *client)
     {
         auto *raw = reinterpret_cast<unsigned char *>(client);
