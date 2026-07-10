@@ -12,6 +12,9 @@
 #include "sig_scan.h"
 #include "schema_resolver.h"
 #include "inline_hook.h"
+#if defined(_WIN32)
+#include "custom_crosshair.h"
+#endif
 
 #include <cstdio>
 #include <cstdint>
@@ -1551,6 +1554,9 @@ namespace cs2bh
     void HiderPlugin::OnLevelShutdown()
     {
         ClearFakeClientCallStack();
+#if defined(_WIN32)
+        crosshair::ClearOverrides();
+#endif
         Manager().ReleaseAll();
         BotInfo().ResetAssignments();
         META_CONPRINTF("[BOTHIDER] OnLevelShutdown — state drained\n");
@@ -1597,6 +1603,12 @@ namespace cs2bh
             {
                 // Override member offsets from gamedata.json (fallback kept if absent)
                 LoadMemberOffsets(gamedata);
+
+#if defined(_WIN32)
+                // Optional local/listen-server HUD hook. A missing client.dll
+                // leaves all server-side BotHider features unaffected.
+                crosshair::Install(gamedata);
+#endif
 
                 sig::ModuleInfo serverModule = sig::ModuleFromInterfacePtr(gameclients);
                 if (!serverModule)
@@ -1751,6 +1763,9 @@ namespace cs2bh
             m_StartChangeLevelHookId = 0;
         }
         m_pHookedGameServer = nullptr;
+#if defined(_WIN32)
+        crosshair::Shutdown();
+#endif
         g_KickHook.Remove();
         g_pfnKickOneTramp = nullptr;
         g_QuotaHook.Remove();

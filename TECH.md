@@ -145,6 +145,40 @@ public override void OnAllPluginsLoaded(bool hotReload) => _api = Cap.Get();
 
 ------------------------------------------------------------------------
 
+## Native Custom Crosshair Primitive (Windows)
+
+The Windows Metamod library exposes a low-level, optional HUD override:
+
+```cpp
+int BotHider_SetCustomCrosshair(
+    int slot,
+    int pawnEntityIndex,
+    int weaponEntityIndex,
+    const PaintConfigOverride *config,
+    int size);
+
+int BotHider_ClearCustomCrosshair(int slot);
+int BotHider_ClearCustomCrosshairs();
+```
+
+The caller owns crosshair-code decoding and bot/entity lifecycle mapping. At least one
+of `pawnEntityIndex` or `weaponEntityIndex` must be valid. When `client.dll` is present,
+BotHider installs the optional `CCSGO_HudReticle::BuildPaintConfig` hook during plugin
+load. A set request registers a target override; the hook calls the original function
+first, then applies the matching override to the final HUD paint config. The currently
+verified layout keeps `gapUseWeaponValue` at `0`.
+
+`PaintConfigOverride` is the fixed 64-byte layout declared in
+[`src/custom_crosshair.h`](src/custom_crosshair.h); set its `size` field to 64. The set
+call returns `0` on success, `-1` for invalid arguments, and `-2` when the optional
+client hook is unavailable.
+
+This only affects a Windows client loaded in the same process, such as a local/listen
+server. A dedicated server has no local `client.dll` HUD to patch, and the set call
+returns an unavailable error without affecting BotHider's server-side features.
+
+------------------------------------------------------------------------
+
 ## Reading Bot State
 
 | Check | Result for managed bots |

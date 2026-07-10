@@ -98,6 +98,10 @@ add_library(BotHider SHARED
     ${SDK_SOURCES}
 )
 
+if(WIN32)
+    target_sources(BotHider PRIVATE src/custom_crosshair.cpp)
+endif()
+
 target_include_directories(BotHider PRIVATE
     src
     ${NLOHMANN_JSON_INCLUDE}
