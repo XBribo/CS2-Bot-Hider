@@ -51,7 +51,7 @@ namespace cs2bh
         const char *GetLicense() override { return "AGPL-3.0"; }
         const char *GetVersion() override { return "0.2.7"; }
         const char *GetDate() override { return __DATE__; }
-        const char *GetLogTag() override { return "BOTHIDER"; }
+        const char *GetLogTag() override { return "BH"; }
 
         // IMetamodListener
         void OnLevelInit(char const *pMapName, char const *, char const *, char const *, bool, bool) override;

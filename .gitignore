@@ -49,6 +49,7 @@ local.cmake
 *.nupkg
 project.assets.json
 *.nuget.cache
+*.tmp
 
 # Python
 __pycache__/
