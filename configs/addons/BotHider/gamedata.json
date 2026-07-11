@@ -81,9 +81,10 @@
   },
   "CServerSideClient::m_nConnectionTypeFlags": {
     "offsets": {
-      "windows": 96
+      "windows": 96,
+      "linux": 96
     },
-    "comment": "Windows connection-type byte; zero or bit 0x08 denotes a fake connection"
+    "comment": "connection-type byte"
   },
   "CServerSideClient::m_nSignonState": {
     "offsets": {
@@ -122,9 +123,10 @@
   },
   "CServerSideClient::m_SteamIDMirror": {
     "offsets": {
-      "windows": 179
+      "windows": 179,
+      "linux": 179
     },
-    "comment": "second Windows identity field written alongside m_SteamID by current engine2 auth/connect paths"
+    "comment": "second identity steam id"
   },
   "CServerSideClient::m_bIsHLTV": {
     "offsets": {

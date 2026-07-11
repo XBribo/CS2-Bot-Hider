@@ -24,7 +24,9 @@ namespace cs2bh
     class PlayerSlotHookResult
     {
     public:
+        // Constructs a SourceHook-compatible slot result
         explicit PlayerSlotHookResult(int slot = -1) : m_Data(slot) {}
+        // Returns the underlying slot index
         int Get() const { return m_Data; }
 
     private:
@@ -77,7 +79,7 @@ namespace cs2bh
                                           const CCommand &args);
 
 #if !defined(_WIN32)
-        // Linux name path: CUtlString::Set resolved from libtier0.so at Load.
+        // Linux name path using CUtlString::Set from libtier0.so
         using CUtlStringSetFn = void (*)(void * /*CUtlString this*/, const char *);
         CUtlStringSetFn m_pUtlStringSet = nullptr;
 #endif

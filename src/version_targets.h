@@ -21,10 +21,10 @@ namespace cs2bh::targets
     inline constexpr int kVTSlot_ClientPutInServer = 13;
 
 #if defined(_WIN32)
-    // Current engine2.dll CServerSideClient::SetName vtable slot.
+    // Current engine2.dll CServerSideClient::SetName vtable slot
     inline constexpr int kVTSlot_ClientSetName = 0x1E8 / 8;
 #else
-    // Preserve the upstream Linux CreateFakeClient hook path.
+    // Preserve the upstream Linux CreateFakeClient hook path
     inline constexpr int kVTSlot_CreateFakeClient = 52;
 #endif
 
@@ -49,7 +49,7 @@ namespace cs2bh::targets
 
     inline int kController_FakeClientFlagsOffset = 904; // 0x388
 
-    // Linux upstream name path.
+    // Linux upstream name path
 #if !defined(_WIN32)
     inline constexpr const char *kSym_CUtlString_Set =
         "_ZN10CUtlString3SetEPKc";
