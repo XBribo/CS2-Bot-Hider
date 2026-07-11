@@ -1,3 +1,4 @@
+using System.Diagnostics;
 using System.Text;
 using System.Text.Encodings.Web;
 using System.Text.Json;
@@ -142,6 +143,7 @@ internal static class Program
         CancellationToken cancellationToken)
     {
         var cache = new Dictionary<uint, uint>();
+        var stopwatch = Stopwatch.StartNew();
         int updated = 0;
         for (int index = 0; index < entries.Count; index++)
         {
@@ -158,7 +160,12 @@ internal static class Program
                 }
                 catch (TimeoutException exception)
                 {
-                    Console.Error.WriteLine($"Skipping {entry.Name}: {exception.Message}");
+                    WriteProgress(
+                        index + 1,
+                        entries.Count,
+                        entry.Name,
+                        $"failed ({exception.Message})",
+                        stopwatch.Elapsed);
                     continue;
                 }
 
@@ -168,12 +175,42 @@ internal static class Program
 
             entry.Json["scoreboard_flair"] = flair;
             updated++;
-            Console.WriteLine(
-                $"[{index + 1}/{entries.Count}] {entry.Name}: " +
-                $"account={entry.AccountId}, flair={flair}");
+            WriteProgress(
+                index + 1,
+                entries.Count,
+                entry.Name,
+                $"account={entry.AccountId}, flair={flair}",
+                stopwatch.Elapsed);
             if (updated % 25 == 0)
                 await SaveJsonAsync(options.InputPath, root, cancellationToken);
         }
+    }
+
+    // Prints timestamped progress with average speed and estimated time remaining.
+    private static void WriteProgress(
+        int processed,
+        int total,
+        string name,
+        string result,
+        TimeSpan elapsed)
+    {
+        double speed = elapsed.TotalSeconds > 0
+            ? processed / elapsed.TotalSeconds
+            : 0;
+        TimeSpan eta = speed > 0
+            ? TimeSpan.FromSeconds((total - processed) / speed)
+            : TimeSpan.Zero;
+        string timestamp = DateTimeOffset.Now.ToString("yyyy-MM-dd HH:mm:ss");
+        Console.WriteLine(
+            $"[{timestamp}] [{processed}/{total}] {name}: {result} | " +
+            $"{speed:F2}/s | ETA {FormatDuration(eta)}");
+    }
+
+    // Formats a duration without wrapping total hours at 24.
+    private static string FormatDuration(TimeSpan duration)
+    {
+        int totalHours = (int)duration.TotalHours;
+        return $"{totalHours:00}:{duration.Minutes:00}:{duration.Seconds:00}";
     }
 
     // Retries transient GC profile timeouts up to three times.
