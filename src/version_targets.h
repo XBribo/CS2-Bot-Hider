@@ -20,8 +20,13 @@ namespace cs2bh::targets
     inline constexpr int kVTSlot_OnClientConnected = 11;
     inline constexpr int kVTSlot_ClientPutInServer = 13;
 
-    // IVEngineServer::CreateFakeClient vtable slot
+#if defined(_WIN32)
+    // Current engine2.dll CServerSideClient::SetName vtable slot
+    inline constexpr int kVTSlot_ClientSetName = 0x1E8 / 8;
+#else
+    // Preserve the upstream Linux CreateFakeClient hook path
     inline constexpr int kVTSlot_CreateFakeClient = 52;
+#endif
 
     // INetworkGameServer::StartChangeLevel vtable slot
     inline constexpr int kVTSlot_StartChangeLevel = 39;
@@ -44,11 +49,8 @@ namespace cs2bh::targets
 
     inline int kController_FakeClientFlagsOffset = 904; // 0x388
 
-    // CUtlString::Set mangled name in tier0.dll
-#if defined(_WIN32)
-    inline constexpr const char *kSym_CUtlString_Set =
-        "?Set@CUtlString@@QEAAXPEBD@Z";
-#else
+    // Linux upstream name path
+#if !defined(_WIN32)
     inline constexpr const char *kSym_CUtlString_Set =
         "_ZN10CUtlString3SetEPKc";
 #endif
