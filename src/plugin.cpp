@@ -12,6 +12,7 @@
 #include "sig_scan.h"
 #include "schema_resolver.h"
 
+#include <algorithm>
 #include <atomic>
 #include <cstdio>
 #include <cstdint>
@@ -19,6 +20,7 @@
 #include <functional>
 #include <fstream>
 #include <array>
+#include <mutex>
 #include <string>
 #include <thread>
 #include <utility>
@@ -142,6 +144,54 @@ using PackEntitiesFn = void (*)(void *, void *, int, void *, void *);
 static PackEntitiesFn g_pfnPackEntitiesTramp = nullptr;
 static void *g_pPackEntitiesHookTarget = nullptr;
 static std::atomic_bool g_PackEntitiesFirstCallLogged = false;
+static std::recursive_mutex g_PackEntitiesMutex;
+static thread_local uint32_t g_PackEntitiesDepth = 0;
+
+struct BotPawnRef
+{
+    void *Instance = nullptr;
+    uint32_t Handle = 0xFFFFFFFF;
+};
+
+namespace cs2bh
+{
+    std::vector<BotPawnRef> ApplyBotFlagOverride();
+    void RestoreBotFlagOverride(const std::vector<BotPawnRef> &pawns);
+}
+
+class PackEntitiesDepthGuard
+{
+public:
+    // Marks the current thread as executing the outer packing callback
+    PackEntitiesDepthGuard()
+    {
+        ++g_PackEntitiesDepth;
+    }
+
+    // Clears the current thread packing depth
+    ~PackEntitiesDepthGuard()
+    {
+        --g_PackEntitiesDepth;
+    }
+};
+
+class ScopedBotFlagOverride
+{
+public:
+    // Clears FL_BOT and marks changed fields before entity packing
+    ScopedBotFlagOverride() : m_ModifiedPawns(cs2bh::ApplyBotFlagOverride())
+    {
+    }
+
+    // Restores only FL_BOT after entity packing without marking changes
+    ~ScopedBotFlagOverride()
+    {
+        cs2bh::RestoreBotFlagOverride(m_ModifiedPawns);
+    }
+
+private:
+    std::vector<BotPawnRef> m_ModifiedPawns;
+};
 
 // Passes entity packing through unchanged and logs the first calling thread
 #if defined(_WIN32)
@@ -161,6 +211,15 @@ static void Detour_PackEntities(void *serverObject, void *packContext,
                        threadId);
     }
 
+    std::lock_guard<std::recursive_mutex> lock(g_PackEntitiesMutex);
+    if (g_PackEntitiesDepth != 0)
+    {
+        g_pfnPackEntitiesTramp(serverObject, packContext, clientCount, clients, snapshotContext);
+        return;
+    }
+
+    PackEntitiesDepthGuard depthGuard;
+    ScopedBotFlagOverride flagOverride;
     g_pfnPackEntitiesTramp(serverObject, packContext, clientCount, clients, snapshotContext);
 }
 
@@ -242,6 +301,13 @@ static void InstallPreparedFunchooks()
 // Uninstalls all hooks before releasing their shared funchook handle
 static bool RemoveFunchooks()
 {
+    if (g_PackEntitiesDepth != 0)
+    {
+        META_CONPRINTF("[BOTHIDER] error: refusing funchook removal during PackEntities\n");
+        return false;
+    }
+
+    std::unique_lock<std::recursive_mutex> lock(g_PackEntitiesMutex);
     if (!g_pFunchook)
     {
         ClearFunchookBindings();
@@ -253,20 +319,24 @@ static bool RemoveFunchooks()
         int result = funchook_uninstall(g_pFunchook, 0);
         if (result != FUNCHOOK_ERROR_SUCCESS)
         {
+            std::string message = funchook_error_message(g_pFunchook);
+            lock.unlock();
             META_CONPRINTF("[BOTHIDER] error: funchook_uninstall failed: %s (%d)\n",
-                           funchook_error_message(g_pFunchook), result);
+                           message.c_str(), result);
             return false;
         }
     }
 
     int result = funchook_destroy(g_pFunchook);
+    std::string destroyMessage;
     if (result != FUNCHOOK_ERROR_SUCCESS)
-    {
-        META_CONPRINTF("[BOTHIDER] warning: funchook_destroy failed: %s (%d)\n",
-                       funchook_error_message(g_pFunchook), result);
-    }
+        destroyMessage = funchook_error_message(g_pFunchook);
     g_pFunchook = nullptr;
     ClearFunchookBindings();
+    lock.unlock();
+    if (result != FUNCHOOK_ERROR_SUCCESS)
+        META_CONPRINTF("[BOTHIDER] warning: funchook_destroy failed: %s (%d)\n",
+                       destroyMessage.c_str(), result);
     return true;
 }
 
@@ -318,6 +388,9 @@ namespace cs2bh
 
     // Maps where bots stay disguised, loaded from map_whitelist.json
     static std::vector<std::string> g_DisguiseWhitelist;
+
+    // Current controller field used to resolve each managed bot pawn
+    static int g_BotPawnHandleOffset = -1;
 
 #if !defined(_WIN32)
     static void ClearFakeClientCallStack()
@@ -724,6 +797,131 @@ namespace cs2bh
         return instance;
     }
 
+    // Returns true when an entity is already entering its destruction path
+    static bool IsEntityBeingDeleted(void *instance)
+    {
+        if (!instance)
+            return true;
+        auto *entity = reinterpret_cast<CEntityInstance *>(instance);
+        if (!entity->m_pEntity)
+            return true;
+        uint32_t flags = static_cast<uint32_t>(entity->m_pEntity->m_flags);
+        return (flags & (EF_DELETE_IN_PROGRESS | EF_MARKED_FOR_DELETE)) != 0;
+    }
+
+    // Marks one flattened entity field offset as changed
+    static void MarkEntityFieldChanged(void *instance, uint32_t offset)
+    {
+        if (!instance)
+            return;
+        NetworkStateChangedData changed(offset);
+        reinterpret_cast<CEntityInstance *>(instance)->NetworkStateChanged(changed);
+    }
+
+    // Resolves the current pawn handle for one managed bot slot
+    static BotPawnRef ResolveManagedBotPawn(int slot)
+    {
+        BotPawnRef result;
+        if (g_BotPawnHandleOffset < 0 || !Manager().IsManaged(slot))
+            return result;
+
+        void *client = ResolveClientBySlot(slot);
+        if (!client)
+            return result;
+
+        int controllerIndex = *reinterpret_cast<int *>(
+            reinterpret_cast<unsigned char *>(client) + ssc::OFFSET_m_nEntityIndex);
+        char className[64];
+        void *controller = ResolveEntityInstance(controllerIndex, className, sizeof(className));
+        if (!controller || std::strcmp(className, "cs_player_controller") != 0 ||
+            IsEntityBeingDeleted(controller))
+            return result;
+
+        uint32_t pawnHandle = *reinterpret_cast<uint32_t *>(
+            reinterpret_cast<unsigned char *>(controller) + g_BotPawnHandleOffset);
+        if (pawnHandle == 0xFFFFFFFF)
+            return result;
+
+        int pawnIndex = static_cast<int>(pawnHandle & 0x7FFF);
+        void *pawn = ResolveEntityInstance(pawnIndex, nullptr, 0);
+        if (!pawn || IsEntityBeingDeleted(pawn))
+            return result;
+
+        auto *pawnEntity = reinterpret_cast<CEntityInstance *>(pawn);
+        if (static_cast<uint32_t>(pawnEntity->GetRefEHandle().ToInt()) != pawnHandle)
+            return result;
+
+        result.Instance = pawn;
+        result.Handle = pawnHandle;
+        return result;
+    }
+
+    // Collects every current managed bot pawn before any flags are modified
+    static std::vector<BotPawnRef> CollectManagedBotPawns()
+    {
+        std::vector<BotPawnRef> pawns;
+        pawns.reserve(PersonaPool::kMaxSlots);
+        for (int slot = 0; slot < PersonaPool::kMaxSlots; ++slot)
+        {
+            BotPawnRef pawn = ResolveManagedBotPawn(slot);
+            if (!pawn.Instance)
+                continue;
+
+            auto duplicate = std::find_if(
+                pawns.begin(), pawns.end(),
+                [&pawn](const BotPawnRef &existing)
+                {
+                    return existing.Instance == pawn.Instance;
+                });
+            if (duplicate == pawns.end())
+                pawns.push_back(pawn);
+        }
+        return pawns;
+    }
+
+    // Clears FL_BOT for collected pawns and marks only those field writes changed
+    std::vector<BotPawnRef> ApplyBotFlagOverride()
+    {
+        std::vector<BotPawnRef> pawns = CollectManagedBotPawns();
+        std::vector<BotPawnRef> modified;
+        modified.reserve(pawns.size());
+        for (const BotPawnRef &pawn : pawns)
+        {
+            auto *flags = reinterpret_cast<uint32_t *>(
+                reinterpret_cast<unsigned char *>(pawn.Instance) +
+                targets::kBaseEntity_FlagsOffset);
+            if ((*flags & targets::kEntityFlagBot) == 0)
+                continue;
+
+            *flags &= ~targets::kEntityFlagBot;
+            MarkEntityFieldChanged(pawn.Instance,
+                                   static_cast<uint32_t>(targets::kBaseEntity_FlagsOffset));
+            modified.push_back(pawn);
+        }
+        return modified;
+    }
+
+    // Restores only FL_BOT on still-current pawns without marking network changes
+    void RestoreBotFlagOverride(const std::vector<BotPawnRef> &pawns)
+    {
+        for (const BotPawnRef &pawn : pawns)
+        {
+            int pawnIndex = static_cast<int>(pawn.Handle & 0x7FFF);
+            void *currentPawn = ResolveEntityInstance(pawnIndex, nullptr, 0);
+            if (currentPawn != pawn.Instance || IsEntityBeingDeleted(currentPawn))
+                continue;
+
+            auto *currentEntity = reinterpret_cast<CEntityInstance *>(currentPawn);
+            if (static_cast<uint32_t>(currentEntity->GetRefEHandle().ToInt()) != pawn.Handle)
+                continue;
+
+            auto *flags = reinterpret_cast<uint32_t *>(
+                reinterpret_cast<unsigned char *>(currentPawn) +
+                targets::kBaseEntity_FlagsOffset);
+            *flags |= targets::kEntityFlagBot;
+        }
+    }
+
     // * Destroy the CCSPlayerController a kicked bot leaves behind
     // Returns true if the destroy was dispatched
     static bool DestroyControllerForClient(void *pClient)
@@ -802,11 +1000,8 @@ namespace cs2bh
         else
             *flags &= ~kBit;
         if (*flags != before)
-        {
-            NetworkStateChangedData changed(
-                static_cast<uint32_t>(targets::kController_FakeClientFlagsOffset));
-            reinterpret_cast<CEntityInstance *>(ctrl)->NetworkStateChanged(changed);
-        }
+            MarkEntityFieldChanged(
+                ctrl, static_cast<uint32_t>(targets::kController_FakeClientFlagsOffset));
         return true;
     }
 
@@ -2039,7 +2234,6 @@ namespace cs2bh
                 InstallPackEntitiesHook(gamedata);
             }
         }
-        InstallPreparedFunchooks();
         if (g_pfnUtilRemove)
         {
             META_CONPRINTF("[BOTHIDER] UTIL_Remove resolved at %p (entSysGlobal=%p)\n",
@@ -2055,18 +2249,26 @@ namespace cs2bh
         g_pCVar = icvar;
         g_SMAPI->AddListener(this, this);
 
-        // Resolve schema offsets for idle-timer reset
+        // Resolve controller pawn and idle-timer schema offsets
         if (schema::Init())
         {
             int pawnOff = schema::GetFieldOffset("CBasePlayerController", "m_hPawn");
+            int playerPawnOff = schema::GetFieldOffset("CCSPlayerController", "m_hPlayerPawn");
             int idleOff = schema::GetFieldOffset("CCSPlayerPawnBase", "m_flIdleTimeSinceLastAction");
-            META_CONPRINTF("[BOTHIDER] schema resolved m_hPawn=%d m_flIdleTimeSinceLastAction=%d\n",
-                           pawnOff, idleOff);
+            g_BotPawnHandleOffset = playerPawnOff >= 0 ? playerPawnOff : pawnOff;
+            META_CONPRINTF("[BOTHIDER] schema resolved m_hPlayerPawn=%d m_hPawn=%d "
+                           "m_flIdleTimeSinceLastAction=%d\n",
+                           playerPawnOff, pawnOff, idleOff);
+            if (g_BotPawnHandleOffset < 0)
+                META_CONPRINTF("[BOTHIDER] warning: bot pawn handle unresolved - FL_BOT override disabled\n");
         }
         else
         {
-            META_CONPRINTF("[BOTHIDER] warning: SchemaSystem unresolved — idle-kick fix disabled\n");
+            g_BotPawnHandleOffset = -1;
+            META_CONPRINTF("[BOTHIDER] warning: SchemaSystem unresolved — idle-kick and FL_BOT overrides disabled\n");
         }
+
+        InstallPreparedFunchooks();
 
         // Linux retains the upstream CUtlString::Set name path. Windows uses
         // CServerSideClient::SetName directly without this symbol

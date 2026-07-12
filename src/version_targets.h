@@ -49,6 +49,10 @@ namespace cs2bh::targets
 
     inline int kController_FakeClientFlagsOffset = 904; // 0x388
 
+    // CBaseEntity::m_fFlags network field
+    inline constexpr int kBaseEntity_FlagsOffset = 0x388;
+    inline constexpr uint32_t kEntityFlagBot = 0x10;
+
     // Linux upstream name path
 #if !defined(_WIN32)
     inline constexpr const char *kSym_CUtlString_Set =
