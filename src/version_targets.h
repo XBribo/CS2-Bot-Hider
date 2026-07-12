@@ -57,10 +57,12 @@ namespace cs2bh::targets
 
 #if defined(_WIN32)
     inline constexpr const char *kServerModuleName = "server.dll";
+    inline constexpr const char *kEngineModuleName = "engine2.dll";
     inline constexpr const char *kTier0ModuleName = "tier0.dll";
     inline constexpr const char *kSchemaSystemModuleName = "schemasystem.dll";
     inline constexpr const char *kSchemaServerTypeScope = "server.dll";
 #else
+    inline constexpr const char *kEngineModuleName = "libengine2.so";
     inline constexpr const char *kServerModuleName = "libserver.so";
     inline constexpr const char *kTier0ModuleName = "libtier0.so";
     inline constexpr const char *kSchemaSystemModuleName = "libschemasystem.so";

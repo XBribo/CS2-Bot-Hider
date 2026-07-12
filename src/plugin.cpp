@@ -11,17 +11,20 @@
 #include "version_targets.h"
 #include "sig_scan.h"
 #include "schema_resolver.h"
-#include "inline_hook.h"
 
+#include <atomic>
 #include <cstdio>
 #include <cstdint>
 #include <cstring>
+#include <functional>
 #include <fstream>
 #include <array>
 #include <string>
+#include <thread>
 #include <utility>
 #include <vector>
 
+#include <funchook.h>
 #include <nlohmann/json.hpp>
 #include <entity2/entityinstance.h>
 
@@ -86,14 +89,18 @@ static UtilRemoveFn g_pfnUtilRemove = nullptr;
 // Cross-check anchor: address of the CGameEntitySystem singleton global that UTIL_Remove references.
 static void **g_ppEntSysGlobal = nullptr;
 
+static funchook_t *g_pFunchook = nullptr;
+static size_t g_PreparedFunchookCount = 0;
+static bool g_FunchooksInstalled = false;
+
 // * FIX: inline detour on SV_KickOneFromTeam
 #if defined(_WIN32)
 using KickOneFn = char(__fastcall *)(int /*team*/);
 #else
 using KickOneFn = char (*)(int /*team*/);
 #endif
-static cs2bh::hook::InlineHook g_KickHook;
 static KickOneFn g_pfnKickOneTramp = nullptr;
+static void *g_pKickHookTarget = nullptr;
 
 namespace cs2bh
 {
@@ -124,8 +131,144 @@ using MaintainQuotaFn = int64_t(__fastcall *)(void * /*CCSBotManager*/);
 #else
 using MaintainQuotaFn = int64_t (*)(void * /*CCSBotManager*/);
 #endif
-static cs2bh::hook::InlineHook g_QuotaHook;
 static MaintainQuotaFn g_pfnQuotaTramp = nullptr;
+static void *g_pQuotaHookTarget = nullptr;
+
+#if defined(_WIN32)
+using PackEntitiesFn = void(__fastcall *)(void *, void *, int, void *, void *);
+#else
+using PackEntitiesFn = void (*)(void *, void *, int, void *, void *);
+#endif
+static PackEntitiesFn g_pfnPackEntitiesTramp = nullptr;
+static void *g_pPackEntitiesHookTarget = nullptr;
+static std::atomic_bool g_PackEntitiesFirstCallLogged = false;
+
+// Passes entity packing through unchanged and logs the first calling thread
+#if defined(_WIN32)
+static void __fastcall Detour_PackEntities(void *serverObject, void *packContext,
+                                          int clientCount, void *clients,
+                                          void *snapshotContext)
+#else
+static void Detour_PackEntities(void *serverObject, void *packContext,
+                                int clientCount, void *clients,
+                                void *snapshotContext)
+#endif
+{
+    if (!g_PackEntitiesFirstCallLogged.exchange(true, std::memory_order_relaxed))
+    {
+        size_t threadId = std::hash<std::thread::id>{}(std::this_thread::get_id());
+        META_CONPRINTF("[BOTHIDER] CNetworkGameServer::PackEntities first entered on thread %zu\n",
+                       threadId);
+    }
+
+    g_pfnPackEntitiesTramp(serverObject, packContext, clientCount, clients, snapshotContext);
+}
+
+// Prepares one target and replaces its original pointer with the trampoline
+template <typename Function>
+static bool PrepareFunchook(Function &original, void *target, void *detour, const char *name)
+{
+    if (!g_pFunchook)
+    {
+        g_pFunchook = funchook_create();
+        if (!g_pFunchook)
+        {
+            META_CONPRINTF("[BOTHIDER] warning: funchook_create failed for %s\n", name);
+            return false;
+        }
+    }
+
+    void *trampoline = target;
+    int result = funchook_prepare(g_pFunchook, &trampoline, detour);
+    if (result != FUNCHOOK_ERROR_SUCCESS)
+    {
+        META_CONPRINTF("[BOTHIDER] warning: funchook_prepare failed for %s: %s (%d)\n",
+                       name, funchook_error_message(g_pFunchook), result);
+        original = nullptr;
+        return false;
+    }
+
+    original = reinterpret_cast<Function>(trampoline);
+    ++g_PreparedFunchookCount;
+    return true;
+}
+
+// Clears all published funchook targets and trampoline pointers
+static void ClearFunchookBindings()
+{
+    g_pfnKickOneTramp = nullptr;
+    g_pfnQuotaTramp = nullptr;
+    g_pfnPackEntitiesTramp = nullptr;
+    g_pKickHookTarget = nullptr;
+    g_pQuotaHookTarget = nullptr;
+    g_pPackEntitiesHookTarget = nullptr;
+    g_PreparedFunchookCount = 0;
+    g_FunchooksInstalled = false;
+}
+
+// Installs every successfully prepared hook through the shared handle
+static void InstallPreparedFunchooks()
+{
+    if (!g_pFunchook || g_PreparedFunchookCount == 0)
+    {
+        if (g_pFunchook)
+            funchook_destroy(g_pFunchook);
+        g_pFunchook = nullptr;
+        ClearFunchookBindings();
+        return;
+    }
+
+    int result = funchook_install(g_pFunchook, 0);
+    if (result != FUNCHOOK_ERROR_SUCCESS)
+    {
+        META_CONPRINTF("[BOTHIDER] warning: funchook_install failed: %s (%d)\n",
+                       funchook_error_message(g_pFunchook), result);
+        funchook_destroy(g_pFunchook);
+        g_pFunchook = nullptr;
+        ClearFunchookBindings();
+        return;
+    }
+
+    g_FunchooksInstalled = true;
+    if (g_pKickHookTarget)
+        META_CONPRINTF("[BOTHIDER] GOTV kick-guard installed at %p\n", g_pKickHookTarget);
+    if (g_pQuotaHookTarget)
+        META_CONPRINTF("[BOTHIDER] bot-quota fix installed at %p\n", g_pQuotaHookTarget);
+    if (g_pPackEntitiesHookTarget)
+        META_CONPRINTF("[BOTHIDER] CNetworkGameServer::PackEntities hook installed at %p\n",
+                       g_pPackEntitiesHookTarget);
+}
+
+// Uninstalls all hooks before releasing their shared funchook handle
+static bool RemoveFunchooks()
+{
+    if (!g_pFunchook)
+    {
+        ClearFunchookBindings();
+        return true;
+    }
+
+    if (g_FunchooksInstalled)
+    {
+        int result = funchook_uninstall(g_pFunchook, 0);
+        if (result != FUNCHOOK_ERROR_SUCCESS)
+        {
+            META_CONPRINTF("[BOTHIDER] error: funchook_uninstall failed: %s (%d)\n",
+                           funchook_error_message(g_pFunchook), result);
+            return false;
+        }
+    }
+
+    int result = funchook_destroy(g_pFunchook);
+    if (result != FUNCHOOK_ERROR_SUCCESS)
+    {
+        META_CONPRINTF("[BOTHIDER] warning: funchook_destroy failed: %s (%d)\n",
+                       funchook_error_message(g_pFunchook), result);
+    }
+    g_pFunchook = nullptr;
+    ClearFunchookBindings();
+    return true;
+}
 
 namespace cs2bh
 {
@@ -394,7 +537,7 @@ namespace cs2bh
         targets::kController_FakeClientFlagsOffset = FindPlatformOffset(gamedata, "CBasePlayerController::FakeClientFlags", targets::kController_FakeClientFlagsOffset);
     }
 
-    // Resolve SV_KickOneFromTeam by sig and install the team-0 kick-guard detour
+    // Resolves and prepares the team-0 kick-guard detour
     static void InstallKickGuardHook(const nlohmann::json &gamedata, const sig::ModuleInfo &serverModule)
     {
         if (!serverModule)
@@ -413,22 +556,13 @@ namespace cs2bh
             META_CONPRINTF("[BOTHIDER] warning: SV_KickOneFromTeam sig not found — GOTV kick-guard disabled\n");
             return;
         }
-#if defined(_WIN32)
-        constexpr size_t kStealLen = 19;
-#else
-        // Linux gamedata points at the function body after the RIP-relative precheck.
-        constexpr size_t kStealLen = 15;
-#endif
-        if (!g_KickHook.Install(target, reinterpret_cast<void *>(&Detour_KickOneFromTeam), kStealLen))
-        {
-            META_CONPRINTF("[BOTHIDER] warning: SV_KickOneFromTeam detour install failed — GOTV kick-guard disabled\n");
-            return;
-        }
-        g_pfnKickOneTramp = reinterpret_cast<KickOneFn>(g_KickHook.Trampoline());
-        META_CONPRINTF("[BOTHIDER] GOTV kick-guard installed at %p\n", target);
+        if (PrepareFunchook(g_pfnKickOneTramp, target,
+                            reinterpret_cast<void *>(&Detour_KickOneFromTeam),
+                            "SV_KickOneFromTeam"))
+            g_pKickHookTarget = target;
     }
 
-    // Resolve CCSBotManager::MaintainBotQuota by sig and install the flip-around detour
+    // Resolves and prepares the bot quota flip-around detour
     static void InstallQuotaHook(const nlohmann::json &gamedata, const sig::ModuleInfo &serverModule)
     {
         if (!serverModule)
@@ -447,20 +581,47 @@ namespace cs2bh
             META_CONPRINTF("[BOTHIDER] warning: MaintainBotQuota sig not found — quota fix disabled\n");
             return;
         }
-#if defined(_WIN32)
-        // 40 55 / 41 56 / 48 8D 6C 24 ? / 48 81 EC ???? / 4C 8B F1 = 19 bytes (FF 15 rel-call not stolen)
-        constexpr size_t kStealLen = 19;
-#else
-        // 55 / 31 F6 / 48 89 E5 / 41 57 / 41 56 / 41 55 / 49 89 FD = 15 bytes
-        constexpr size_t kStealLen = 15;
-#endif
-        if (!g_QuotaHook.Install(target, reinterpret_cast<void *>(&Detour_MaintainBotQuota), kStealLen))
+        if (PrepareFunchook(g_pfnQuotaTramp, target,
+                            reinterpret_cast<void *>(&Detour_MaintainBotQuota),
+                            "CCSBotManager::MaintainBotQuota"))
+            g_pQuotaHookTarget = target;
+    }
+
+    // Resolves and prepares the pass-through engine entity-packing detour
+    static void InstallPackEntitiesHook(const nlohmann::json &gamedata)
+    {
+        std::string sigString = sig::FindPlatformSig(gamedata, "CNetworkGameServer::PackEntities");
+        std::vector<uint8_t> bytes;
+        std::vector<bool> wild;
+        if (sigString.empty() || !sig::ParseSigString(sigString, bytes, wild))
         {
-            META_CONPRINTF("[BOTHIDER] warning: MaintainBotQuota detour install failed — quota fix disabled\n");
+            META_CONPRINTF("[BOTHIDER] warning: PackEntities signature missing or malformed\n");
             return;
         }
-        g_pfnQuotaTramp = reinterpret_cast<MaintainQuotaFn>(g_QuotaHook.Trampoline());
-        META_CONPRINTF("[BOTHIDER] bot-quota fix installed at %p\n", target);
+
+        sig::ModuleInfo codeModule = sig::ModuleCodeFromName(targets::kEngineModuleName);
+        if (!codeModule)
+        {
+            META_CONPRINTF("[BOTHIDER] warning: %s code range unresolved - PackEntities hook disabled\n",
+                           targets::kEngineModuleName);
+            return;
+        }
+
+        std::vector<void *> matches = sig::FindPatternMatchesIn(codeModule, bytes, wild);
+        META_CONPRINTF("[BOTHIDER] CNetworkGameServer::PackEntities signature matches=%zu\n",
+                       matches.size());
+        if (matches.size() != 1)
+        {
+            META_CONPRINTF("[BOTHIDER] warning: PackEntities hook requires exactly one match\n");
+            return;
+        }
+
+        void *target = matches.front();
+        g_PackEntitiesFirstCallLogged.store(false, std::memory_order_relaxed);
+        if (PrepareFunchook(g_pfnPackEntitiesTramp, target,
+                            reinterpret_cast<void *>(&Detour_PackEntities),
+                            "CNetworkGameServer::PackEntities"))
+            g_pPackEntitiesHookTarget = target;
     }
 
     // SEH-isolated single reads, used by the controller-resolution walk
@@ -1873,8 +2034,12 @@ namespace cs2bh
 
                 // Install the bot-quota flip-around detour
                 InstallQuotaHook(gamedata, serverModule);
+
+                // Install the pass-through engine entity-packing detour
+                InstallPackEntitiesHook(gamedata);
             }
         }
+        InstallPreparedFunchooks();
         if (g_pfnUtilRemove)
         {
             META_CONPRINTF("[BOTHIDER] UTIL_Remove resolved at %p (entSysGlobal=%p)\n",
@@ -1931,8 +2096,9 @@ namespace cs2bh
             META_CONPRINTF("[BOTHIDER] shared memory '%s' mapped\n", shm::kMappingName);
             // Publish resolved hook/sig addresses for bh_status (0 = unresolved)
             Publisher().PublishSignature("UTIL_Remove", reinterpret_cast<void *>(g_pfnUtilRemove));
-            Publisher().PublishSignature("SV_KickOneFromTeam", g_KickHook.Target());
-            Publisher().PublishSignature("MaintainBotQuota", g_QuotaHook.Target());
+            Publisher().PublishSignature("SV_KickOneFromTeam", g_pKickHookTarget);
+            Publisher().PublishSignature("MaintainBotQuota", g_pQuotaHookTarget);
+            Publisher().PublishSignature("PackEntities", g_pPackEntitiesHookTarget);
         }
         else
         {
@@ -1987,8 +2153,13 @@ namespace cs2bh
         return true;
     }
 
-    bool HiderPlugin::Unload(char * /*error*/, size_t /*maxlen*/)
+    bool HiderPlugin::Unload(char *error, size_t maxlen)
     {
+        if (!RemoveFunchooks())
+        {
+            std::snprintf(error, maxlen, "failed to uninstall funchook detours");
+            return false;
+        }
         SH_REMOVE_HOOK(IServerGameClients, OnClientConnected, gameclients,
                        SH_MEMBER(this, &HiderPlugin::Hook_OnClientConnected_Post), true);
         SH_REMOVE_HOOK(IServerGameClients, ClientPutInServer, gameclients,
@@ -2014,10 +2185,6 @@ namespace cs2bh
             m_StartChangeLevelHookId = 0;
         }
         m_pHookedGameServer = nullptr;
-        g_KickHook.Remove();
-        g_pfnKickOneTramp = nullptr;
-        g_QuotaHook.Remove();
-        g_pfnQuotaTramp = nullptr;
         Manager().ReleaseAll();
         Publisher().Shutdown();
         return true;

@@ -60,6 +60,51 @@ namespace cs2bh::sig
             out.Segments.push_back({out.Base, out.Size});
             return out;
         }
+
+        // Resolves one mapped PE section and retains the full image bounds
+        ModuleInfo ModuleSectionFromHandle(HMODULE handle, const char *sectionName)
+        {
+            ModuleInfo out;
+            if (!handle || !sectionName)
+                return out;
+
+            ModuleInfo image = ModuleFromHandle(handle);
+            if (!image)
+                return out;
+
+            auto *dos = reinterpret_cast<IMAGE_DOS_HEADER *>(image.Base);
+            if (dos->e_magic != IMAGE_DOS_SIGNATURE || dos->e_lfanew <= 0)
+                return out;
+
+            auto *nt = reinterpret_cast<IMAGE_NT_HEADERS *>(image.Base + dos->e_lfanew);
+            if (nt->Signature != IMAGE_NT_SIGNATURE)
+                return out;
+
+            const size_t nameLength = std::strlen(sectionName);
+            if (nameLength == 0 || nameLength > IMAGE_SIZEOF_SHORT_NAME)
+                return out;
+
+            IMAGE_SECTION_HEADER *section = IMAGE_FIRST_SECTION(nt);
+            for (WORD i = 0; i < nt->FileHeader.NumberOfSections; ++i, ++section)
+            {
+                char name[IMAGE_SIZEOF_SHORT_NAME + 1] = {};
+                std::memcpy(name, section->Name, IMAGE_SIZEOF_SHORT_NAME);
+                if (std::strcmp(name, sectionName) != 0)
+                    continue;
+
+                size_t sectionSize = static_cast<size_t>(section->Misc.VirtualSize);
+                size_t sectionOffset = static_cast<size_t>(section->VirtualAddress);
+                if (sectionSize == 0 || sectionOffset >= image.Size ||
+                    sectionSize > image.Size - sectionOffset)
+                    return out;
+
+                out.Base = image.Base;
+                out.Size = image.Size;
+                out.Segments.push_back({image.Base + sectionOffset, sectionSize});
+                return out;
+            }
+            return out;
+        }
 #else
         bool NameMatches(const char *loadedPath, const char *moduleName)
         {
@@ -99,6 +144,24 @@ namespace cs2bh::sig
             }
         }
 
+        // Collects executable load segments from one ELF module
+        void FillCodeModuleFromPhdr(dl_phdr_info *info, ModuleInfo &out)
+        {
+            FillModuleFromPhdr(info, out);
+            out.Segments.clear();
+            for (int i = 0; i < info->dlpi_phnum; ++i)
+            {
+                const ElfW(Phdr) &ph = info->dlpi_phdr[i];
+                if (ph.p_type != PT_LOAD || ph.p_memsz == 0 || (ph.p_flags & PF_X) == 0)
+                    continue;
+
+                auto *segmentBase = reinterpret_cast<unsigned char *>(info->dlpi_addr + ph.p_vaddr);
+                out.Segments.push_back({segmentBase, static_cast<size_t>(ph.p_memsz)});
+            }
+            if (out.Segments.empty())
+                out = {};
+        }
+
         struct FindByNameCtx
         {
             const char *Name = nullptr;
@@ -112,6 +175,17 @@ namespace cs2bh::sig
                 return 0;
 
             FillModuleFromPhdr(info, ctx->Result);
+            return ctx->Result ? 1 : 0;
+        }
+
+        // Resolves executable segments for a module basename
+        int FindCodeByNameCallback(dl_phdr_info *info, size_t, void *data)
+        {
+            auto *ctx = static_cast<FindByNameCtx *>(data);
+            if (!NameMatches(info->dlpi_name, ctx->Name))
+                return 0;
+
+            FillCodeModuleFromPhdr(info, ctx->Result);
             return ctx->Result ? 1 : 0;
         }
 
@@ -262,6 +336,39 @@ namespace cs2bh::sig
         return nullptr;
     }
 
+    // Finds every pattern match in the selected module segments
+    std::vector<void *> FindPatternMatchesIn(const ModuleInfo &module,
+                                             const std::vector<uint8_t> &pattern,
+                                             const std::vector<bool> &wild)
+    {
+        std::vector<void *> matches;
+        if (!module || pattern.empty() || pattern.size() != wild.size())
+            return matches;
+
+        const size_t patternLength = pattern.size();
+        for (const ModuleSegment &segment : module.Segments)
+        {
+            if (!segment.Base || segment.Size < patternLength)
+                continue;
+
+            for (size_t i = 0; i + patternLength <= segment.Size; ++i)
+            {
+                bool match = true;
+                for (size_t j = 0; j < patternLength; ++j)
+                {
+                    if (!wild[j] && segment.Base[i + j] != pattern[j])
+                    {
+                        match = false;
+                        break;
+                    }
+                }
+                if (match)
+                    matches.push_back(segment.Base + i);
+            }
+        }
+        return matches;
+    }
+
     ModuleInfo ModuleFromName(const char *moduleName)
     {
 #if defined(_WIN32)
@@ -270,6 +377,19 @@ namespace cs2bh::sig
         FindByNameCtx ctx{};
         ctx.Name = moduleName;
         dl_iterate_phdr(FindByNameCallback, &ctx);
+        return ctx.Result;
+#endif
+    }
+
+    // Resolves executable code ranges from a loaded module
+    ModuleInfo ModuleCodeFromName(const char *moduleName)
+    {
+#if defined(_WIN32)
+        return ModuleSectionFromHandle(GetModuleHandleA(moduleName), ".text");
+#else
+        FindByNameCtx ctx{};
+        ctx.Name = moduleName;
+        dl_iterate_phdr(FindCodeByNameCallback, &ctx);
         return ctx.Result;
 #endif
     }
