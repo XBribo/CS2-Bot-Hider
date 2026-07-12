@@ -170,6 +170,9 @@ namespace cs2bh
     // Per-slot bound bot_info entry
     static std::array<const BotEntry *, PersonaPool::kMaxSlots> g_SlotEntry{};
 
+    // Original engine names used when an HLTV slot was adopted before its flag initialized
+    static std::array<std::string, PersonaPool::kMaxSlots> g_OriginalSlotName{};
+
     // Maps where bots stay disguised, loaded from map_whitelist.json
     static std::vector<std::string> g_DisguiseWhitelist;
 
@@ -840,19 +843,46 @@ namespace cs2bh
         return nullptr;
     }
 
+    // Identifies SourceTV before the server-side HLTV flag is initialized
+    static bool IsHltvConnection(const char *name, const char *networkId)
+    {
+        return (name && std::strcmp(name, "SourceTV") == 0) ||
+               (networkId && std::strcmp(networkId, "HLTV") == 0);
+    }
+
+    // Releases an HLTV slot that was temporarily misclassified as a managed bot
+    static bool ReleaseManagedHltvSlot(HiderPlugin *plugin, int slot, void *pClient)
+    {
+        if (!plugin || slot < 0 || slot >= PersonaPool::kMaxSlots || !pClient ||
+            !Manager().IsManaged(slot) || !ssc::IsHltv(pClient))
+            return false;
+
+        ssc::WriteSteamId(pClient, 0);
+        if (!g_OriginalSlotName[slot].empty())
+            SetEngineName(plugin, pClient, g_OriginalSlotName[slot].c_str());
+        RefreshClientUserInfo(slot);
+
+        BotInfo().ReleaseAssignment(g_SlotEntry[slot]);
+        g_SlotEntry[slot] = nullptr;
+        g_OriginalSlotName[slot].clear();
+        Manager().ReleaseSlot(slot);
+
+        META_CONPRINTF("[BOTHIDER] slot=%d rejected: SourceTV/HLTV client\n", slot);
+        return true;
+    }
+
     // Hook bodies
 
     // Windows binds from the authoritative OnClientConnected slot and avoids
     // the unstable IVEngineServer::CreateFakeClient return hook. Linux keeps
     // the upstream CreateFakeClient context path below
     void HiderPlugin::Hook_OnClientConnected_Post(CPlayerSlot slot, const char *pszName, uint64 /*xuid*/,
-                                                  const char * /*pszNetworkID*/, const char * /*pszAddress*/,
+                                                  const char *pszNetworkID, const char * /*pszAddress*/,
                                                   bool bFakePlayer)
     {
-#if defined(_WIN32)
-        if (m_bSelfDisabled || !bFakePlayer)
+        if (m_bSelfDisabled || !bFakePlayer || IsHltvConnection(pszName, pszNetworkID))
             RETURN_META(MRES_IGNORED);
-
+#if defined(_WIN32)
         int idx = slot.Get();
         if (idx < 0 || idx >= PersonaPool::kMaxSlots)
             RETURN_META(MRES_IGNORED);
@@ -892,6 +922,7 @@ namespace cs2bh
             RETURN_META(MRES_IGNORED);
         }
         g_SlotEntry[idx] = entry;
+        g_OriginalSlotName[idx] = (pszName && pszName[0]) ? pszName : "";
 
         if (m_bDisguiseEnabled)
         {
@@ -913,7 +944,7 @@ namespace cs2bh
                        static_cast<unsigned long long>(sid));
         RETURN_META(MRES_IGNORED);
 #else
-        if (m_bSelfDisabled || !bFakePlayer || g_FakeClientCallStack.empty())
+        if (g_FakeClientCallStack.empty())
             RETURN_META(MRES_IGNORED);
 
         int idx = slot.Get();
@@ -954,6 +985,8 @@ namespace cs2bh
 
         void *pClient = ResolveClientBySlot(idx);
         if (!pClient)
+            RETURN_META(MRES_IGNORED);
+        if (ReleaseManagedHltvSlot(this, idx, pClient))
             RETURN_META(MRES_IGNORED);
 
         if (m_bDisguiseEnabled)
@@ -1042,6 +1075,7 @@ namespace cs2bh
         // Free the bot_info assignment bound to this slot
         BotInfo().ReleaseAssignment(g_SlotEntry[idx]);
         g_SlotEntry[idx] = nullptr;
+        g_OriginalSlotName[idx].clear();
 
         // Drain manager + personas + shared memory for this slot
         Manager().ReleaseSlot(idx);
@@ -1609,6 +1643,7 @@ namespace cs2bh
         }
 
         g_SlotEntry[returnedSlot] = cfg;
+        g_OriginalSlotName[returnedSlot] = engineName;
         if (m_bDisguiseEnabled)
         {
             ssc::ClearFakePlayer(pClient);
@@ -1656,6 +1691,15 @@ namespace cs2bh
     {
         if (m_bSelfDisabled || !simulating)
             RETURN_META(MRES_IGNORED);
+
+        for (int idx = 0; idx < PersonaPool::kMaxSlots; ++idx)
+        {
+            if (!Manager().IsManaged(idx))
+                continue;
+            void *pClient = ResolveClientBySlot(idx);
+            if (pClient)
+                ReleaseManagedHltvSlot(this, idx, pClient);
+        }
         Manager().OnTick();
 
         // Reset bots' idle timers (1s)

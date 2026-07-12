@@ -239,8 +239,9 @@ public class BotHiderImplPlugin : BasePlugin
             {
                 try
                 {
-                    // m_szCrosshairCodes not networked: write the field only, no SetStateChanged
+                    // Publish the crosshair code through the controller network state
                     player.CrosshairCodes = cross;
+                    Utilities.SetStateChanged(player, "CCSPlayerController", "m_szCrosshairCodes");
                     _appliedCrosshair[slot] = cross;
                 }
                 catch (Exception e)
