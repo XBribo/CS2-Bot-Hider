@@ -35,6 +35,10 @@ namespace cs2bh
         void UpdatePersonaName(int slot, const char *name);
         void UpdatePing(int slot, int ping);
 
+        // Client HUD presentation state published by BotHiderImpl.
+        bool ObserverPovActive() const;
+        bool TakePovActive() const;
+
         // Append a signature/hook status entry (addr==0 means unresolved)
         void PublishSignature(const char *name, const void *addr);
 

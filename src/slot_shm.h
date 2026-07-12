@@ -55,6 +55,14 @@ namespace cs2bh::shm
     inline constexpr int kOff_ScoreboardFlair = 10400; // uint32[64]
     // Ends at 10400 + 64*4 = 10656
 
+    // Local client HUD presentation state. BotHiderImpl publishes managed-slot
+    // masks and BotHider native consumes them. Observation is controlled by
+    // bh_ob_pov; takeover hiding is always enabled for managed bots.
+    inline constexpr int kOff_ObserverPovMask = 10656;    // uint64
+    inline constexpr int kOff_TakePovMask = 10664;        // uint64
+    inline constexpr int kOff_ObserverPovEnabled = 10672; // byte bool
+    inline constexpr int kOff_PovInitialized = 10674;     // byte marker
+
     inline constexpr int kTotalSize = 16384; // 4 pages
 
     // Command opcodes.

@@ -1,4 +1,28 @@
 {
+  "CS2Hud::UpdateBotTakeoverHint": {
+    "signatures": {
+      "library": "client",
+      "windows": "48 89 5C 24 18 48 89 6C 24 20 57 48 81 EC 50 01 00 00 65 48 8B 04 25 58 00 00 00 48 8B F9",
+      "linux": ""
+    },
+    "comment": "Updates JoinPanelParent/JoinTextBot with #SFUI_Notice_Hint_Bot_Takeover. Windows signature and panel layout verified against client.dll 2026-07-10."
+  },
+  "CSGOHudHealthAmmoCenter::UpdateSpecPlayer": {
+    "signatures": {
+      "library": "client",
+      "windows": "40 53 56 57 41 54 41 55 41 56 41 57 48 83 EC 30 4C 8B F9 48 8D 4C 24 70 E8 ?? ?? ?? ?? 8B 54 24 70",
+      "linux": ""
+    },
+    "comment": "Updates the spectator player card, avatar/legend, and key hints in CSGOHudHealthAmmoCenter. Windows signature and Panorama handle layout verified against client.dll 2026-07-10."
+  },
+  "Panorama::MakeSymbol": {
+    "signatures": {
+      "library": "client",
+      "windows": "48 89 5C 24 08 57 48 83 EC 20 48 8B F9 48 8B DA 48 8B 0D ?? ?? ?? ?? 48 85 C9 75 1C FF 15 ?? ?? ?? ?? 85 C0 74 01 CC 48 8B D3 48 8D 0D ?? ?? ?? ?? FF 15 ?? ?? ?? ?? CC 48 8B 01 4C 8B C3 33 D2 FF 90 88 03 00 00",
+      "linux": ""
+    },
+    "comment": "Creates the 16-bit Panorama symbol used by IUIPanel::SetHasClass. Windows signature verified against client.dll 2026-07-10."
+  },
   "UTIL_Remove": {
     "signatures": {
       "library": "server",

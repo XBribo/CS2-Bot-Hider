@@ -42,6 +42,13 @@ When a bot joins, BotHider automatically:
 | `bh_setflair <slot> <item_def_index>` | Change a bot's scoreboard flair (`0` clears it) |
 | `bh_disguise <0/1>` | Turn bot disguise off (0) or on (1) |
 | `bh_namesource <0/1>` | **0** = use name from `botprofile.db` (default)<br>**1** = use name from `bot_info.json` (only affects new bots) |
+| `bh_ob_pov <true/false>` | Show the normal POV HUD instead of the spectator card while watching a managed bot in-eye |
+
+Observer POV presentation defaults to `true`. BotHider always hides the vanilla
+bot-takeover notice while a managed bot is being controlled, because the rest of
+the normal POV HUD is unchanged. BotHider's Windows native runtime applies the
+local `client.dll`/Panorama presentation directly; dedicated servers skip the
+client-only hook and remote clients are unaffected.
 
 ------------------------------------------------------------------------
 

@@ -48,6 +48,7 @@ public class BotHiderImplPlugin : BasePlugin
         _harmony.PatchAll(typeof(BotHiderImplPlugin).Assembly);
 
         AddTimer(2.0f, ApplyManagedSlots, TimerFlags.REPEAT);
+        RegisterListener<Listeners.OnTick>(UpdatePovMasks);
         StartFastApplyWindow();
     }
 
@@ -60,6 +61,7 @@ public class BotHiderImplPlugin : BasePlugin
         _api = null;
         _fastApplyTimer?.Kill();
         _fastApplyTimer = null;
+        _client?.PublishPovMasks(0, 0);
         _client?.Dispose();
     }
 
@@ -259,6 +261,96 @@ public class BotHiderImplPlugin : BasePlugin
         }
     }
 
+    private void UpdatePovMasks()
+    {
+        if (_client == null || !_client.IsConnected()) return;
+
+        var managedPawnSlots = new Dictionary<uint, int>();
+        foreach (int slot in _client.GetManagedSlots())
+        {
+            var managed = Utilities.GetPlayerFromSlot(slot);
+            if (managed?.PlayerPawn is { IsValid: true, Value.IsValid: true } pawn)
+                managedPawnSlots[pawn.Value.Index] = slot;
+        }
+
+        ulong observerMask = 0;
+        ulong takeMask = 0;
+        if (managedPawnSlots.Count != 0)
+        {
+            foreach (var controller in Utilities.GetPlayers())
+            {
+                if (controller is not { IsValid: true } ||
+                    _client.IsManagedBot(controller.Slot) || controller.IsBot)
+                    continue;
+
+                if (TryGetInEyeObserverTargetIndex(controller, out uint targetIndex) &&
+                    managedPawnSlots.TryGetValue(targetIndex, out int observedSlot))
+                    observerMask |= 1UL << observedSlot;
+
+                if (!TryGetControllingBotState(controller, out bool controllingBot) ||
+                    !controllingBot)
+                    continue;
+
+                if (controller.PlayerPawn is { IsValid: true, Value.IsValid: true } controlledPawn &&
+                    managedPawnSlots.TryGetValue(controlledPawn.Value.Index, out int controlledSlot))
+                {
+                    takeMask |= 1UL << controlledSlot;
+                    continue;
+                }
+
+                if (controller.OriginalControllerOfCurrentPawn is
+                    { IsValid: true, Value.IsValid: true } original &&
+                    _client.IsManagedBot(original.Value.Slot))
+                    takeMask |= 1UL << original.Value.Slot;
+            }
+        }
+
+        _client.PublishPovMasks(observerMask, takeMask);
+    }
+
+    private static bool TryGetInEyeObserverTargetIndex(
+        CCSPlayerController controller,
+        out uint targetIndex)
+    {
+        targetIndex = 0;
+        try
+        {
+            CPlayer_ObserverServices? observerServices = null;
+            if (controller.ObserverPawn is { IsValid: true, Value.IsValid: true } observerPawn)
+                observerServices = observerPawn.Value.ObserverServices;
+            else if (controller.PlayerPawn is { IsValid: true, Value.IsValid: true } playerPawn)
+                observerServices = playerPawn.Value.ObserverServices;
+
+            if (observerServices == null ||
+                observerServices.ObserverMode != (byte)ObserverMode_t.OBS_MODE_IN_EYE ||
+                observerServices.ObserverTarget is not { IsValid: true, Value.IsValid: true } target)
+                return false;
+
+            targetIndex = target.Value.Index;
+            return true;
+        }
+        catch
+        {
+            return false;
+        }
+    }
+
+    private static bool TryGetControllingBotState(
+        CCSPlayerController controller,
+        out bool controllingBot)
+    {
+        controllingBot = false;
+        try
+        {
+            controllingBot = controller.ControllingBot;
+            return true;
+        }
+        catch
+        {
+            return false;
+        }
+    }
+
     // Apply the scoreboard flair rank span for one player
     private static bool TryApplyScoreboardFlair(int slot, uint itemDefIndex)
     {
@@ -392,6 +484,41 @@ public class BotHiderImplPlugin : BasePlugin
         bool useBotInfo = v != 0;
         bool ok = _client.SetNameSource(useBotInfo);
         cmd.ReplyToCommand($"[BotHider] name source -> {(useBotInfo ? "bot_info" : "botprofile")} ({ok})");
+    }
+
+    [ConsoleCommand("bh_ob_pov", "POV-style HUD while observing managed bots: bh_ob_pov <true|false>")]
+    public void OnObserverPov(CCSPlayerController? player, CommandInfo cmd)
+    {
+        if (_client == null) { cmd.ReplyToCommand("[BotHider] not initialized"); return; }
+        if (cmd.ArgCount < 2)
+        {
+            cmd.ReplyToCommand($"[BotHider] observer POV -> {_client.ObserverPovEnabled.ToString().ToLowerInvariant()}");
+            return;
+        }
+        if (!TryParseToggle(cmd.GetArg(1), out bool enabled))
+        { cmd.ReplyToCommand("usage: bh_ob_pov <true|false>"); return; }
+        bool ok = _client.SetObserverPovEnabled(enabled);
+        cmd.ReplyToCommand($"[BotHider] observer POV -> {enabled.ToString().ToLowerInvariant()} ({ok})");
+    }
+
+    private static bool TryParseToggle(string value, out bool enabled)
+    {
+        switch (value.Trim().ToLowerInvariant())
+        {
+            case "true":
+            case "1":
+            case "on":
+                enabled = true;
+                return true;
+            case "false":
+            case "0":
+            case "off":
+                enabled = false;
+                return true;
+            default:
+                enabled = false;
+                return false;
+        }
     }
 }
 

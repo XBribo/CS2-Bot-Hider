@@ -12,6 +12,7 @@
 #include "sig_scan.h"
 #include "schema_resolver.h"
 #include "inline_hook.h"
+#include "hud_pov_presentation.h"
 
 #include <cstdio>
 #include <cstdint>
@@ -1873,6 +1874,17 @@ namespace cs2bh
 
                 // Install the bot-quota flip-around detour
                 InstallQuotaHook(gamedata, serverModule);
+
+                // Optional local Windows client presentation. Dedicated
+                // servers do not load client.dll and continue without it.
+                char hudPovError[256] = {0};
+                HudPovPresentation::Install(
+                    gamedata, hudPovError, sizeof(hudPovError));
+                META_CONPRINTF("[BOTHIDER] client POV HUD: %s%s%s%s\n",
+                               HudPovPresentation::Status(),
+                               hudPovError[0] ? " (" : "",
+                               hudPovError[0] ? hudPovError : "",
+                               hudPovError[0] ? ")" : "");
             }
         }
         if (g_pfnUtilRemove)
@@ -2018,6 +2030,7 @@ namespace cs2bh
         g_pfnKickOneTramp = nullptr;
         g_QuotaHook.Remove();
         g_pfnQuotaTramp = nullptr;
+        HudPovPresentation::Remove();
         Manager().ReleaseAll();
         Publisher().Shutdown();
         return true;

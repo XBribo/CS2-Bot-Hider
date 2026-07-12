@@ -35,6 +35,12 @@ public sealed class SharedMemoryClient : IBotHiderApi, IDisposable
     private const int MaxSigs = 8;
     // Scoreboard flair region
     private const int OffScoreboardFlair = 10400;  // uint32[64]
+    // Client HUD POV state region consumed by BotHider native
+    private const int OffObserverPovMask = 10656;  // uint64 managed-slot mask
+    private const int OffTakePovMask = 10664;      // uint64 managed-slot mask
+    private const int OffObserverPovEnabled = 10672; // byte bool
+    private const int OffPovInitialized = 10674;     // byte marker
+    private const byte PovInitializedMarker = 0xA5;
 
     // Command region offsets
     private const int OffWriteIdx = 2640;
@@ -87,6 +93,7 @@ public sealed class SharedMemoryClient : IBotHiderApi, IDisposable
             _view = _mmf.CreateViewAccessor(0, TotalSize,
                 MemoryMappedFileAccess.ReadWrite);
             if (_view.ReadUInt32(OffMagic) != Magic) { Dispose(); return false; }
+            InitializePovState();
             return true;
         }
         catch (FileNotFoundException) { return false; }
@@ -104,6 +111,33 @@ public sealed class SharedMemoryClient : IBotHiderApi, IDisposable
     {
         if (_view != null) return true;
         return TryConnect();
+    }
+
+    private void InitializePovState()
+    {
+        if (_view == null || _view.ReadByte(OffPovInitialized) == PovInitializedMarker)
+            return;
+        _view.Write(OffObserverPovMask, 0UL);
+        _view.Write(OffTakePovMask, 0UL);
+        _view.Write(OffObserverPovEnabled, (byte)1);
+        _view.Write(OffPovInitialized, PovInitializedMarker);
+    }
+
+    public bool ObserverPovEnabled =>
+        IsConnected() && _view!.ReadByte(OffObserverPovEnabled) != 0;
+
+    public bool SetObserverPovEnabled(bool enabled)
+    {
+        if (!IsConnected()) return false;
+        _view!.Write(OffObserverPovEnabled, enabled ? (byte)1 : (byte)0);
+        return true;
+    }
+
+    public void PublishPovMasks(ulong observerMask, ulong takeMask)
+    {
+        if (!IsConnected()) return;
+        _view!.Write(OffObserverPovMask, observerMask);
+        _view.Write(OffTakePovMask, takeMask);
     }
 
     // IBotHiderApi: read side

@@ -144,6 +144,25 @@ namespace cs2bh
         *gen = *gen + 1;
     }
 
+    bool SlotPublisher::ObserverPovActive() const
+    {
+        if (!m_pView)
+            return false;
+        const bool enabled = m_pView[shm::kOff_ObserverPovEnabled] != 0;
+        const auto mask = *reinterpret_cast<volatile const uint64_t *>(
+            m_pView + shm::kOff_ObserverPovMask);
+        return enabled && mask != 0;
+    }
+
+    bool SlotPublisher::TakePovActive() const
+    {
+        if (!m_pView)
+            return false;
+        const auto mask = *reinterpret_cast<volatile const uint64_t *>(
+            m_pView + shm::kOff_TakePovMask);
+        return mask != 0;
+    }
+
     // Data-region writers
 
     void SlotPublisher::PublishAdopt(int slot, uint64_t syntheticSid,
