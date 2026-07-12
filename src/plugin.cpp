@@ -560,58 +560,251 @@ namespace cs2bh
         return instance;
     }
 
-    // * Destroy the CCSPlayerController a kicked bot leaves behind
-    // Returns true if the destroy was dispatched
-    static bool DestroyControllerForClient(void *pClient)
+#if defined(_WIN32)
+    struct PendingControllerCleanup
     {
-        if (!pClient)
+        bool Active = false;
+        int EntityIndex = -1;
+        uint32_t EntityHandle = 0xFFFFFFFFu;
+        void *ExpectedInstance = nullptr;
+        uint64_t ReadyFrame = 0;
+        uint64_t DeadlineFrame = 0;
+    };
+
+    struct EntityLifecycleSnapshot
+    {
+        uint32_t Handle = 0xFFFFFFFFu;
+        bool MarkedForDelete = false;
+    };
+
+    static std::array<PendingControllerCleanup, PersonaPool::kMaxSlots> g_PendingControllerCleanups{};
+    static uint64_t g_ControllerCleanupFrame = 0;
+
+    static bool TryReadClientEntityIndex(void *pClient, int *entityIndex)
+    {
+        if (!pClient || !entityIndex)
             return false;
-        if (!g_pfnUtilRemove)
+
+        __try
         {
-            META_CONPRINTF("[BOTHIDER] destroy ABORT: UTIL_Remove unresolved (signature scan failed at Load)\n");
+            *entityIndex = *reinterpret_cast<int *>(
+                reinterpret_cast<unsigned char *>(pClient) + ssc::OFFSET_m_nEntityIndex);
+            return true;
+        }
+        __except (EXCEPTION_EXECUTE_HANDLER)
+        {
+            *entityIndex = -1;
             return false;
         }
+    }
+
+    static bool TryReadEntityLifecycle(void *instance, EntityLifecycleSnapshot *snapshot)
+    {
+        if (!instance || !snapshot)
+            return false;
+
+        __try
+        {
+            auto *entity = reinterpret_cast<CEntityInstance *>(instance);
+            if (!entity->m_pEntity)
+                return false;
+
+            CEntityHandle handle = entity->m_pEntity->GetRefEHandle();
+            if (!handle.IsValid())
+                return false;
+
+            snapshot->Handle = static_cast<uint32_t>(handle.ToInt());
+            snapshot->MarkedForDelete =
+                (entity->m_pEntity->m_flags & EF_MARKED_FOR_DELETE) != 0;
+            return true;
+        }
+        __except (EXCEPTION_EXECUTE_HANDLER)
+        {
+            *snapshot = EntityLifecycleSnapshot{};
+            return false;
+        }
+    }
+
+    static bool IsControllerReferencedByAnyClient(int entityIndex)
+    {
+        if (!g_pNetworkServerService)
+            return false;
+        auto *gameServer = g_pNetworkServerService->GetIGameServer();
+        if (!gameServer)
+            return false;
+
+        auto *clients = reinterpret_cast<CUtlVector<void *> *>(
+            reinterpret_cast<unsigned char *>(gameServer) + targets::kClientListOffset);
+        const int count = clients->Count();
+        if (count < 0 || count > 256)
+            return true;
+
+        for (int slot = 0; slot < count; ++slot)
+        {
+            void *pClient = clients->Element(slot);
+            int clientEntityIndex = -1;
+            if (TryReadClientEntityIndex(pClient, &clientEntityIndex) &&
+                clientEntityIndex == entityIndex)
+            {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    static void LogEntitySystemCrossCheck()
+    {
+        static bool s_crossChecked = false;
+        if (s_crossChecked || !g_ppEntSysGlobal)
+            return;
+
+        void *entSysFromChain = nullptr;
+        SehReadPtr(reinterpret_cast<unsigned char *>(g_pGameResourceService) +
+                       targets::kEntSys_OffsetInGameResSvc,
+                   &entSysFromChain);
+        void *entSysFromRemove = nullptr;
+        SehReadPtr(g_ppEntSysGlobal, &entSysFromRemove);
+        META_CONPRINTF("[BOTHIDER] entSys cross-check: chain=%p remove=%p %s\n",
+                       entSysFromChain, entSysFromRemove,
+                       (entSysFromChain == entSysFromRemove) ? "MATCH" : "MISMATCH");
+        s_crossChecked = true;
+    }
+
+    static void CancelPendingControllerCleanupForSlot(int slot, const char *reason)
+    {
+        if (slot < 0 || slot >= PersonaPool::kMaxSlots)
+            return;
+        auto &pending = g_PendingControllerCleanups[slot];
+        if (!pending.Active)
+            return;
+
+        META_CONPRINTF("[BOTHIDER] deferred controller cleanup cancelled slot=%d entIdx=%d reason=%s\n",
+                       slot, pending.EntityIndex, reason ? reason : "unknown");
+        pending = PendingControllerCleanup{};
+    }
+
+    static void CancelAllPendingControllerCleanups(const char *reason)
+    {
+        for (int slot = 0; slot < PersonaPool::kMaxSlots; ++slot)
+            CancelPendingControllerCleanupForSlot(slot, reason);
+    }
+
+    static bool QueueControllerCleanupForClient(int slot, void *pClient)
+    {
+        if (!g_pfnUtilRemove || !pClient || slot < 0 || slot >= PersonaPool::kMaxSlots)
+            return false;
+
+        int entityIndex = -1;
+        if (!TryReadClientEntityIndex(pClient, &entityIndex))
+            return false;
+
+        char cls[64];
+        void *instance = ResolveEntityInstance(entityIndex, cls, sizeof(cls));
+        if (!instance || std::strcmp(cls, "cs_player_controller") != 0)
+            return false;
+
+        EntityLifecycleSnapshot snapshot;
+        if (!TryReadEntityLifecycle(instance, &snapshot) || snapshot.MarkedForDelete)
+            return false;
+
+        CEntityHandle handle(snapshot.Handle);
+        if (handle.GetEntryIndex() != entityIndex)
+            return false;
+
+        auto &pending = g_PendingControllerCleanups[slot];
+        pending.Active = true;
+        pending.EntityIndex = entityIndex;
+        pending.EntityHandle = snapshot.Handle;
+        pending.ExpectedInstance = instance;
+        // The first GameFrame POST may still belong to the frame that initiated
+        // ClientDisconnect. Wait through it, then clean up on a later safe frame.
+        pending.ReadyFrame = g_ControllerCleanupFrame + 2;
+        pending.DeadlineFrame = g_ControllerCleanupFrame + 64;
+
+        META_CONPRINTF("[BOTHIDER] deferred controller cleanup queued slot=%d entIdx=%d handle=0x%08X inst=%p\n",
+                       slot, entityIndex, snapshot.Handle, instance);
+        return true;
+    }
+
+    static void ProcessPendingControllerCleanups()
+    {
+        ++g_ControllerCleanupFrame;
+
+        for (int slot = 0; slot < PersonaPool::kMaxSlots; ++slot)
+        {
+            auto &pending = g_PendingControllerCleanups[slot];
+            if (!pending.Active || g_ControllerCleanupFrame < pending.ReadyFrame)
+                continue;
+
+            char cls[64];
+            void *instance = ResolveEntityInstance(pending.EntityIndex, cls, sizeof(cls));
+            if (!instance)
+            {
+                META_CONPRINTF("[BOTHIDER] deferred controller cleanup complete slot=%d entIdx=%d: engine removed it\n",
+                               slot, pending.EntityIndex);
+                pending = PendingControllerCleanup{};
+                continue;
+            }
+
+            EntityLifecycleSnapshot snapshot;
+            if (!TryReadEntityLifecycle(instance, &snapshot) ||
+                instance != pending.ExpectedInstance ||
+                snapshot.Handle != pending.EntityHandle ||
+                std::strcmp(cls, "cs_player_controller") != 0)
+            {
+                META_CONPRINTF("[BOTHIDER] deferred controller cleanup cancelled slot=%d entIdx=%d: entity reused\n",
+                               slot, pending.EntityIndex);
+                pending = PendingControllerCleanup{};
+                continue;
+            }
+
+            if (snapshot.MarkedForDelete)
+            {
+                META_CONPRINTF("[BOTHIDER] deferred controller cleanup complete slot=%d entIdx=%d: already marked for delete\n",
+                               slot, pending.EntityIndex);
+                pending = PendingControllerCleanup{};
+                continue;
+            }
+
+            if (IsControllerReferencedByAnyClient(pending.EntityIndex))
+            {
+                if (g_ControllerCleanupFrame < pending.DeadlineFrame)
+                {
+                    pending.ReadyFrame = g_ControllerCleanupFrame + 1;
+                    continue;
+                }
+
+                META_CONPRINTF("[BOTHIDER] deferred controller cleanup abandoned slot=%d entIdx=%d: still client-owned\n",
+                               slot, pending.EntityIndex);
+                pending = PendingControllerCleanup{};
+                continue;
+            }
+
+            const int entityIndex = pending.EntityIndex;
+            const uint32_t entityHandle = pending.EntityHandle;
+            pending = PendingControllerCleanup{};
+
+            LogEntitySystemCrossCheck();
+            g_pfnUtilRemove(instance);
+            META_CONPRINTF("[BOTHIDER] deferred controller cleanup dispatched slot=%d entIdx=%d handle=0x%08X inst=%p\n",
+                           slot, entityIndex, entityHandle, instance);
+        }
+    }
+#else
+    static bool DestroyControllerForClient(void *pClient)
+    {
+        if (!pClient || !g_pfnUtilRemove)
+            return false;
         int entIdx = *reinterpret_cast<int *>(
             reinterpret_cast<unsigned char *>(pClient) + ssc::OFFSET_m_nEntityIndex);
         char cls[64];
         void *inst = ResolveEntityInstance(entIdx, cls, sizeof(cls));
-        if (!inst)
-        {
-            // Resolution chain returned null
-            META_CONPRINTF("[BOTHIDER] destroy ABORT: entity resolve failed "
-                           "entIdx=%d cls='%s' grs=%p (check kEntSys_* offsets)\n",
-                           entIdx, cls, g_pGameResourceService);
+        if (!inst || std::strcmp(cls, "cs_player_controller") != 0)
             return false;
-        }
-        // Only ever destroy a player controller — never collateral entities
-        if (std::strcmp(cls, "cs_player_controller") != 0)
-        {
-            META_CONPRINTF("[BOTHIDER] destroy skipped entIdx=%d cls='%s' (not a controller)\n",
-                           entIdx, cls);
-            return false;
-        }
-
-        // ? One-time cross-check: prove our GameResourceService+0x58 chain resolves
-        static bool s_crossChecked = false;
-        if (!s_crossChecked && g_ppEntSysGlobal)
-        {
-            void *entSysFromChain = nullptr;
-            SehReadPtr(reinterpret_cast<unsigned char *>(g_pGameResourceService) +
-                           targets::kEntSys_OffsetInGameResSvc,
-                       &entSysFromChain);
-            void *entSysFromRemove = nullptr;
-            SehReadPtr(g_ppEntSysGlobal, &entSysFromRemove);
-            META_CONPRINTF("[BOTHIDER] entSys cross-check: chain=%p remove=%p %s\n",
-                           entSysFromChain, entSysFromRemove,
-                           (entSysFromChain == entSysFromRemove) ? "MATCH" : "MISMATCH");
-            s_crossChecked = true;
-        }
-
         g_pfnUtilRemove(inst);
-        META_CONPRINTF("[BOTHIDER] destroy dispatched entIdx=%d inst=%p cls='%s'\n",
-                       entIdx, inst, cls);
         return true;
     }
+#endif
 
     // Keep the controller identity in sync with CServerSideClient
     // The quota detour temporarily restores this bit while counting bots
@@ -850,11 +1043,14 @@ namespace cs2bh
                                                   bool bFakePlayer)
     {
 #if defined(_WIN32)
-        if (m_bSelfDisabled || !bFakePlayer)
+        if (m_bSelfDisabled)
             RETURN_META(MRES_IGNORED);
 
         int idx = slot.Get();
         if (idx < 0 || idx >= PersonaPool::kMaxSlots)
+            RETURN_META(MRES_IGNORED);
+        CancelPendingControllerCleanupForSlot(idx, "slot_reused");
+        if (!bFakePlayer)
             RETURN_META(MRES_IGNORED);
         if (Manager().IsManaged(idx))
             RETURN_META(MRES_IGNORED);
@@ -1033,10 +1229,18 @@ namespace cs2bh
             SetControllerFakeClientFlag(idx, true);
             ssc::WriteSteamId(pClient, 0);
 
-            // Targeted removals can leave a controller behind
-            // Map and server teardown already own controller destruction
+#if defined(_WIN32)
+            // The original ClientDisconnect still needs this controller. Queue
+            // orphan cleanup for a later GameFrame instead of invalidating it
+            // from this PRE hook.
+            if (IsTargetedClientRemovalReason(reason))
+                QueueControllerCleanupForClient(idx, pClient);
+#else
+            // Preserve the existing Linux cleanup path; this crash fix is
+            // Windows-scoped and Linux has not been runtime-verified.
             if (IsTargetedClientRemovalReason(reason))
                 DestroyControllerForClient(pClient);
+#endif
         }
 
         // Free the bot_info assignment bound to this slot
@@ -1643,6 +1847,8 @@ namespace cs2bh
         }
 #if !defined(_WIN32)
         ClearFakeClientCallStack();
+#else
+        CancelAllPendingControllerCleanups("changelevel");
 #endif
         Manager().ReleaseAll();
         BotInfo().ResetAssignments();
@@ -1656,6 +1862,9 @@ namespace cs2bh
     {
         if (m_bSelfDisabled || !simulating)
             RETURN_META(MRES_IGNORED);
+#if defined(_WIN32)
+        ProcessPendingControllerCleanups();
+#endif
         Manager().OnTick();
 
         // Reset bots' idle timers (1s)
@@ -1771,6 +1980,8 @@ namespace cs2bh
     {
 #if !defined(_WIN32)
         ClearFakeClientCallStack();
+#else
+        CancelAllPendingControllerCleanups("level_shutdown");
 #endif
         Manager().ReleaseAll();
         BotInfo().ResetAssignments();
@@ -1945,6 +2156,9 @@ namespace cs2bh
 
     bool HiderPlugin::Unload(char * /*error*/, size_t /*maxlen*/)
     {
+#if defined(_WIN32)
+        CancelAllPendingControllerCleanups("plugin_unload");
+#endif
         SH_REMOVE_HOOK(IServerGameClients, OnClientConnected, gameclients,
                        SH_MEMBER(this, &HiderPlugin::Hook_OnClientConnected_Post), true);
         SH_REMOVE_HOOK(IServerGameClients, ClientPutInServer, gameclients,
