@@ -61,17 +61,20 @@ public sealed class SharedMemoryClient : IBotHiderApi, IDisposable
 
     private readonly Action<int, ulong>? _onVisibleSid;
     private readonly Action<int, uint>? _onScoreboardFlair;
+    private readonly Action<int, string>? _onCrosshairCode;
     private readonly string?[] _personaNameOverrides = new string?[MaxSlots];
     private readonly uint[] _scoreboardFlairs = new uint[MaxSlots];
     private readonly bool[] _scoreboardFlairAssigned = new bool[MaxSlots];
 
     public SharedMemoryClient(Action<int, string>? onVisibleName = null,
                               Action<int, ulong>? onVisibleSid = null,
-                              Action<int, uint>? onScoreboardFlair = null)
+                              Action<int, uint>? onScoreboardFlair = null,
+                              Action<int, string>? onCrosshairCode = null)
     {
         _onVisibleName = onVisibleName;
         _onVisibleSid = onVisibleSid;
         _onScoreboardFlair = onScoreboardFlair;
+        _onCrosshairCode = onCrosshairCode;
     }
 
     // Try to open the existing mapping. Returns false if BotHider isn't loaded yet
@@ -111,7 +114,7 @@ public sealed class SharedMemoryClient : IBotHiderApi, IDisposable
     public bool IsManagedBot(int slot) =>
         Valid(slot) && _view!.ReadByte(OffSlotState + slot) != 0;
 
-    public ulong GetSyntheticSteamId(int slot) =>
+    public ulong GetBotSteamId(int slot) =>
         Valid(slot) ? _view!.ReadUInt64(OffSyntheticSid + slot * 8) : 0UL;
 
     public int[] GetManagedSlots()
@@ -153,6 +156,22 @@ public sealed class SharedMemoryClient : IBotHiderApi, IDisposable
         int len = Array.IndexOf(buf, (byte)0);
         if (len < 0) len = CrosshairLen;
         return Encoding.UTF8.GetString(buf, 0, len);
+    }
+
+    // Write crosshair code to shared memory, empty or "0" to clear
+    public bool SetCrosshairCode(int slot, string code)
+    {
+        if (!Valid(slot)) return false;
+        if (code == "0") code = string.Empty;
+        var buf = new byte[CrosshairLen];
+        if (!string.IsNullOrEmpty(code))
+        {
+            int n = Math.Min(code.Length, CrosshairLen - 1);
+            Encoding.UTF8.GetBytes(code, 0, n, buf, 0);
+        }
+        _view!.WriteArray(OffCrosshair + slot * CrosshairLen, buf, 0, CrosshairLen);
+        _onCrosshairCode?.Invoke(slot, code ?? string.Empty);
+        return true;
     }
 
     // Returns the assigned or newly randomized scoreboard flair

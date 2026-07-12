@@ -96,7 +96,7 @@ public interface IBotHiderApi
 {
     // --- read ---
     bool     IsManagedBot(int slot);        // is this one of ours?
-    ulong    GetSyntheticSteamId(int slot); // assigned SteamID64 (0 if none)
+    ulong    GetBotSteamId(int slot);        // assigned SteamID64 (0 if none)
     int[]    GetManagedSlots();             // all managed bot slots
     string   GetPersonaName(int slot);      // assigned display name
     int      GetPing(int slot);             // current jittered ping (ms)
@@ -106,6 +106,7 @@ public interface IBotHiderApi
 
     // --- write (applied on the next server frame) ---
     bool     SetBotSteamId(int slot, ulong steamId64);
+    bool     SetCrosshairCode(int slot, string code); // empty or "0" to clear
     bool     SetPersonaName(int slot, string name);
     bool     SetScoreboardFlair(int slot, uint itemDefIndex);
 
@@ -156,7 +157,7 @@ public override void OnAllPluginsLoaded(bool hotReload) => _api = Cap.Get();
 foreach (int slot in _api.GetManagedSlots())
 {
     Console.WriteLine(
-        $"slot={slot} sid={_api.GetSyntheticSteamId(slot)} " +
+        $"slot={slot} sid={_api.GetBotSteamId(slot)} " +
         $"name='{_api.GetPersonaName(slot)}' ping={_api.GetPing(slot)}");
 }
 ```

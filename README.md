@@ -12,23 +12,10 @@
 
 `BotHider` is a plugin for **Counter-Strike 2** that makes bots look like real human players.
 
-When a bot joins, BotHider automatically:
-
-- Hides the `BOT` label on the scoreboard
-- Gives the bot a unique SteamID
-- Gives the bot a realistic player name
-- Adds a fake ping (with random jitter)
-- Applies a scoreboard flair medal
-
-------------------------------------------------------------------------
-
-## Features
-
 - Removes the `BOT` tag from the scoreboard
 - Each bot gets its own SteamID64, display name, ping, crosshair, and scoreboard flair
-- Supports per-bot `scoreboard_flair` values in `bot_info.json`
-- Toggle disguise on/off with a simple command
-- Choose whether bot names come from `botprofile.db` or a custom list
+- Adds a fake ping
+- Applies a scoreboard flair medal
 
 ------------------------------------------------------------------------
 

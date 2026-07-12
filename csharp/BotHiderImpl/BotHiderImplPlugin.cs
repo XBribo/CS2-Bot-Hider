@@ -37,7 +37,8 @@ public class BotHiderImplPlugin : BasePlugin
         _client = new SharedMemoryClient(
             ApplyVisibleName,
             ApplyVisibleSid,
-            ApplyVisibleScoreboardFlair);
+            ApplyVisibleScoreboardFlair,
+            ApplyVisibleCrosshair);
         _api = new BotHiderCapabilityApi(_client);
         _client.TryConnect();
         Capabilities.RegisterPluginCapability(Capability, () => _api);
@@ -172,6 +173,25 @@ public class BotHiderImplPlugin : BasePlugin
         });
     }
 
+    // Write CCSPlayerController.m_szCrosshairCodes
+    private static void ApplyVisibleCrosshair(int slot, string code)
+    {
+        Server.NextFrame(() =>
+        {
+            var player = Utilities.GetPlayerFromSlot(slot);
+            if (player == null || !player.IsValid) return;
+            try
+            {
+                player.CrosshairCodes = code;
+                Utilities.SetStateChanged(player, "CCSPlayerController", "m_szCrosshairCodes");
+            }
+            catch (Exception e)
+            {
+                Server.PrintToConsole($"[BotHider] crosshair write failed slot={slot}: {e.Message}");
+            }
+        });
+    }
+
     // Write CCSPlayerController_InventoryServices.m_rank
     private void ApplyVisibleScoreboardFlair(int slot, uint itemDefIndex)
     {
@@ -235,7 +255,7 @@ public class BotHiderImplPlugin : BasePlugin
             }
 
             string cross = _client.GetCrosshairCode(slot);
-            if (!string.IsNullOrEmpty(cross) && _appliedCrosshair[slot] != cross)
+            if (_appliedCrosshair[slot] != cross)
             {
                 try
                 {
@@ -328,7 +348,7 @@ public class BotHiderImplPlugin : BasePlugin
             var p = Utilities.GetPlayerFromSlot(s);
             string isBot = (p != null && p.IsValid) ? p.IsBot.ToString() : "n/a";
             cmd.ReplyToCommand(
-                $"  slot={s} sid={_client.GetSyntheticSteamId(s)} " +
+                $"  slot={s} sid={_client.GetBotSteamId(s)} " +
                 $"name='{_client.GetPersonaName(s)}' ping={_client.GetPing(s)} " +
                 $"crosshair='{_client.GetCrosshairCode(s)}' isbot={isBot}");
         }
@@ -370,6 +390,18 @@ public class BotHiderImplPlugin : BasePlugin
         cmd.ReplyToCommand($"[BotHider] SetScoreboardFlair({slot},{itemDefIndex}) -> {ok}");
     }
 
+    // bh_setcrosshair <slot> <code> — set a bot's crosshair code
+    [ConsoleCommand("bh_setcrosshair", "Set a bot's crosshair: bh_setcrosshair <slot> <code>")]
+    public void OnSetCrosshair(CCSPlayerController? player, CommandInfo cmd)
+    {
+        if (_client == null) { cmd.ReplyToCommand("[BotHider] not initialized"); return; }
+        if (cmd.ArgCount < 3 || !int.TryParse(cmd.GetArg(1), out int slot))
+        { cmd.ReplyToCommand("usage: bh_setcrosshair <slot> <code>"); return; }
+        string code = cmd.GetArg(2);
+        bool ok = _client.SetCrosshairCode(slot, code);
+        cmd.ReplyToCommand($"[BotHider] SetCrosshairCode({slot},'{code}') -> {ok}");
+    }
+
     // bh_disguise <0|1> — toggle the m_bFakePlayer disguise
     [ConsoleCommand("bh_disguise", "Toggle disguise: bh_disguise <0|1>")]
     public void OnDisguise(CCSPlayerController? player, CommandInfo cmd)
@@ -408,7 +440,7 @@ internal sealed class BotHiderCapabilityApi : IBotHiderApi
     public bool IsManagedBot(int slot) => _client.IsManagedBot(slot);
 
     // Returns the current synthetic SteamID64 for the slot.
-    public ulong GetSyntheticSteamId(int slot) => _client.GetSyntheticSteamId(slot);
+    public ulong GetBotSteamId(int slot) => _client.GetBotSteamId(slot);
 
     // Returns all managed engine slots.
     public int[] GetManagedSlots() => _client.GetManagedSlots();
@@ -439,6 +471,10 @@ internal sealed class BotHiderCapabilityApi : IBotHiderApi
     // Updates the visible scoreboard flair through the C# rank writer
     public bool SetScoreboardFlair(int slot, uint itemDefIndex) =>
         _client.SetScoreboardFlair(slot, itemDefIndex);
+
+    // Set crosshair code for a managed bot, empty or "0" to clear
+    public bool SetCrosshairCode(int slot, string code) =>
+        _client.SetCrosshairCode(slot, code);
 
     // Toggles the global disguise behavior.
     public bool SetDisguise(bool enabled) => _client.SetDisguise(enabled);

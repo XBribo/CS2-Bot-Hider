@@ -4,7 +4,7 @@ public interface IBotHiderApi
 {
     bool IsManagedBot(int slot);
 
-    ulong GetSyntheticSteamId(int slot);
+    ulong GetBotSteamId(int slot);
 
     int[] GetManagedSlots();
 
@@ -22,6 +22,9 @@ public interface IBotHiderApi
 
     // returns false if the slot is out of range.
     bool SetBotSteamId(int slot, ulong steamId64);
+
+    // Set crosshair code, empty or "0" to clear
+    bool SetCrosshairCode(int slot, string code);
 
     // returns false if the slot/name is invalid.
     bool SetPersonaName(int slot, string name);
