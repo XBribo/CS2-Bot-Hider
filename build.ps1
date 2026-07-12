@@ -11,6 +11,11 @@ param(
 )
 
 $ErrorActionPreference = "Stop"
+
+# Force UTF-8 so CMake/MSBuild Chinese output renders correctly
+[Console]::OutputEncoding = [System.Text.Encoding]::UTF8
+$OutputEncoding = [System.Text.Encoding]::UTF8
+
 $Root = $PSScriptRoot
 $DistWin = Join-Path $Root "dist/windows"
 $DistLin = Join-Path $Root "dist/linux"
