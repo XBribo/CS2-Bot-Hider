@@ -7,14 +7,7 @@
     },
     "comment": "destroys leftover bot controllers"
   },
-  "SV_KickOneFromTeam": {
-    "signatures": {
-      "library": "server",
-      "windows": "48 89 5C 24 ? 55 56 57 41 56 41 57 48 8B EC 48 83 EC ? 8B F9 89 4D ? 48 8D 4D ? C7 45 ? 01 00 00 00",
-      "linux": ""
-    },
-    "comment": "kicks one client from a team"
-  },
+
   "CCSBotManager::MaintainBotQuota": {
     "signatures": {
       "library": "server",

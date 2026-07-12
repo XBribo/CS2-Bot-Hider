@@ -95,38 +95,6 @@ static funchook_t *g_pFunchook = nullptr;
 static size_t g_PreparedFunchookCount = 0;
 static bool g_FunchooksInstalled = false;
 
-// * FIX: inline detour on SV_KickOneFromTeam
-#if defined(_WIN32)
-using KickOneFn = char(__fastcall *)(int /*team*/);
-#else
-using KickOneFn = char (*)(int /*team*/);
-#endif
-static KickOneFn g_pfnKickOneTramp = nullptr;
-static void *g_pKickHookTarget = nullptr;
-
-namespace cs2bh
-{
-    bool ServerHasHltvClient();
-}
-
-// Detour
-#if defined(_WIN32)
-static char __fastcall Detour_KickOneFromTeam(int team)
-#else
-static char Detour_KickOneFromTeam(int team)
-#endif
-{
-    // Phantom kick: Windows callers expect success here. Linux must keep the
-    // caller's fallback pruning path alive, otherwise no real slot is freed.
-    if (team == 0 && cs2bh::ServerHasHltvClient())
-#if defined(_WIN32)
-        return 1;
-#else
-        return 0;
-#endif
-    return g_pfnKickOneTramp ? g_pfnKickOneTramp(team) : 0;
-}
-
 // * inline detour on CCSBotManager::MaintainBotQuota
 #if defined(_WIN32)
 using MaintainQuotaFn = int64_t(__fastcall *)(void * /*CCSBotManager*/);
@@ -255,10 +223,8 @@ static bool PrepareFunchook(Function &original, void *target, void *detour, cons
 // Clears all published funchook targets and trampoline pointers
 static void ClearFunchookBindings()
 {
-    g_pfnKickOneTramp = nullptr;
     g_pfnQuotaTramp = nullptr;
     g_pfnPackEntitiesTramp = nullptr;
-    g_pKickHookTarget = nullptr;
     g_pQuotaHookTarget = nullptr;
     g_pPackEntitiesHookTarget = nullptr;
     g_PreparedFunchookCount = 0;
@@ -289,8 +255,6 @@ static void InstallPreparedFunchooks()
     }
 
     g_FunchooksInstalled = true;
-    if (g_pKickHookTarget)
-        META_CONPRINTF("[BOTHIDER] GOTV kick-guard installed at %p\n", g_pKickHookTarget);
     if (g_pQuotaHookTarget)
         META_CONPRINTF("[BOTHIDER] bot-quota fix installed at %p\n", g_pQuotaHookTarget);
     if (g_pPackEntitiesHookTarget)
@@ -457,42 +421,6 @@ namespace cs2bh
         return humans;
     }
 
-    // True if any connected client is the SourceTV/HLTV client
-    bool ServerHasHltvClient()
-    {
-        if (!g_pNetworkServerService)
-            return false;
-        auto *gs = g_pNetworkServerService->GetIGameServer();
-        if (!gs)
-            return false;
-#if defined(_WIN32)
-        __try
-        {
-#endif
-            auto *vec = reinterpret_cast<CUtlVector<void *> *>(
-                reinterpret_cast<unsigned char *>(gs) + targets::kClientListOffset);
-            int count = vec->Count();
-            if (count < 0 || count > 256)
-                return false;
-            for (int i = 0; i < count; ++i)
-            {
-                void *pClient = vec->Element(i);
-                if (!pClient)
-                    continue;
-                if (*reinterpret_cast<unsigned char *>(
-                        reinterpret_cast<unsigned char *>(pClient) + ssc::OFFSET_m_bIsHLTV))
-                    return true;
-            }
-            return false;
-#if defined(_WIN32)
-        }
-        __except (EXCEPTION_EXECUTE_HANDLER)
-        {
-            return false;
-        }
-#endif
-    }
-
     // True if sid is already live on any connected client other than exceptSlot
     static bool IsSteamIdInUseByOther(uint64_t sid, int exceptSlot)
     {
@@ -608,31 +536,6 @@ namespace cs2bh
         targets::kClientListOffset = FindPlatformOffset(gamedata, "CNetworkGameServerBase::m_Clients", targets::kClientListOffset);
         // CBasePlayerController fakeclient flags
         targets::kController_FakeClientFlagsOffset = FindPlatformOffset(gamedata, "CBasePlayerController::FakeClientFlags", targets::kController_FakeClientFlagsOffset);
-    }
-
-    // Resolves and prepares the team-0 kick-guard detour
-    static void InstallKickGuardHook(const nlohmann::json &gamedata, const sig::ModuleInfo &serverModule)
-    {
-        if (!serverModule)
-            return;
-        std::string sigStr = sig::FindPlatformSig(gamedata, "SV_KickOneFromTeam");
-        std::vector<uint8_t> bytes;
-        std::vector<bool> wild;
-        if (sigStr.empty() || !sig::ParseSigString(sigStr, bytes, wild))
-        {
-            META_CONPRINTF("[BOTHIDER] warning: SV_KickOneFromTeam sig missing — GOTV kick-guard disabled\n");
-            return;
-        }
-        void *target = sig::FindPatternIn(serverModule, bytes, wild);
-        if (!target)
-        {
-            META_CONPRINTF("[BOTHIDER] warning: SV_KickOneFromTeam sig not found — GOTV kick-guard disabled\n");
-            return;
-        }
-        if (PrepareFunchook(g_pfnKickOneTramp, target,
-                            reinterpret_cast<void *>(&Detour_KickOneFromTeam),
-                            "SV_KickOneFromTeam"))
-            g_pKickHookTarget = target;
     }
 
     // Resolves and prepares the bot quota flip-around detour
@@ -2224,9 +2127,6 @@ namespace cs2bh
                     serverModule = sig::ModuleFromName(targets::kServerModuleName);
                 ResolveUtilRemoveAndEntSys(gamedata, serverModule);
 
-                // Install the team-0 kick-guard that keeps SourceTV alive
-                InstallKickGuardHook(gamedata, serverModule);
-
                 // Install the bot-quota flip-around detour
                 InstallQuotaHook(gamedata, serverModule);
 
@@ -2298,7 +2198,6 @@ namespace cs2bh
             META_CONPRINTF("[BOTHIDER] shared memory '%s' mapped\n", shm::kMappingName);
             // Publish resolved hook/sig addresses for bh_status (0 = unresolved)
             Publisher().PublishSignature("UTIL_Remove", reinterpret_cast<void *>(g_pfnUtilRemove));
-            Publisher().PublishSignature("SV_KickOneFromTeam", g_pKickHookTarget);
             Publisher().PublishSignature("MaintainBotQuota", g_pQuotaHookTarget);
             Publisher().PublishSignature("PackEntities", g_pPackEntitiesHookTarget);
         }
