@@ -240,9 +240,6 @@ add_custom_command(TARGET BotHider POST_BUILD
         "${CMAKE_BINARY_DIR}/BotHider.vdf"
         "${CMAKE_BINARY_DIR}/package/addons/metamod/BotHider.vdf"
     COMMAND ${CMAKE_COMMAND} -E copy_if_different
-        "${CMAKE_SOURCE_DIR}/configs/addons/BotHider/map_whitelist.json"
-        "${CMAKE_BINARY_DIR}/package/addons/BotHider/map_whitelist.json"
-    COMMAND ${CMAKE_COMMAND} -E copy_if_different
         "${CMAKE_SOURCE_DIR}/configs/addons/BotHider/bot_info.json"
         "${CMAKE_BINARY_DIR}/package/addons/BotHider/bot_info.json"
     COMMAND ${CMAKE_COMMAND} -E copy_if_different

@@ -18,7 +18,6 @@
 #include <cstdint>
 #include <cstring>
 #include <functional>
-#include <fstream>
 #include <array>
 #include <mutex>
 #include <string>
@@ -359,9 +358,6 @@ namespace cs2bh
 
     // Original engine names used when an HLTV slot was adopted before its flag initialized
     static std::array<std::string, PersonaPool::kMaxSlots> g_OriginalSlotName{};
-
-    // Maps where bots stay disguised, loaded from map_whitelist.json
-    static std::vector<std::string> g_DisguiseWhitelist;
 
     // Current controller field used to resolve each managed bot pawn
     static int g_BotPawnHandleOffset = -1;
@@ -1451,76 +1447,6 @@ namespace cs2bh
         return -1;
     }
 
-    // Used when map_whitelist.json is absent/invalid
-    static void LoadDefaultDisguiseWhitelist()
-    {
-        g_DisguiseWhitelist = {
-            "ar_baggage",
-            "ar_pool_day",
-            "ar_shoots",
-            "ar_shoots_night",
-            "cs_alpine",
-            "cs_italy",
-            "cs_office",
-            "de_ancient",
-            "de_ancient_night",
-            "de_anubis",
-            "de_cache",
-            "de_dust2",
-            "de_inferno",
-            "de_mirage",
-            "de_nuke",
-            "de_overpass",
-            "de_poseidon",
-            "de_sanctum",
-            "de_stronghold",
-            "de_train",
-            "de_vertigo",
-            "de_warden",
-        };
-    }
-
-    // Load the map whitelist from a JSON
-    static void LoadDisguiseWhitelist(const char *path)
-    {
-        g_DisguiseWhitelist.clear();
-        std::ifstream ifs(path);
-        if (ifs.is_open())
-        {
-            try
-            {
-                nlohmann::json root = nlohmann::json::parse(ifs);
-                if (root.is_array())
-                {
-                    for (const auto &e : root)
-                        if (e.is_string())
-                            g_DisguiseWhitelist.push_back(e.get<std::string>());
-                }
-            }
-            catch (...)
-            {
-                g_DisguiseWhitelist.clear();
-            }
-        }
-        if (g_DisguiseWhitelist.empty())
-            LoadDefaultDisguiseWhitelist();
-    }
-
-    // Official maps
-    // Bots should stay disguised
-    static bool IsDisguiseWhitelistMap(const char *mapName)
-    {
-        if (!mapName || !mapName[0])
-            return false;
-        // Strip any workshop/path prefix → bare map name
-        const char *slash = std::strrchr(mapName, '/');
-        const char *base = slash ? slash + 1 : mapName;
-        for (const auto &m : g_DisguiseWhitelist)
-            if (m == base)
-                return true;
-        return false;
-    }
-
     // PRE ICvar::DispatchConCommand — restore fake-player identity on all managed slots
     void HiderPlugin::Hook_DispatchConCommand_Pre(ConCommandRef cmd, const CCommandContext &,
                                                   const CCommand &args)
@@ -1909,12 +1835,6 @@ namespace cs2bh
         }
         META_CONPRINTF("[BOTHIDER] OnLevelInit map=%s\n", pMapName ? pMapName : "?");
 
-        // Whitelisted maps run disguised
-        if (IsDisguiseWhitelistMap(pMapName) && !m_bDisguiseEnabled)
-        {
-            META_CONPRINTF("[BOTHIDER] whitelist map '%s' — enabling disguise\n", pMapName);
-            SetDisguiseEnabled(true);
-        }
     }
 
     void HiderPlugin::OnLevelShutdown()
@@ -2064,13 +1984,6 @@ namespace cs2bh
                            "bot identity will fall back to curated roster\n",
                            jsonPath.c_str());
         }
-
-        // Load the map whitelist
-        std::string wlPath = g_SMAPI->GetBaseDir();
-        wlPath += "/addons/BotHider/map_whitelist.json";
-        LoadDisguiseWhitelist(wlPath.c_str());
-        META_CONPRINTF("[BOTHIDER] disguise whitelist — %zu map(s) from '%s'\n",
-                       g_DisguiseWhitelist.size(), wlPath.c_str());
 
         SH_ADD_HOOK(IServerGameClients, OnClientConnected, gameclients,
                     SH_MEMBER(this, &HiderPlugin::Hook_OnClientConnected_Post), true);
