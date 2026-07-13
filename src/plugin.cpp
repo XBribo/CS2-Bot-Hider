@@ -23,7 +23,6 @@
 #include <mutex>
 #include <string>
 #include <thread>
-#include <utility>
 #include <vector>
 
 #include <funchook.h>
@@ -32,9 +31,9 @@
 
 #if defined(_WIN32)
 #include <Windows.h>
+#define CS2BH_FASTCALL __fastcall
 #else
-#include <dlfcn.h>
-#include <strings.h>
+#define CS2BH_FASTCALL
 #endif
 
 #include <iserver.h>
@@ -53,10 +52,6 @@ SH_DECL_HOOK3(INetworkGameServer, StartChangeLevel, SH_NOATTRIB, 0,
 SH_DECL_HOOK3_void(IServerGameDLL, GameFrame, SH_NOATTRIB, 0, bool, bool, bool);
 SH_DECL_HOOK3_void(ICvar, DispatchConCommand, SH_NOATTRIB, 0,
                    ConCommandRef, const CCommandContext &, const CCommand &);
-#if !defined(_WIN32)
-SH_DECL_MANUALHOOK1(CreateFakeClientSlotHook, cs2bh::targets::kVTSlot_CreateFakeClient, 0, 0,
-                    cs2bh::PlayerSlotHookResult, const char *);
-#endif
 
 namespace cs2bh
 {
@@ -81,11 +76,7 @@ static void *g_pGameResourceService = nullptr;
 // * UTIL_Remove(CEntityInstance*)
 // Used to destroy the CCSPlayerController a kicked bot leaves behind
 
-#if defined(_WIN32)
-using UtilRemoveFn = void(__fastcall *)(void * /*CEntityInstance*/);
-#else
-using UtilRemoveFn = void (*)(void * /*CEntityInstance*/);
-#endif
+using UtilRemoveFn = void(CS2BH_FASTCALL *)(void * /*CEntityInstance*/);
 static UtilRemoveFn g_pfnUtilRemove = nullptr;
 
 // Cross-check anchor: address of the CGameEntitySystem singleton global that UTIL_Remove references.
@@ -96,25 +87,16 @@ static size_t g_PreparedFunchookCount = 0;
 static bool g_FunchooksInstalled = false;
 
 // * inline detour on CCSBotManager::MaintainBotQuota
-#if defined(_WIN32)
-using MaintainQuotaFn = int64_t(__fastcall *)(void * /*CCSBotManager*/);
-#else
-using MaintainQuotaFn = int64_t (*)(void * /*CCSBotManager*/);
-#endif
+using MaintainQuotaFn = int64_t(CS2BH_FASTCALL *)(void * /*CCSBotManager*/);
 static MaintainQuotaFn g_pfnQuotaTramp = nullptr;
 static void *g_pQuotaHookTarget = nullptr;
 
-#if defined(_WIN32)
-using HandleJoinTeamFn = int64_t(__fastcall *)(void * /*CCSPlayerController*/, unsigned int, bool);
+using HandleJoinTeamFn = int64_t(CS2BH_FASTCALL *)(void * /*CCSPlayerController*/, unsigned int, bool);
 static HandleJoinTeamFn g_pfnHandleJoinTeamTramp = nullptr;
 static void *g_pHandleJoinTeamHookTarget = nullptr;
-#endif
 
-#if defined(_WIN32)
-using PackEntitiesFn = void(__fastcall *)(void *, void *, int, void *, void *);
-#else
-using PackEntitiesFn = void (*)(void *, void *, int, void *, void *);
-#endif
+using PackEntitiesFn = void(CS2BH_FASTCALL *)(void *, void *, int, void *, void *);
+using ClientSetNameFn = void(CS2BH_FASTCALL *)(void *, const char *);
 static PackEntitiesFn g_pfnPackEntitiesTramp = nullptr;
 static void *g_pPackEntitiesHookTarget = nullptr;
 static std::atomic_bool g_PackEntitiesFirstCallLogged = false;
@@ -127,7 +109,6 @@ struct BotPawnRef
     uint32_t Handle = 0xFFFFFFFF;
 };
 
-#if defined(_WIN32)
 struct ManagedControllerTrace
 {
     int Slot = -1;
@@ -136,16 +117,13 @@ struct ManagedControllerTrace
     bool Managed = false;
     bool Hltv = false;
 };
-#endif
 
 namespace cs2bh
 {
     std::vector<BotPawnRef> ApplyBotFlagOverride();
     void RestoreBotFlagOverride(const std::vector<BotPawnRef> &pawns);
-#if defined(_WIN32)
     // Collects identity state for one managed controller
     ManagedControllerTrace TraceManagedController(void *controller);
-#endif
 }
 
 class PackEntitiesDepthGuard
@@ -183,15 +161,9 @@ private:
 };
 
 // Passes entity packing through unchanged and logs the first calling thread
-#if defined(_WIN32)
-static void __fastcall Detour_PackEntities(void *serverObject, void *packContext,
-                                          int clientCount, void *clients,
-                                          void *snapshotContext)
-#else
-static void Detour_PackEntities(void *serverObject, void *packContext,
-                                int clientCount, void *clients,
-                                void *snapshotContext)
-#endif
+static void CS2BH_FASTCALL Detour_PackEntities(void *serverObject, void *packContext,
+                                              int clientCount, void *clients,
+                                              void *snapshotContext)
 {
     if (!g_PackEntitiesFirstCallLogged.exchange(true, std::memory_order_relaxed))
     {
@@ -248,10 +220,8 @@ static void ClearFunchookBindings()
     g_pfnPackEntitiesTramp = nullptr;
     g_pQuotaHookTarget = nullptr;
     g_pPackEntitiesHookTarget = nullptr;
-#if defined(_WIN32)
     g_pfnHandleJoinTeamTramp = nullptr;
     g_pHandleJoinTeamHookTarget = nullptr;
-#endif
     g_PreparedFunchookCount = 0;
     g_FunchooksInstalled = false;
 }
@@ -285,11 +255,9 @@ static void InstallPreparedFunchooks()
     if (g_pPackEntitiesHookTarget)
         META_CONPRINTF("[BOTHIDER] CNetworkGameServer::PackEntities hook installed at %p\n",
                        g_pPackEntitiesHookTarget);
-#if defined(_WIN32)
     if (g_pHandleJoinTeamHookTarget)
         META_CONPRINTF("[BOTHIDER] CCSPlayerController::HandleCommand_JoinTeam hook installed at %p\n",
                        g_pHandleJoinTeamHookTarget);
-#endif
 }
 
 // Uninstalls all hooks before releasing their shared funchook handle
@@ -341,24 +309,19 @@ namespace cs2bh
 }
 
 // Detour
-#if defined(_WIN32)
-static int64_t __fastcall Detour_MaintainBotQuota(void *mgr)
-#else
-static int64_t Detour_MaintainBotQuota(void *mgr)
-#endif
+static int64_t CS2BH_FASTCALL Detour_MaintainBotQuota(void *mgr)
 {
-    std::array<bool, 64> flipped;
+    std::array<bool, 64> flipped{};
     cs2bh::FlipManagedController904(false, &flipped);
     int64_t r = g_pfnQuotaTramp ? g_pfnQuotaTramp(mgr) : 0;
     cs2bh::FlipManagedController904(true, &flipped);
     return r;
 }
 
-#if defined(_WIN32)
 // Restores Bot identity only while the engine validates an initial team join
-static int64_t __fastcall Detour_HandleCommandJoinTeam(void *controller,
-                                                       unsigned int requestedTeam,
-                                                       bool unknownFlag)
+static int64_t CS2BH_FASTCALL Detour_HandleCommandJoinTeam(void *controller,
+                                                           unsigned int requestedTeam,
+                                                           bool unknownFlag)
 {
     ManagedControllerTrace trace = cs2bh::TraceManagedController(controller);
     bool restoreFakeFlag = trace.Managed && !trace.Hltv &&
@@ -388,27 +351,8 @@ static int64_t __fastcall Detour_HandleCommandJoinTeam(void *controller,
     return result;
 }
 
-#endif
-
 namespace cs2bh
 {
-
-#if !defined(_WIN32)
-    struct FakeClientCallContext
-    {
-        const BotEntry *Entry = nullptr;
-        std::string RequestedName;
-        std::string Persona;
-        std::string ConnectedName;
-        bool UseBotInfoName = false;
-        bool Enabled = false;
-        bool ConnectedObserved = false;
-        int ConnectedSlot = -1;
-    };
-
-    // Keep the upstream Linux CreateFakeClient context path unchanged
-    static thread_local std::vector<FakeClientCallContext> g_FakeClientCallStack;
-#endif
 
     // Per-slot bound bot_info entry
     static std::array<const BotEntry *, PersonaPool::kMaxSlots> g_SlotEntry{};
@@ -422,19 +366,10 @@ namespace cs2bh
     // Current controller field used to resolve each managed bot pawn
     static int g_BotPawnHandleOffset = -1;
 
-#if !defined(_WIN32)
-    static void ClearFakeClientCallStack()
-    {
-        for (const auto &context : g_FakeClientCallStack)
-            BotInfo().ReleaseAssignment(context.Entry);
-        g_FakeClientCallStack.clear();
-    }
-#endif
-
     // Resolve CServerSideClient* for a slot
     static void *ResolveClientBySlot(int slot)
     {
-        if (!g_pNetworkServerService)
+        if (!g_pNetworkServerService || targets::kClientListOffset < 0)
             return nullptr;
         auto *gs = g_pNetworkServerService->GetIGameServer();
         if (!gs)
@@ -602,6 +537,14 @@ namespace cs2bh
         targets::kClientListOffset = FindPlatformOffset(gamedata, "CNetworkGameServerBase::m_Clients", targets::kClientListOffset);
         // CBasePlayerController fakeclient flags
         targets::kController_FakeClientFlagsOffset = FindPlatformOffset(gamedata, "CBasePlayerController::FakeClientFlags", targets::kController_FakeClientFlagsOffset);
+        targets::kController_TeamOffset = FindPlatformOffset(gamedata, "CBaseEntity::m_iTeamNum", targets::kController_TeamOffset);
+        // Unified identity and name paths
+        targets::kVTSlot_ClientSetName = FindPlatformOffset(gamedata, "CServerSideClient::SetName", targets::kVTSlot_ClientSetName);
+        targets::kEntSys_OffsetInGameResSvc = FindPlatformOffset(gamedata, "GameResourceServiceServer::m_pEntitySystem", targets::kEntSys_OffsetInGameResSvc);
+        targets::kEntSys_IdentityChunksOffset = FindPlatformOffset(gamedata, "CEntitySystem::m_EntityList", targets::kEntSys_IdentityChunksOffset);
+        targets::kEntIdentity_Size = FindPlatformOffset(gamedata, "CEntityIdentity::Size", targets::kEntIdentity_Size);
+        targets::kEntIdentity_InstanceOffset = FindPlatformOffset(gamedata, "CEntityIdentity::m_pInstance", targets::kEntIdentity_InstanceOffset);
+        targets::kEntIdentity_ClassNameOffset = FindPlatformOffset(gamedata, "CEntityIdentity::m_designerName", targets::kEntIdentity_ClassNameOffset);
     }
 
     // Resolves and prepares the bot quota flip-around detour
@@ -629,7 +572,6 @@ namespace cs2bh
             g_pQuotaHookTarget = target;
     }
 
-#if defined(_WIN32)
     // Resolves and prepares the HandleCommand_JoinTeam identity-scope detour
     static void InstallHandleJoinTeamHook(const nlohmann::json &gamedata,
                                           const sig::ModuleInfo &serverModule)
@@ -662,8 +604,6 @@ namespace cs2bh
                             "CCSPlayerController::HandleCommand_JoinTeam"))
             g_pHandleJoinTeamHookTarget = target;
     }
-
-#endif
 
     // Resolves and prepares the pass-through engine entity-packing detour
     static void InstallPackEntitiesHook(const nlohmann::json &gamedata)
@@ -774,7 +714,13 @@ namespace cs2bh
     {
         if (classnameOut && classnameCap)
             classnameOut[0] = '\0';
-        if (!g_pGameResourceService || entityIndex <= 0 || entityIndex >= 0x8000)
+        if (!g_pGameResourceService || entityIndex <= 0 || entityIndex >= 0x8000 ||
+            targets::kEntSys_OffsetInGameResSvc < 0 ||
+            targets::kEntSys_IdentityChunksOffset < 0 ||
+            targets::kEntIdentity_Size <= 0 ||
+            targets::kEntIdentity_InstanceOffset < 0 ||
+            (classnameOut && classnameCap &&
+             targets::kEntIdentity_ClassNameOffset < 0))
             return nullptr;
 
         void *entSys = nullptr;
@@ -794,7 +740,8 @@ namespace cs2bh
         unsigned char *identity = reinterpret_cast<unsigned char *>(chunk) +
                                   (entityIndex % targets::kEntListChunkSize) * targets::kEntIdentity_Size;
         if (classnameOut && classnameCap)
-            SehReadCStr(identity + 0x20, classnameOut, classnameCap);
+            SehReadCStr(identity + targets::kEntIdentity_ClassNameOffset,
+                        classnameOut, classnameCap);
 
         void *instance = nullptr;
         if (!SehReadPtr(identity + targets::kEntIdentity_InstanceOffset, &instance) || !instance)
@@ -802,20 +749,22 @@ namespace cs2bh
         return instance;
     }
 
-#if defined(_WIN32)
     // Collects controller, client, and BotHider state for a team join
     ManagedControllerTrace TraceManagedController(void *controller)
     {
         ManagedControllerTrace trace;
-        if (!controller)
+        if (!controller || targets::kController_FakeClientFlagsOffset < 0)
             return trace;
 
-        constexpr int kControllerTeamOffset = 836;
         trace.Flags = *reinterpret_cast<uint32_t *>(
             reinterpret_cast<unsigned char *>(controller) +
             targets::kController_FakeClientFlagsOffset);
-        trace.CurrentTeam = *reinterpret_cast<unsigned char *>(
-            reinterpret_cast<unsigned char *>(controller) + kControllerTeamOffset);
+        if (targets::kController_TeamOffset >= 0)
+        {
+            trace.CurrentTeam = *reinterpret_cast<unsigned char *>(
+                reinterpret_cast<unsigned char *>(controller) +
+                targets::kController_TeamOffset);
+        }
 
         for (int idx = 0; idx < PersonaPool::kMaxSlots; ++idx)
         {
@@ -836,8 +785,6 @@ namespace cs2bh
         }
         return trace;
     }
-#endif
-
     // Returns true when an entity is already entering its destruction path
     static bool IsEntityBeingDeleted(void *instance)
     {
@@ -994,7 +941,7 @@ namespace cs2bh
             return false;
         }
 
-        // ? One-time cross-check: prove our GameResourceService+0x58 chain resolves
+        // ? One-time cross-check: verify the configured entity-system chain
         static bool s_crossChecked = false;
         if (!s_crossChecked && g_ppEntSysGlobal)
         {
@@ -1020,6 +967,8 @@ namespace cs2bh
     // The quota detour temporarily restores this bit while counting bots
     static bool SetControllerFakeClientFlag(int slot, bool fakeClient)
     {
+        if (targets::kController_FakeClientFlagsOffset < 0)
+            return false;
         void *pClient = ResolveClientBySlot(slot);
         if (!pClient)
             return false;
@@ -1049,7 +998,7 @@ namespace cs2bh
     // Flip managed bots' controller fakeclient bit around the quota pass.
     int FlipManagedController904(bool restore, std::array<bool, 64> *saved)
     {
-        if (!saved)
+        if (!saved || targets::kController_FakeClientFlagsOffset < 0)
             return 0;
         const int kCtrlOff = targets::kController_FakeClientFlagsOffset;
         constexpr uint32_t kBit = 0x100;
@@ -1097,7 +1046,7 @@ namespace cs2bh
     // EXPERIMENT: !restore clears +904 0x100 on managed bots reading as bot and records them
     int ClearManagedController904(bool restore, std::array<bool, 64> *saved)
     {
-        if (!saved)
+        if (!saved || targets::kController_FakeClientFlagsOffset < 0)
             return 0;
         const int kCtrlOff = targets::kController_FakeClientFlagsOffset;
         constexpr uint32_t kBit = 0x100;
@@ -1177,17 +1126,17 @@ namespace cs2bh
     // Update the engine-side client name
     static const char *SetEngineName(HiderPlugin *plugin, void *pClient, const char *newName)
     {
-        if (!pClient || !newName || !newName[0])
+        (void)plugin;
+        if (!pClient || !newName || !newName[0] ||
+            targets::kVTSlot_ClientSetName < 0)
             return nullptr;
 #if defined(_WIN32)
-        (void)plugin;
         __try
         {
             auto **vtable = *reinterpret_cast<void ***>(pClient);
             if (!vtable)
                 return nullptr;
-            using SetNameFn = void(__fastcall *)(void *, const char *);
-            auto setName = reinterpret_cast<SetNameFn>(
+            auto setName = reinterpret_cast<ClientSetNameFn>(
                 vtable[targets::kVTSlot_ClientSetName]);
             if (!setName)
                 return nullptr;
@@ -1199,12 +1148,15 @@ namespace cs2bh
             return nullptr;
         }
 #else
-        if (!plugin->m_pUtlStringSet)
+        auto **vtable = *reinterpret_cast<void ***>(pClient);
+        if (!vtable)
             return nullptr;
-        void *pUtlString =
-            reinterpret_cast<unsigned char *>(pClient) + ssc::OFFSET_m_Name;
-        plugin->m_pUtlStringSet(pUtlString, newName);
-        return *reinterpret_cast<const char **>(pUtlString);
+        auto setName = reinterpret_cast<ClientSetNameFn>(
+            vtable[targets::kVTSlot_ClientSetName]);
+        if (!setName)
+            return nullptr;
+        setName(pClient, newName);
+        return ssc::ReadName(pClient);
 #endif
     }
 
@@ -1270,16 +1222,13 @@ namespace cs2bh
 
     // Hook bodies
 
-    // Windows binds from the authoritative OnClientConnected slot and avoids
-    // the unstable IVEngineServer::CreateFakeClient return hook. Linux keeps
-    // the upstream CreateFakeClient context path below
+    // Adopts fake clients from the authoritative connected slot
     void HiderPlugin::Hook_OnClientConnected_Post(CPlayerSlot slot, const char *pszName, uint64 /*xuid*/,
                                                   const char *pszNetworkID, const char * /*pszAddress*/,
                                                   bool bFakePlayer)
     {
         if (m_bSelfDisabled || !bFakePlayer || IsHltvConnection(pszName, pszNetworkID))
             RETURN_META(MRES_IGNORED);
-#if defined(_WIN32)
         int idx = slot.Get();
         if (idx < 0 || idx >= PersonaPool::kMaxSlots)
             RETURN_META(MRES_IGNORED);
@@ -1340,25 +1289,6 @@ namespace cs2bh
                        idx, displayName.c_str(),
                        static_cast<unsigned long long>(sid));
         RETURN_META(MRES_IGNORED);
-#else
-        if (g_FakeClientCallStack.empty())
-            RETURN_META(MRES_IGNORED);
-
-        int idx = slot.Get();
-        if (idx < 0 || idx >= PersonaPool::kMaxSlots)
-            RETURN_META(MRES_IGNORED);
-
-        auto &context = g_FakeClientCallStack.back();
-        if (!context.Enabled || context.ConnectedObserved)
-            RETURN_META(MRES_IGNORED);
-
-        context.ConnectedObserved = true;
-        context.ConnectedSlot = idx;
-        context.ConnectedName = (pszName && pszName[0]) ? pszName : "";
-        META_CONPRINTF("[BOTHIDER] CreateFakeClient observed slot=%d name='%s'\n",
-                       idx, context.ConnectedName.empty() ? "<empty>" : context.ConnectedName.c_str());
-        RETURN_META(MRES_IGNORED);
-#endif
     }
 
     void HiderPlugin::Hook_ClientPutInServer_Post(CPlayerSlot slot, char const *pszName,
@@ -1366,14 +1296,9 @@ namespace cs2bh
     {
         if (m_bSelfDisabled)
             RETURN_META(MRES_IGNORED);
-#if defined(_WIN32)
         // OnClientConnected already classified the client before disguise
         // changed its fake-client fields
         (void)type;
-#else
-        if (type != 1)
-            RETURN_META(MRES_IGNORED);
-#endif
         int idx = slot.Get();
         if (idx < 0 || idx >= PersonaPool::kMaxSlots)
             RETURN_META(MRES_IGNORED);
@@ -1407,9 +1332,6 @@ namespace cs2bh
         if (!visibleName.empty())
         {
             SetEngineName(this, pClient, visibleName.c_str());
-#if !defined(_WIN32)
-            RefreshClientUserInfo(idx);
-#endif
         }
         else
         {
@@ -1493,15 +1415,6 @@ namespace cs2bh
                !std::strcmp(name, "banid");
     }
 
-    // True for commands that force bots/humans onto teams
-    static bool IsHumanTeamCommand(const char *name)
-    {
-        if (!name || !name[0])
-            return false;
-        return !std::strcmp(name, "mp_humanteam") ||
-               !std::strcmp(name, "bot_join_team");
-    }
-
     // True for bot_add variants — their quota census must see disguised bots as bots
     static bool IsBotAddCommand(const char *name)
     {
@@ -1536,39 +1449,6 @@ namespace cs2bh
                 return idx;
         }
         return -1;
-    }
-
-    static int CaseCmp(const char *a, const char *b)
-    {
-#if defined(_WIN32)
-        return _stricmp(a, b);
-#else
-        return strcasecmp(a, b);
-#endif
-    }
-
-    // True if the value forces a specific team
-    static bool IsTeamForceValue(const char *v)
-    {
-        if (!v || !v[0])
-            return false;
-        return std::strcmp(v, "0") != 0 && CaseCmp(v, "any") != 0;
-    }
-
-    // Poll mp_humanteam/bot_join_team values directly
-    static bool IsTeamForceActive()
-    {
-        static const char *kNames[] = {"mp_humanteam", "bot_join_team"};
-        for (const char *name : kNames)
-        {
-            ConVarRefAbstract ref(name);
-            if (!ref.IsValidRef())
-                continue;
-            CUtlString val = ref.GetString();
-            if (IsTeamForceValue(val.Get()))
-                return true;
-        }
-        return false;
     }
 
     // Used when map_whitelist.json is absent/invalid
@@ -1660,19 +1540,6 @@ namespace cs2bh
                 m_QuotaBeforeAdd = botQuota.GetInt();
             RETURN_META(MRES_IGNORED);
         }
-
-#if !defined(_WIN32)
-        if (IsHumanTeamCommand(cmdName))
-        {
-            if (m_bDisguiseEnabled)
-            {
-                META_CONPRINTF("[BOTHIDER] '%s' detected — disabling disguise\n",
-                               cmdName);
-                SetDisguiseEnabled(false);
-            }
-            RETURN_META(MRES_IGNORED);
-        }
-#endif
 
         if (!std::strcmp(cmdName, "bot_kick"))
         {
@@ -1916,155 +1783,13 @@ namespace cs2bh
         char quotaCmd[48];
         std::snprintf(quotaCmd, sizeof(quotaCmd), "bot_quota %d\n", quota);
         // Drop quota to 0 before kicking: otherwise the engine keeps bots alive to
-        // satisfy the live quota mid-kick, and survivors skip CreateFakeClient
+        // satisfy the live quota mid-kick, and survivors skip OnClientConnected
         engine->ServerCommand("bot_quota 0\n");
         engine->ServerCommand("bot_kick all\n");
         engine->ServerCommand(quotaCmd);
         META_CONPRINTF("[BOTHIDER] rematch rebuild — kicked %d bot(s), bot_quota->%d\n",
                        managed, quota);
     }
-
-#if !defined(_WIN32)
-    // Preserve the upstream Linux CreateFakeClient binding path
-    PlayerSlotHookResult HiderPlugin::Hook_CreateFakeClient_Pre(const char *netname)
-    {
-        FakeClientCallContext context;
-        context.RequestedName = (netname && netname[0]) ? netname : "";
-        context.UseBotInfoName = m_bUseBotInfoName;
-        context.Enabled = !m_bSelfDisabled;
-
-        if (context.Enabled)
-        {
-            context.Entry = BotInfo().PickForBot(netname);
-            if (context.UseBotInfoName && context.Entry)
-                context.Persona = context.Entry->Name;
-            else if (netname && netname[0])
-                context.Persona = netname;
-            else if (context.Entry)
-                context.Persona = context.Entry->Name;
-            else
-                context.Persona = Personas().PickFromRoster();
-        }
-
-        g_FakeClientCallStack.push_back(std::move(context));
-        META_CONPRINTF("[BOTHIDER] CreateFakeClient begin depth=%zu requested='%s'\n",
-                       g_FakeClientCallStack.size(),
-                       netname && netname[0] ? netname : "<empty>");
-        RETURN_META_VALUE(MRES_IGNORED, PlayerSlotHookResult(-1));
-    }
-
-    PlayerSlotHookResult HiderPlugin::Hook_CreateFakeClient_Post(const char * /*netname*/)
-    {
-        if (g_FakeClientCallStack.empty())
-        {
-            META_CONPRINTF("[BOTHIDER] CreateFakeClient end without matching begin\n");
-            RETURN_META_VALUE(MRES_IGNORED, PlayerSlotHookResult(-1));
-        }
-
-        const int returnedSlot = (META_RESULT_ORIG_RET(PlayerSlotHookResult)).Get();
-        FakeClientCallContext context = std::move(g_FakeClientCallStack.back());
-        g_FakeClientCallStack.pop_back();
-
-        if (!context.Enabled)
-            RETURN_META_VALUE(MRES_IGNORED, PlayerSlotHookResult(-1));
-
-        if (returnedSlot < 0 || returnedSlot >= PersonaPool::kMaxSlots)
-        {
-            BotInfo().ReleaseAssignment(context.Entry);
-            META_CONPRINTF("[BOTHIDER] CreateFakeClient failed returned=%d requested='%s'\n",
-                           returnedSlot,
-                           context.RequestedName.empty() ? "<empty>" : context.RequestedName.c_str());
-            RETURN_META_VALUE(MRES_IGNORED, PlayerSlotHookResult(-1));
-        }
-
-        if (context.ConnectedObserved && context.ConnectedSlot != returnedSlot)
-        {
-            BotInfo().ReleaseAssignment(context.Entry);
-            META_CONPRINTF("[BOTHIDER] CreateFakeClient slot mismatch returned=%d connected=%d\n",
-                           returnedSlot, context.ConnectedSlot);
-            RETURN_META_VALUE(MRES_IGNORED, PlayerSlotHookResult(-1));
-        }
-
-        void *pClient = ResolveClientBySlot(returnedSlot);
-        if (!pClient)
-        {
-            BotInfo().ReleaseAssignment(context.Entry);
-            META_CONPRINTF("[BOTHIDER] CreateFakeClient bind failed: client slot=%d unavailable after return\n",
-                           returnedSlot);
-            RETURN_META_VALUE(MRES_IGNORED, PlayerSlotHookResult(-1));
-        }
-
-        std::string engineName = context.ConnectedName.empty()
-                                     ? context.RequestedName
-                                     : context.ConnectedName;
-        std::string displayName;
-        if (context.UseBotInfoName && !context.Persona.empty())
-            displayName = context.Persona;
-        else if (!engineName.empty())
-            displayName = engineName;
-        else
-            displayName = context.Persona;
-
-        const char *boundName = engineName.empty() ? displayName.c_str() : engineName.c_str();
-        bool nameChanged = false;
-        if (!displayName.empty() && displayName != engineName)
-        {
-            const char *storedName = SetEngineName(this, pClient, displayName.c_str());
-            if (storedName && storedName[0])
-            {
-                boundName = storedName;
-                nameChanged = true;
-            }
-            else
-            {
-                META_CONPRINTF("[BOTHIDER] CreateFakeClient bind warning: name overwrite failed slot=%d\n",
-                               returnedSlot);
-            }
-        }
-
-        const BotEntry *cfg = context.Entry;
-        uint64_t cfgSid = (cfg && cfg->SteamId64 != 0) ? cfg->SteamId64 : 0;
-        const char *cfgCross = cfg ? cfg->CrosshairCode.c_str() : nullptr;
-        uint32_t cfgFlair = cfg ? cfg->ScoreboardFlair : 0;
-        if (!Manager().AdoptSlot(returnedSlot, boundName, cfgSid, cfgCross, cfgFlair))
-        {
-            if (nameChanged && !engineName.empty())
-            {
-                SetEngineName(this, pClient, engineName.c_str());
-                RefreshClientUserInfo(returnedSlot);
-            }
-            BotInfo().ReleaseAssignment(context.Entry);
-            META_CONPRINTF("[BOTHIDER] CreateFakeClient bind failed: manager rejected slot=%d\n",
-                           returnedSlot);
-            RETURN_META_VALUE(MRES_IGNORED, PlayerSlotHookResult(-1));
-        }
-
-        g_SlotEntry[returnedSlot] = cfg;
-        g_OriginalSlotName[returnedSlot] = engineName;
-        if (m_bDisguiseEnabled)
-        {
-            ssc::ClearFakePlayer(pClient);
-            SetControllerFakeClientFlag(returnedSlot, false);
-        }
-
-        uint64_t sid = 0;
-        if (cfgSid != 0)
-        {
-            sid = MakeUniqueSteamId(returnedSlot, cfgSid);
-            ssc::WriteSteamId(pClient, sid);
-            Manager().SetSyntheticSid(returnedSlot, sid);
-            Publisher().UpdateSyntheticSid(returnedSlot, sid);
-        }
-        RefreshClientUserInfo(returnedSlot);
-
-        META_CONPRINTF("[BOTHIDER] slot=%d steamid64=%llu name='%s'\n",
-                       returnedSlot, static_cast<unsigned long long>(sid),
-                       boundName && boundName[0] ? boundName : "<null>");
-        META_CONPRINTF("[BOTHIDER] CreateFakeClient end slot=%d depth=%zu\n",
-                       returnedSlot, g_FakeClientCallStack.size());
-        RETURN_META_VALUE(MRES_IGNORED, PlayerSlotHookResult(-1));
-    }
-#endif
 
     CUtlVector<INetworkGameClient *> *HiderPlugin::Hook_StartChangeLevel_Pre(
         const char *mapName, const char *landmark, void * /*changelevelState*/)
@@ -2073,9 +1798,6 @@ namespace cs2bh
         {
             RETURN_META_VALUE(MRES_IGNORED, nullptr);
         }
-#if !defined(_WIN32)
-        ClearFakeClientCallStack();
-#endif
         Manager().ReleaseAll();
         BotInfo().ResetAssignments();
         META_CONPRINTF("[BOTHIDER] StartChangeLevel PRE — map='%s' landmark='%s'\n",
@@ -2102,16 +1824,6 @@ namespace cs2bh
         // Reset bots' idle timers (1s)
         if ((++m_TickCounter & 63u) == 0u)
         {
-#if !defined(_WIN32)
-            // Poll mp_humanteam/bot_join_team. Windows replay servers use
-            // these convars while their managed bots remain disguised
-            if (m_bDisguiseEnabled && IsTeamForceActive())
-            {
-                META_CONPRINTF("[BOTHIDER] team-force convar active — disabling disguise\n");
-                SetDisguiseEnabled(false);
-            }
-#endif
-
             for (int idx = 0; idx < PersonaPool::kMaxSlots; ++idx)
             {
                 if (!Manager().IsManaged(idx))
@@ -2143,7 +1855,7 @@ namespace cs2bh
                 Publisher().UpdateSyntheticSid(slot, unique);
                 RefreshClientUserInfo(slot);
             },
-            // SET_PERSONA: the Windows engine setter also publishes userinfo
+            // SET_PERSONA: the engine setter also publishes userinfo
             [this](int slot, const char *name)
             {
                 if (!Manager().IsManaged(slot) || !name || !name[0])
@@ -2152,9 +1864,6 @@ namespace cs2bh
                 if (!pClient)
                     return;
                 SetEngineName(this, pClient, name);
-#if !defined(_WIN32)
-                RefreshClientUserInfo(slot);
-#endif
                 Personas().MarkSlotManaged(slot, name);
                 Publisher().UpdatePersonaName(slot, name);
             },
@@ -2210,9 +1919,6 @@ namespace cs2bh
 
     void HiderPlugin::OnLevelShutdown()
     {
-#if !defined(_WIN32)
-        ClearFakeClientCallStack();
-#endif
         Manager().ReleaseAll();
         BotInfo().ResetAssignments();
         META_CONPRINTF("[BOTHIDER] OnLevelShutdown — state drained\n");
@@ -2259,6 +1965,22 @@ namespace cs2bh
             {
                 // Override member offsets from gamedata.json (fallback kept if absent)
                 LoadMemberOffsets(gamedata);
+                META_CONPRINTF(
+                    "[BOTHIDER] unified targets: SetName=#%d team=%d entitySystem=%d "
+                    "entityList=%d identitySize=%d instance=%d className=%d\n",
+                    targets::kVTSlot_ClientSetName,
+                    targets::kController_TeamOffset,
+                    targets::kEntSys_OffsetInGameResSvc,
+                    targets::kEntSys_IdentityChunksOffset,
+                    targets::kEntIdentity_Size,
+                    targets::kEntIdentity_InstanceOffset,
+                    targets::kEntIdentity_ClassNameOffset);
+                if (targets::kVTSlot_ClientSetName < 0)
+                {
+                    META_CONPRINTF(
+                        "[BOTHIDER] warning: CServerSideClient::SetName vtable slot missing - "
+                        "name overwrite disabled\n");
+                }
 
                 sig::ModuleInfo serverModule = sig::ModuleFromInterfacePtr(gameclients);
                 if (!serverModule)
@@ -2268,10 +1990,8 @@ namespace cs2bh
                 // Install the bot-quota flip-around detour
                 InstallQuotaHook(gamedata, serverModule);
 
-#if defined(_WIN32)
                 // Install the initial team-join identity scope
                 InstallHandleJoinTeamHook(gamedata, serverModule);
-#endif
 
                 // Install the pass-through engine entity-packing detour
                 InstallPackEntitiesHook(gamedata);
@@ -2313,26 +2033,6 @@ namespace cs2bh
 
         InstallPreparedFunchooks();
 
-        // Linux retains the upstream CUtlString::Set name path. Windows uses
-        // CServerSideClient::SetName directly without this symbol
-#if !defined(_WIN32)
-        void *tier0 = dlopen(targets::kTier0ModuleName, RTLD_NOLOAD | RTLD_NOW);
-        if (tier0)
-        {
-            m_pUtlStringSet = reinterpret_cast<CUtlStringSetFn>(
-                dlsym(tier0, targets::kSym_CUtlString_Set));
-        }
-        if (!m_pUtlStringSet)
-        {
-            META_CONPRINTF("[BOTHIDER] warning: CUtlString::Set unresolved — name overwrite disabled\n");
-        }
-        else
-        {
-            META_CONPRINTF("[BOTHIDER] CUtlString::Set resolved at %p\n",
-                           reinterpret_cast<void *>(m_pUtlStringSet));
-        }
-#endif
-
         Manager().Init();
 
         // Open the shared-memory bridge
@@ -2343,9 +2043,7 @@ namespace cs2bh
             Publisher().PublishSignature("UTIL_Remove", reinterpret_cast<void *>(g_pfnUtilRemove));
             Publisher().PublishSignature("MaintainBotQuota", g_pQuotaHookTarget);
             Publisher().PublishSignature("PackEntities", g_pPackEntitiesHookTarget);
-#if defined(_WIN32)
             Publisher().PublishSignature("HandleJoinTeam", g_pHandleJoinTeamHookTarget);
-#endif
         }
         else
         {
@@ -2380,12 +2078,6 @@ namespace cs2bh
                     SH_MEMBER(this, &HiderPlugin::Hook_ClientPutInServer_Post), true);
         SH_ADD_HOOK(IServerGameClients, ClientDisconnect, gameclients,
                     SH_MEMBER(this, &HiderPlugin::Hook_ClientDisconnect_Pre), false);
-#if !defined(_WIN32)
-        SH_ADD_MANUALHOOK(CreateFakeClientSlotHook, engine,
-                          SH_MEMBER(this, &HiderPlugin::Hook_CreateFakeClient_Pre), false);
-        SH_ADD_MANUALHOOK(CreateFakeClientSlotHook, engine,
-                          SH_MEMBER(this, &HiderPlugin::Hook_CreateFakeClient_Post), true);
-#endif
         SH_ADD_HOOK(IServerGameDLL, GameFrame, server,
                     SH_MEMBER(this, &HiderPlugin::Hook_GameFrame_Post), true);
         SH_ADD_HOOK(ICvar, DispatchConCommand, icvar,
@@ -2413,12 +2105,6 @@ namespace cs2bh
                        SH_MEMBER(this, &HiderPlugin::Hook_ClientPutInServer_Post), true);
         SH_REMOVE_HOOK(IServerGameClients, ClientDisconnect, gameclients,
                        SH_MEMBER(this, &HiderPlugin::Hook_ClientDisconnect_Pre), false);
-#if !defined(_WIN32)
-        SH_REMOVE_MANUALHOOK(CreateFakeClientSlotHook, engine,
-                             SH_MEMBER(this, &HiderPlugin::Hook_CreateFakeClient_Pre), false);
-        SH_REMOVE_MANUALHOOK(CreateFakeClientSlotHook, engine,
-                             SH_MEMBER(this, &HiderPlugin::Hook_CreateFakeClient_Post), true);
-#endif
         SH_REMOVE_HOOK(IServerGameDLL, GameFrame, server,
                        SH_MEMBER(this, &HiderPlugin::Hook_GameFrame_Post), true);
         SH_REMOVE_HOOK(ICvar, DispatchConCommand, icvar,

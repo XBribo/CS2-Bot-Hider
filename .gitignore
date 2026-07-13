@@ -4,6 +4,7 @@ out/
 dist/
 cmake-build-*/
 *.dll
+*.so
 *.pdb
 *.lib
 *.exp

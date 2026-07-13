@@ -20,23 +20,6 @@ enum ENetworkDisconnectionReason : int;
 namespace cs2bh
 {
 
-#if !defined(_WIN32)
-    class PlayerSlotHookResult
-    {
-    public:
-        // Constructs a SourceHook-compatible slot result
-        explicit PlayerSlotHookResult(int slot = -1) : m_Data(slot) {}
-        // Returns the underlying slot index
-        int Get() const { return m_Data; }
-
-    private:
-        int m_Data;
-    };
-
-    static_assert(sizeof(PlayerSlotHookResult) == sizeof(CPlayerSlot));
-    static_assert(alignof(PlayerSlotHookResult) == alignof(CPlayerSlot));
-#endif
-
     class HiderPlugin : public ISmmPlugin, public IMetamodListener
     {
     public:
@@ -64,10 +47,6 @@ namespace cs2bh
         void Hook_ClientPutInServer_Post(CPlayerSlot slot, char const *pszName, int type, uint64 xuid);
         void Hook_ClientDisconnect_Pre(CPlayerSlot slot, ENetworkDisconnectionReason reason,
                                        const char *pszName, uint64 xuid, const char *pszNetworkID);
-#if !defined(_WIN32)
-        PlayerSlotHookResult Hook_CreateFakeClient_Pre(const char *netname);
-        PlayerSlotHookResult Hook_CreateFakeClient_Post(const char *netname);
-#endif
         CUtlVector<INetworkGameClient *> *Hook_StartChangeLevel_Pre(
             const char *mapName, const char *landmark, void *changelevelState);
         void Hook_GameFrame_Post(bool simulating, bool bFirstTick, bool bLastTick);
@@ -77,12 +56,6 @@ namespace cs2bh
                                          const CCommand &args);
         void Hook_DispatchConCommand_Post(ConCommandRef cmd, const CCommandContext &ctx,
                                           const CCommand &args);
-
-#if !defined(_WIN32)
-        // Linux name path using CUtlString::Set from libtier0.so
-        using CUtlStringSetFn = void (*)(void * /*CUtlString this*/, const char *);
-        CUtlStringSetFn m_pUtlStringSet = nullptr;
-#endif
 
         // Toggle disguise globally
         void SetDisguiseEnabled(bool enabled);
