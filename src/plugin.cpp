@@ -94,6 +94,10 @@ using HandleJoinTeamFn = int64_t(CS2BH_FASTCALL *)(void * /*CCSPlayerController*
 static HandleJoinTeamFn g_pfnHandleJoinTeamTramp = nullptr;
 static void *g_pHandleJoinTeamHookTarget = nullptr;
 
+using ApplyHumanTeamRestrictionFn = int64_t(CS2BH_FASTCALL *)();
+static ApplyHumanTeamRestrictionFn g_pfnApplyHumanTeamRestrictionTramp = nullptr;
+static void *g_pApplyHumanTeamRestrictionHookTarget = nullptr;
+
 using PackEntitiesFn = void(CS2BH_FASTCALL *)(void *, void *, int, void *, void *);
 using ClientSetNameFn = void(CS2BH_FASTCALL *)(void *, const char *);
 static PackEntitiesFn g_pfnPackEntitiesTramp = nullptr;
@@ -221,6 +225,8 @@ static void ClearFunchookBindings()
     g_pPackEntitiesHookTarget = nullptr;
     g_pfnHandleJoinTeamTramp = nullptr;
     g_pHandleJoinTeamHookTarget = nullptr;
+    g_pfnApplyHumanTeamRestrictionTramp = nullptr;
+    g_pApplyHumanTeamRestrictionHookTarget = nullptr;
     g_PreparedFunchookCount = 0;
     g_FunchooksInstalled = false;
 }
@@ -257,6 +263,9 @@ static void InstallPreparedFunchooks()
     if (g_pHandleJoinTeamHookTarget)
         META_CONPRINTF("[BOTHIDER] CCSPlayerController::HandleCommand_JoinTeam hook installed at %p\n",
                        g_pHandleJoinTeamHookTarget);
+    if (g_pApplyHumanTeamRestrictionHookTarget)
+        META_CONPRINTF("[BOTHIDER] MpHumanTeam_ApplyRestriction hook installed at %p\n",
+                       g_pApplyHumanTeamRestrictionHookTarget);
 }
 
 // Uninstalls all hooks before releasing their shared funchook handle
@@ -303,7 +312,7 @@ static bool RemoveFunchooks()
 
 namespace cs2bh
 {
-    // Flip managed bots' controller fakeclient bit around the engine quota pass.
+    // Flips managed Bot identity around engine Bot-sensitive passes
     int FlipManagedController904(bool restore, std::array<bool, 64> *saved);
 }
 
@@ -315,6 +324,20 @@ static int64_t CS2BH_FASTCALL Detour_MaintainBotQuota(void *mgr)
     int64_t r = g_pfnQuotaTramp ? g_pfnQuotaTramp(mgr) : 0;
     cs2bh::FlipManagedController904(true, &flipped);
     return r;
+}
+
+// Restores Bot identity while the engine applies mp_humanteam to humans
+static int64_t CS2BH_FASTCALL Detour_ApplyHumanTeamRestriction()
+{
+    std::array<bool, 64> flipped{};
+    int scoped = cs2bh::FlipManagedController904(false, &flipped);
+    int64_t result = g_pfnApplyHumanTeamRestrictionTramp
+                         ? g_pfnApplyHumanTeamRestrictionTramp()
+                         : 0;
+    cs2bh::FlipManagedController904(true, &flipped);
+    if (scoped > 0)
+        META_CONPRINTF("[BOTHIDER] MpHumanTeam_ApplyRestriction bot scope=%d\n", scoped);
+    return result;
 }
 
 // Restores Bot identity only while the engine validates an initial team join
@@ -599,6 +622,39 @@ namespace cs2bh
                             reinterpret_cast<void *>(&Detour_HandleCommandJoinTeam),
                             "CCSPlayerController::HandleCommand_JoinTeam"))
             g_pHandleJoinTeamHookTarget = target;
+    }
+
+    // Resolves and prepares the mp_humanteam identity-scope detour
+    static void InstallHumanTeamRestrictionHook(const nlohmann::json &gamedata,
+                                                const sig::ModuleInfo &serverModule)
+    {
+        if (!serverModule)
+            return;
+
+        std::string sigString = sig::FindPlatformSig(
+            gamedata, "MpHumanTeam_ApplyRestriction");
+        std::vector<uint8_t> bytes;
+        std::vector<bool> wild;
+        if (sigString.empty() || !sig::ParseSigString(sigString, bytes, wild))
+        {
+            META_CONPRINTF("[BOTHIDER] warning: MpHumanTeam_ApplyRestriction signature missing or malformed\n");
+            return;
+        }
+
+        std::vector<void *> matches = sig::FindPatternMatchesIn(serverModule, bytes, wild);
+        META_CONPRINTF("[BOTHIDER] MpHumanTeam_ApplyRestriction signature matches=%zu\n",
+                       matches.size());
+        if (matches.size() != 1)
+        {
+            META_CONPRINTF("[BOTHIDER] warning: MpHumanTeam_ApplyRestriction hook requires exactly one match\n");
+            return;
+        }
+
+        void *target = matches.front();
+        if (PrepareFunchook(g_pfnApplyHumanTeamRestrictionTramp, target,
+                            reinterpret_cast<void *>(&Detour_ApplyHumanTeamRestriction),
+                            "MpHumanTeam_ApplyRestriction"))
+            g_pApplyHumanTeamRestrictionHookTarget = target;
     }
 
     // Resolves and prepares the pass-through engine entity-packing detour
@@ -991,7 +1047,7 @@ namespace cs2bh
         return true;
     }
 
-    // Flip managed bots' controller fakeclient bit around the quota pass.
+    // Flips managed Bot identity around engine Bot-sensitive passes
     int FlipManagedController904(bool restore, std::array<bool, 64> *saved)
     {
         if (!saved || targets::kController_FakeClientFlagsOffset < 0)
@@ -1913,6 +1969,9 @@ namespace cs2bh
                 // Install the initial team-join identity scope
                 InstallHandleJoinTeamHook(gamedata, serverModule);
 
+                // Keep managed bots outside mp_humanteam enforcement
+                InstallHumanTeamRestrictionHook(gamedata, serverModule);
+
                 // Install the pass-through engine entity-packing detour
                 InstallPackEntitiesHook(gamedata);
             }
@@ -1964,6 +2023,7 @@ namespace cs2bh
             Publisher().PublishSignature("MaintainBotQuota", g_pQuotaHookTarget);
             Publisher().PublishSignature("PackEntities", g_pPackEntitiesHookTarget);
             Publisher().PublishSignature("HandleJoinTeam", g_pHandleJoinTeamHookTarget);
+            Publisher().PublishSignature("HumanTeamRestriction", g_pApplyHumanTeamRestrictionHookTarget);
         }
         else
         {
