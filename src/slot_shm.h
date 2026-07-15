@@ -55,7 +55,15 @@ namespace cs2bh::shm
     inline constexpr int kOff_ScoreboardFlair = 10400; // uint32[64]
     // Ends at 10400 + 64*4 = 10656
 
+    // Base identity and native slot incarnation use the existing reserved space
+    inline constexpr int kOff_BaseSyntheticSid = 10656; // uint64[64]
+    inline constexpr int kOff_BasePersonaName = 11168;  // char[64][32]
+    inline constexpr int kOff_Incarnation = 13216;      // uint64[64]
+    // Ends at 13216 + 64*8 = 13728
+
     inline constexpr int kTotalSize = 16384; // 4 pages
+    static_assert(kOff_Incarnation + kMaxSlots * sizeof(uint64_t) <= kTotalSize,
+                  "Shared-memory data exceeds the mapping size");
 
     // Command opcodes.
     enum CmdType : uint8_t

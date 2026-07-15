@@ -26,6 +26,7 @@ public class BotHiderImplPlugin : BasePlugin
     private IBotHiderApi? _api;
     private readonly string[] _appliedCrosshair = new string[64];
     private readonly uint[] _appliedScoreboardFlair = new uint[64];
+    private readonly ulong[] _observedIncarnations = new ulong[64];
     private CounterStrikeSharp.API.Modules.Timers.Timer? _fastApplyTimer;
     private int _fastApplyRemaining;
     private Harmony? _harmony;
@@ -48,6 +49,9 @@ public class BotHiderImplPlugin : BasePlugin
         _harmony = new Harmony("net.linyz.bothider.isbot");
         _harmony.PatchAll(typeof(BotHiderImplPlugin).Assembly);
 
+        RegisterListener<Listeners.OnMapStart>(OnMapStart);
+        RegisterListener<Listeners.OnMapEnd>(OnMapEnd);
+        RegisterListener<Listeners.OnClientDisconnect>(OnClientDisconnect);
         AddTimer(2.0f, ApplyManagedSlots, TimerFlags.REPEAT);
         StartFastApplyWindow();
     }
@@ -62,6 +66,25 @@ public class BotHiderImplPlugin : BasePlugin
         _fastApplyTimer?.Kill();
         _fastApplyTimer = null;
         _client?.Dispose();
+    }
+
+    // Clears presentation caches when a new map starts
+    private void OnMapStart(string mapName)
+    {
+        ResetAppliedState();
+        StartFastApplyWindow();
+    }
+
+    // Clears presentation caches when the current map ends
+    private void OnMapEnd()
+    {
+        ResetAppliedState();
+    }
+
+    // Clears presentation caches for one disconnected slot
+    private void OnClientDisconnect(int slot)
+    {
+        ResetAppliedSlot(slot, 0UL);
     }
 
     // Match end
@@ -91,6 +114,14 @@ public class BotHiderImplPlugin : BasePlugin
     // Player spawn — retry visible fields during freeze time
     [GameEventHandler]
     public HookResult OnPlayerSpawn(EventPlayerSpawn @event, GameEventInfo info)
+    {
+        StartFastApplyWindow();
+        return HookResult.Continue;
+    }
+
+    // Player death — retry fields that engine lifecycle code may overwrite
+    [GameEventHandler]
+    public HookResult OnPlayerDeath(EventPlayerDeath @event, GameEventInfo info)
     {
         StartFastApplyWindow();
         return HookResult.Continue;
@@ -220,6 +251,22 @@ public class BotHiderImplPlugin : BasePlugin
         _fastApplyTimer = null;
     }
 
+    // Clears all cached presentation values
+    private void ResetAppliedState()
+    {
+        for (int slot = 0; slot < _observedIncarnations.Length; slot++)
+            ResetAppliedSlot(slot, 0UL);
+    }
+
+    // Clears cached presentation values for one native slot lifetime
+    private void ResetAppliedSlot(int slot, ulong incarnation)
+    {
+        if (slot < 0 || slot >= _observedIncarnations.Length) return;
+        _observedIncarnations[slot] = incarnation;
+        _appliedCrosshair[slot] = string.Empty;
+        _appliedScoreboardFlair[slot] = 0U;
+    }
+
     // Timer body
     private void ApplyManagedSlots()
     {
@@ -231,14 +278,19 @@ public class BotHiderImplPlugin : BasePlugin
         for (int slot = 0; slot < managed.Length; slot++)
         {
             if (managed[slot]) continue;
-            _appliedCrosshair[slot] = string.Empty;
-            _appliedScoreboardFlair[slot] = 0U;
+            ResetAppliedSlot(slot, 0UL);
         }
 
         foreach (int slot in managedSlots)
         {
+            ulong incarnation = _client.GetSlotIncarnation(slot);
+            if (_observedIncarnations[slot] != incarnation)
+                ResetAppliedSlot(slot, incarnation);
+
             var player = Utilities.GetPlayerFromSlot(slot);
             if (player == null || !player.IsValid) continue;
+
+            ReconcileVisibleIdentity(_client, slot, player);
 
             int ping = _client.GetPing(slot);
             if (ping > 0)
@@ -255,7 +307,8 @@ public class BotHiderImplPlugin : BasePlugin
             }
 
             string cross = _client.GetCrosshairCode(slot);
-            if (_appliedCrosshair[slot] != cross)
+            if (_appliedCrosshair[slot] != cross ||
+                !string.Equals(player.CrosshairCodes, cross, StringComparison.Ordinal))
             {
                 try
                 {
@@ -271,12 +324,51 @@ public class BotHiderImplPlugin : BasePlugin
             }
 
             uint flair = _client.GetScoreboardFlair(slot);
-            if (_appliedScoreboardFlair[slot] != flair)
+            if (_appliedScoreboardFlair[slot] != flair ||
+                !ScoreboardFlairMatches(player, flair))
             {
                 if (TryApplyScoreboardFlair(slot, flair))
                     _appliedScoreboardFlair[slot] = flair;
             }
         }
+    }
+
+    // Restores the native published name and SteamID on the controller
+    private static void ReconcileVisibleIdentity(SharedMemoryClient client, int slot,
+                                                 CCSPlayerController player)
+    {
+        string name = client.GetPersonaName(slot);
+        if (!string.Equals(player.PlayerName, name, StringComparison.Ordinal))
+        {
+            player.PlayerName = name;
+            Utilities.SetStateChanged(player, "CBasePlayerController", "m_iszPlayerName");
+        }
+
+        ulong steamId = client.GetBotSteamId(slot);
+        if (player.SteamID == steamId) return;
+        try
+        {
+            Schema.SetSchemaValue(player.Handle, "CBasePlayerController", "m_steamID", steamId);
+            Utilities.SetStateChanged(player, "CBasePlayerController", "m_steamID");
+        }
+        catch (Exception e)
+        {
+            Server.PrintToConsole($"[BotHider] m_steamID reconcile failed slot={slot}: {e.Message}");
+        }
+    }
+
+    // Returns whether every scoreboard flair rank already matches
+    private static bool ScoreboardFlairMatches(CCSPlayerController player, uint itemDefIndex)
+    {
+        var inventory = player.InventoryServices;
+        if (inventory == null) return false;
+        var ranks = inventory.Rank;
+        if (ranks.Length == 0) return false;
+        for (int index = 0; index < ranks.Length; index++)
+        {
+            if ((uint)ranks[index] != itemDefIndex) return false;
+        }
+        return true;
     }
 
     // Apply the scoreboard flair rank span for one player
@@ -348,8 +440,10 @@ public class BotHiderImplPlugin : BasePlugin
             var p = Utilities.GetPlayerFromSlot(s);
             string isBot = (p != null && p.IsValid) ? p.IsBot.ToString() : "n/a";
             cmd.ReplyToCommand(
-                $"  slot={s} sid={_client.GetBotSteamId(s)} " +
-                $"name='{_client.GetPersonaName(s)}' ping={_client.GetPing(s)} " +
+                $"  slot={s} incarnation={_client.GetSlotIncarnation(s)} " +
+                $"sid={_client.GetBotSteamId(s)}/{_client.GetBaseBotSteamId(s)} " +
+                $"name='{_client.GetPersonaName(s)}'/'{_client.GetBasePersonaName(s)}' " +
+                $"ping={_client.GetPing(s)} " +
                 $"crosshair='{_client.GetCrosshairCode(s)}' isbot={isBot}");
         }
     }

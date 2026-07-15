@@ -13,6 +13,7 @@
 #include <unistd.h>
 #endif
 
+#include <chrono>
 #include <cstring>
 
 namespace cs2bh
@@ -77,6 +78,8 @@ namespace cs2bh
         *reinterpret_cast<uint32_t *>(view + shm::kOff_Version) = shm::kVersion;
         *reinterpret_cast<uint32_t *>(view + shm::kOff_MaxSlots) = shm::kMaxSlots;
         *reinterpret_cast<uint32_t *>(view + shm::kOff_DataGen) = 0;
+        m_NextIncarnation = static_cast<uint64_t>(
+            std::chrono::high_resolution_clock::now().time_since_epoch().count());
         return true;
     }
 
@@ -120,6 +123,27 @@ namespace cs2bh
             m_pView + shm::kOff_PersonaName + slot * shm::kNameLen);
     }
 
+    // Returns the base SteamID field for one slot
+    uint64_t *SlotPublisher::BaseSidPtr(int slot) const
+    {
+        return reinterpret_cast<uint64_t *>(
+            m_pView + shm::kOff_BaseSyntheticSid + slot * sizeof(uint64_t));
+    }
+
+    // Returns the base persona name field for one slot
+    char *SlotPublisher::BaseNamePtr(int slot) const
+    {
+        return reinterpret_cast<char *>(
+            m_pView + shm::kOff_BasePersonaName + slot * shm::kNameLen);
+    }
+
+    // Returns the native incarnation field for one slot
+    uint64_t *SlotPublisher::IncarnationPtr(int slot) const
+    {
+        return reinterpret_cast<uint64_t *>(
+            m_pView + shm::kOff_Incarnation + slot * sizeof(uint64_t));
+    }
+
     int *SlotPublisher::PingPtr(int slot) const
     {
         return reinterpret_cast<int *>(
@@ -138,6 +162,15 @@ namespace cs2bh
             m_pView + shm::kOff_ScoreboardFlair + slot * sizeof(uint32_t));
     }
 
+    // Returns a non-zero identity for one native managed-slot lifetime
+    uint64_t SlotPublisher::NextIncarnation()
+    {
+        ++m_NextIncarnation;
+        if (m_NextIncarnation == 0)
+            ++m_NextIncarnation;
+        return m_NextIncarnation;
+    }
+
     void SlotPublisher::BumpGen()
     {
         auto *gen = reinterpret_cast<volatile uint32_t *>(m_pView + shm::kOff_DataGen);
@@ -153,12 +186,17 @@ namespace cs2bh
         if (!m_pView || slot < 0 || slot >= shm::kMaxSlots)
             return;
         *SidPtr(slot) = syntheticSid;
+        *BaseSidPtr(slot) = syntheticSid;
         char *dst = NamePtr(slot);
         std::memset(dst, 0, shm::kNameLen);
         if (personaName)
         {
             std::strncpy(dst, personaName, shm::kNameLen - 1);
         }
+        char *baseName = BaseNamePtr(slot);
+        std::memset(baseName, 0, shm::kNameLen);
+        if (personaName)
+            std::strncpy(baseName, personaName, shm::kNameLen - 1);
         char *cross = CrosshairPtr(slot);
         std::memset(cross, 0, shm::kCrosshairLen);
         if (crosshairCode)
@@ -167,6 +205,7 @@ namespace cs2bh
         }
         *ScoreboardFlairPtr(slot) = scoreboardFlair;
         *PingPtr(slot) = 0;
+        *IncarnationPtr(slot) = NextIncarnation();
         SlotStatePtr()[slot] = 1;
         BumpGen();
     }
@@ -177,10 +216,13 @@ namespace cs2bh
             return;
         SlotStatePtr()[slot] = 0;
         *SidPtr(slot) = 0;
+        *BaseSidPtr(slot) = 0;
         std::memset(NamePtr(slot), 0, shm::kNameLen);
+        std::memset(BaseNamePtr(slot), 0, shm::kNameLen);
         std::memset(CrosshairPtr(slot), 0, shm::kCrosshairLen);
         *ScoreboardFlairPtr(slot) = 0;
         *PingPtr(slot) = 0;
+        *IncarnationPtr(slot) = 0;
         BumpGen();
     }
 
@@ -189,6 +231,16 @@ namespace cs2bh
         if (!m_pView || slot < 0 || slot >= shm::kMaxSlots)
             return;
         *PingPtr(slot) = ping;
+        BumpGen();
+    }
+
+    // Updates the native persona SteamID and its current published value
+    void SlotPublisher::UpdateBaseSyntheticSid(int slot, uint64_t sid)
+    {
+        if (!m_pView || slot < 0 || slot >= shm::kMaxSlots)
+            return;
+        *BaseSidPtr(slot) = sid;
+        *SidPtr(slot) = sid;
         BumpGen();
     }
 

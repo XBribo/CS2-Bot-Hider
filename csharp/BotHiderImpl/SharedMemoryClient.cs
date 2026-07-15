@@ -13,6 +13,7 @@ public sealed class SharedMemoryClient : IBotHiderApi, IDisposable
     private const string MappingName = "CS2BotHider_Slots";
     private const string PosixMappingPath = "/dev/shm/CS2BotHider_Slots";
     private const uint Magic = 0x44494842; // 'BHID'
+    private const uint Version = 1;
     private const int MaxSlots = 64;
     private const int NameLen = 32;
     private const int CmdCount = 64;
@@ -20,6 +21,8 @@ public sealed class SharedMemoryClient : IBotHiderApi, IDisposable
 
     // Data region offsets
     private const int OffMagic = 0;
+    private const int OffVersion = 4;
+    private const int OffMaxSlots = 8;
     private const int OffSlotState = 16;
     private const int OffSyntheticSid = 80;
     private const int OffPersonaName = 592;
@@ -35,6 +38,10 @@ public sealed class SharedMemoryClient : IBotHiderApi, IDisposable
     private const int MaxSigs = 8;
     // Scoreboard flair region
     private const int OffScoreboardFlair = 10400;  // uint32[64]
+    // Base identity and native slot incarnation region
+    private const int OffBaseSyntheticSid = 10656;  // uint64[64]
+    private const int OffBasePersonaName = 11168;  // char[64][32]
+    private const int OffIncarnation = 13216;  // uint64[64]
 
     // Command region offsets
     private const int OffWriteIdx = 2640;
@@ -63,8 +70,10 @@ public sealed class SharedMemoryClient : IBotHiderApi, IDisposable
     private readonly Action<int, uint>? _onScoreboardFlair;
     private readonly Action<int, string>? _onCrosshairCode;
     private readonly string?[] _personaNameOverrides = new string?[MaxSlots];
+    private readonly ulong[] _personaNameOverrideIncarnations = new ulong[MaxSlots];
     private readonly uint[] _scoreboardFlairs = new uint[MaxSlots];
     private readonly bool[] _scoreboardFlairAssigned = new bool[MaxSlots];
+    private readonly ulong[] _scoreboardFlairIncarnations = new ulong[MaxSlots];
 
     public SharedMemoryClient(Action<int, string>? onVisibleName = null,
                               Action<int, ulong>? onVisibleSid = null,
@@ -89,7 +98,13 @@ public sealed class SharedMemoryClient : IBotHiderApi, IDisposable
                     TotalSize, MemoryMappedFileAccess.ReadWrite);
             _view = _mmf.CreateViewAccessor(0, TotalSize,
                 MemoryMappedFileAccess.ReadWrite);
-            if (_view.ReadUInt32(OffMagic) != Magic) { Dispose(); return false; }
+            if (_view.ReadUInt32(OffMagic) != Magic ||
+                _view.ReadUInt32(OffVersion) != Version ||
+                _view.ReadUInt32(OffMaxSlots) != MaxSlots)
+            {
+                Dispose();
+                return false;
+            }
             return true;
         }
         catch (FileNotFoundException) { return false; }
@@ -117,6 +132,14 @@ public sealed class SharedMemoryClient : IBotHiderApi, IDisposable
     public ulong GetBotSteamId(int slot) =>
         Valid(slot) ? _view!.ReadUInt64(OffSyntheticSid + slot * 8) : 0UL;
 
+    // Returns the native persona SteamID before C# presentation overrides
+    public ulong GetBaseBotSteamId(int slot) =>
+        Valid(slot) ? _view!.ReadUInt64(OffBaseSyntheticSid + slot * 8) : 0UL;
+
+    // Returns the native lifetime identity for the current managed slot
+    public ulong GetSlotIncarnation(int slot) =>
+        Valid(slot) ? _view!.ReadUInt64(OffIncarnation + slot * 8) : 0UL;
+
     public int[] GetManagedSlots()
     {
         if (_view == null) TryConnect();
@@ -136,12 +159,30 @@ public sealed class SharedMemoryClient : IBotHiderApi, IDisposable
     public string GetPersonaName(int slot)
     {
         if (!Valid(slot)) return string.Empty;
-        if (!string.IsNullOrEmpty(_personaNameOverrides[slot]))
+        ulong incarnation = GetSlotIncarnation(slot);
+        if (incarnation != 0 &&
+            _personaNameOverrideIncarnations[slot] == incarnation &&
+            !string.IsNullOrEmpty(_personaNameOverrides[slot]))
+        {
             return _personaNameOverrides[slot]!;
-        var buf = new byte[NameLen];
-        _view!.ReadArray(OffPersonaName + slot * NameLen, buf, 0, NameLen);
+        }
+        _personaNameOverrides[slot] = null;
+        _personaNameOverrideIncarnations[slot] = incarnation;
+        return ReadFixedUtf8(slot, OffPersonaName, NameLen);
+    }
+
+    // Returns the native persona name before C# presentation overrides
+    public string GetBasePersonaName(int slot)
+        => ReadFixedUtf8(slot, OffBasePersonaName, NameLen);
+
+    // Reads one fixed-size NUL-terminated UTF-8 field
+    private string ReadFixedUtf8(int slot, int baseOffset, int fieldLength)
+    {
+        if (!Valid(slot)) return string.Empty;
+        var buf = new byte[fieldLength];
+        _view!.ReadArray(baseOffset + slot * fieldLength, buf, 0, fieldLength);
         int len = Array.IndexOf(buf, (byte)0);
-        if (len < 0) len = NameLen;
+        if (len < 0) len = fieldLength;
         return Encoding.UTF8.GetString(buf, 0, len);
     }
 
@@ -149,28 +190,16 @@ public sealed class SharedMemoryClient : IBotHiderApi, IDisposable
         Valid(slot) ? _view!.ReadInt32(OffCurrentPing + slot * 4) : 0;
 
     public string GetCrosshairCode(int slot)
-    {
-        if (!Valid(slot)) return string.Empty;
-        var buf = new byte[CrosshairLen];
-        _view!.ReadArray(OffCrosshair + slot * CrosshairLen, buf, 0, CrosshairLen);
-        int len = Array.IndexOf(buf, (byte)0);
-        if (len < 0) len = CrosshairLen;
-        return Encoding.UTF8.GetString(buf, 0, len);
-    }
+        => ReadFixedUtf8(slot, OffCrosshair, CrosshairLen);
 
     // Write crosshair code to shared memory, empty or "0" to clear
     public bool SetCrosshairCode(int slot, string code)
     {
         if (!Valid(slot)) return false;
         if (code == "0") code = string.Empty;
-        var buf = new byte[CrosshairLen];
-        if (!string.IsNullOrEmpty(code))
-        {
-            int n = Math.Min(code.Length, CrosshairLen - 1);
-            Encoding.UTF8.GetBytes(code, 0, n, buf, 0);
-        }
+        if (!TryEncodeFixedUtf8(code, CrosshairLen, out var buf)) return false;
         _view!.WriteArray(OffCrosshair + slot * CrosshairLen, buf, 0, CrosshairLen);
-        _onCrosshairCode?.Invoke(slot, code ?? string.Empty);
+        _onCrosshairCode?.Invoke(slot, code);
         return true;
     }
 
@@ -178,10 +207,13 @@ public sealed class SharedMemoryClient : IBotHiderApi, IDisposable
     public uint GetScoreboardFlair(int slot)
     {
         if (!IsManagedBot(slot)) return 0U;
-        if (!_scoreboardFlairAssigned[slot])
+        ulong incarnation = GetSlotIncarnation(slot);
+        if (!_scoreboardFlairAssigned[slot] ||
+            _scoreboardFlairIncarnations[slot] != incarnation)
         {
             _scoreboardFlairs[slot] = _view!.ReadUInt32(OffScoreboardFlair + slot * 4);
             _scoreboardFlairAssigned[slot] = true;
+            _scoreboardFlairIncarnations[slot] = incarnation;
         }
         return _scoreboardFlairs[slot];
     }
@@ -221,10 +253,17 @@ public sealed class SharedMemoryClient : IBotHiderApi, IDisposable
     public bool SetPersonaName(int slot, string name)
     {
         if (!Valid(slot) || string.IsNullOrEmpty(name)) return false;
-        // Update both the engine-side persona and the visible PlayerName.
-        _personaNameOverrides[slot] = name;
         bool ok = PostCommand(CmdSetPersona, slot, 0UL, name);
-        if (ok) _onVisibleName?.Invoke(slot, name);
+        if (ok)
+        {
+            ulong incarnation = GetSlotIncarnation(slot);
+            if (incarnation != 0)
+            {
+                _personaNameOverrides[slot] = name;
+                _personaNameOverrideIncarnations[slot] = incarnation;
+            }
+            _onVisibleName?.Invoke(slot, name);
+        }
         return ok;
     }
 
@@ -232,8 +271,11 @@ public sealed class SharedMemoryClient : IBotHiderApi, IDisposable
     public bool SetScoreboardFlair(int slot, uint itemDefIndex)
     {
         if (!IsManagedBot(slot) || itemDefIndex > ushort.MaxValue) return false;
+        ulong incarnation = GetSlotIncarnation(slot);
+        if (incarnation == 0) return false;
         _scoreboardFlairs[slot] = itemDefIndex;
         _scoreboardFlairAssigned[slot] = true;
+        _scoreboardFlairIncarnations[slot] = incarnation;
         _onScoreboardFlair?.Invoke(slot, itemDefIndex);
         return true;
     }
@@ -265,20 +307,19 @@ public sealed class SharedMemoryClient : IBotHiderApi, IDisposable
     private bool PostCommand(byte type, int slot, ulong sid, string? name)
     {
         if (_view == null) return false;
+        if (!TryEncodeFixedUtf8(name ?? string.Empty, NameLen, out var nameBuf))
+            return false;
         lock (_writeLock)
         {
             uint w = _view.ReadUInt32(OffWriteIdx);
+            uint r = _view.ReadUInt32(OffReadIdx);
+            if (unchecked(w - r) >= CmdCount)
+                return false;
             int baseOff = OffCmds + (int)(w % CmdCount) * CmdSize;
 
             _view.Write(baseOff + 0, type);
             _view.Write(baseOff + 1, (byte)slot);
             _view.Write(baseOff + 8, sid);
-            var nameBuf = new byte[NameLen];
-            if (name != null)
-            {
-                int n = Encoding.UTF8.GetBytes(name, 0,
-                    Math.Min(name.Length, NameLen - 1), nameBuf, 0);
-            }
             _view.WriteArray(baseOff + 16, nameBuf, 0, NameLen);
 
             Interlocked.MemoryBarrier();
@@ -287,14 +328,31 @@ public sealed class SharedMemoryClient : IBotHiderApi, IDisposable
         return true;
     }
 
+    // Encodes a fixed-size UTF-8 field without truncating a character
+    private static bool TryEncodeFixedUtf8(string value, int fieldLength, out byte[] buffer)
+    {
+        buffer = new byte[fieldLength];
+        int byteCount = Encoding.UTF8.GetByteCount(value);
+        if (byteCount >= fieldLength)
+            return false;
+        Encoding.UTF8.GetBytes(value, 0, value.Length, buffer, 0);
+        return true;
+    }
+
     // Drops local flair state when C++ releases a slot
     private void ClearReleasedScoreboardFlairs(bool[] managed)
     {
         for (int slot = 0; slot < MaxSlots; slot++)
         {
-            if (managed[slot]) continue;
+            ulong incarnation = managed[slot] ? GetSlotIncarnation(slot) : 0UL;
+            if (managed[slot] &&
+                _scoreboardFlairIncarnations[slot] == incarnation)
+            {
+                continue;
+            }
             _scoreboardFlairs[slot] = 0U;
             _scoreboardFlairAssigned[slot] = false;
+            _scoreboardFlairIncarnations[slot] = incarnation;
         }
     }
 

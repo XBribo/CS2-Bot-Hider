@@ -1334,7 +1334,7 @@ namespace cs2bh
             sid = MakeUniqueSteamId(idx, configuredSid);
             ssc::WriteSteamId(pClient, sid);
             Manager().SetSyntheticSid(idx, sid);
-            Publisher().UpdateSyntheticSid(idx, sid);
+            Publisher().UpdateBaseSyntheticSid(idx, sid);
         }
 
         META_CONPRINTF("[BOTHIDER] slot=%d adopted name='%s' steamid64=%llu\n",
@@ -1375,7 +1375,7 @@ namespace cs2bh
             uint64_t sid = MakeUniqueSteamId(idx, entry->SteamId64);
             ssc::WriteSteamId(pClient, sid);
             Manager().SetSyntheticSid(idx, sid);
-            Publisher().UpdateSyntheticSid(idx, sid);
+            Publisher().UpdateBaseSyntheticSid(idx, sid);
         }
 
         std::string visibleName = Personas().GetSlotName(idx);

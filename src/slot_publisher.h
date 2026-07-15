@@ -31,6 +31,7 @@ namespace cs2bh
         void PublishAdopt(int slot, uint64_t syntheticSid, const char *personaName,
                           const char *crosshairCode, uint32_t scoreboardFlair);
         void PublishRelease(int slot);
+        void UpdateBaseSyntheticSid(int slot, uint64_t sid);
         void UpdateSyntheticSid(int slot, uint64_t sid);
         void UpdatePersonaName(int slot, const char *name);
         void UpdatePing(int slot, int ping);
@@ -49,13 +50,18 @@ namespace cs2bh
         unsigned char *SlotStatePtr() const;
         uint64_t *SidPtr(int slot) const;
         char *NamePtr(int slot) const;
+        uint64_t *BaseSidPtr(int slot) const;
+        char *BaseNamePtr(int slot) const;
+        uint64_t *IncarnationPtr(int slot) const;
         int *PingPtr(int slot) const;
         char *CrosshairPtr(int slot) const;
         uint32_t *ScoreboardFlairPtr(int slot) const;
+        uint64_t NextIncarnation();
         void BumpGen();
 
         void *m_hMapping = nullptr; // HANDLE
         unsigned char *m_pView = nullptr;
+        uint64_t m_NextIncarnation = 0;
     };
 
     SlotPublisher &Publisher();
