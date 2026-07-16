@@ -8,6 +8,7 @@
 
 #include <cstdint>
 #include <functional>
+#include <vector>
 
 namespace cs2bh
 {
@@ -15,6 +16,14 @@ namespace cs2bh
     class SlotPublisher
     {
     public:
+        struct AvatarRequest
+        {
+            uint32_t Sequence = 0;
+            uint32_t Length = 0;
+            uint64_t Incarnation = 0;
+            std::vector<unsigned char> Data;
+        };
+
         using SteamIdSink = std::function<void(int slot, uint64_t sid)>;
         using PersonaSink = std::function<void(int slot, const char *name)>;
         using DisguiseSink = std::function<void(bool enabled)>;
@@ -35,6 +44,11 @@ namespace cs2bh
         void UpdateSyntheticSid(int slot, uint64_t sid);
         void UpdatePersonaName(int slot, const char *name);
         void UpdatePing(int slot, int ping);
+        uint64_t GetIncarnation(int slot) const;
+        bool ReadAvatarMetadata(int slot, uint32_t &sequence, uint32_t &length,
+                                uint64_t &incarnation) const;
+        bool ReadAvatarRequest(int slot, AvatarRequest &request) const;
+        void PublishAvatarState(int slot, bool applied, uint64_t steamId);
 
         // Append a signature/hook status entry (addr==0 means unresolved)
         void PublishSignature(const char *name, const void *addr);
@@ -56,6 +70,8 @@ namespace cs2bh
         int *PingPtr(int slot) const;
         char *CrosshairPtr(int slot) const;
         uint32_t *ScoreboardFlairPtr(int slot) const;
+        unsigned char *AvatarAppliedPtr(int slot) const;
+        uint64_t *AvatarAppliedSidPtr(int slot) const;
         uint64_t NextIncarnation();
         void BumpGen();
 

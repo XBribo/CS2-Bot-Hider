@@ -14,7 +14,9 @@
 #endif
 
 #include <chrono>
+#include <atomic>
 #include <cstring>
+#include <utility>
 
 namespace cs2bh
 {
@@ -162,6 +164,19 @@ namespace cs2bh
             m_pView + shm::kOff_ScoreboardFlair + slot * sizeof(uint32_t));
     }
 
+    // Returns the native avatar application flag for one slot
+    unsigned char *SlotPublisher::AvatarAppliedPtr(int slot) const
+    {
+        return m_pView + shm::kOff_AvatarApplied + slot;
+    }
+
+    // Returns the applied avatar SteamID field for one slot
+    uint64_t *SlotPublisher::AvatarAppliedSidPtr(int slot) const
+    {
+        return reinterpret_cast<uint64_t *>(
+            m_pView + shm::kOff_AvatarAppliedSid + slot * sizeof(uint64_t));
+    }
+
     // Returns a non-zero identity for one native managed-slot lifetime
     uint64_t SlotPublisher::NextIncarnation()
     {
@@ -204,6 +219,8 @@ namespace cs2bh
             std::strncpy(cross, crosshairCode, shm::kCrosshairLen - 1);
         }
         *ScoreboardFlairPtr(slot) = scoreboardFlair;
+        *AvatarAppliedPtr(slot) = 0;
+        *AvatarAppliedSidPtr(slot) = 0;
         *PingPtr(slot) = 0;
         *IncarnationPtr(slot) = NextIncarnation();
         SlotStatePtr()[slot] = 1;
@@ -221,6 +238,8 @@ namespace cs2bh
         std::memset(BaseNamePtr(slot), 0, shm::kNameLen);
         std::memset(CrosshairPtr(slot), 0, shm::kCrosshairLen);
         *ScoreboardFlairPtr(slot) = 0;
+        *AvatarAppliedPtr(slot) = 0;
+        *AvatarAppliedSidPtr(slot) = 0;
         *PingPtr(slot) = 0;
         *IncarnationPtr(slot) = 0;
         BumpGen();
@@ -260,6 +279,95 @@ namespace cs2bh
         std::memset(dst, 0, shm::kNameLen);
         if (name)
             std::strncpy(dst, name, shm::kNameLen - 1);
+        BumpGen();
+    }
+
+    // Returns the current native managed-slot incarnation
+    uint64_t SlotPublisher::GetIncarnation(int slot) const
+    {
+        if (!m_pView || slot < 0 || slot >= shm::kMaxSlots)
+            return 0;
+        return *IncarnationPtr(slot);
+    }
+
+    // Reads stable avatar metadata without copying PNG content
+    bool SlotPublisher::ReadAvatarMetadata(int slot, uint32_t &sequence,
+                                           uint32_t &length, uint64_t &incarnation) const
+    {
+        if (!m_pView || slot < 0 || slot >= shm::kMaxSlots)
+            return false;
+
+        auto *sequencePtr = reinterpret_cast<volatile uint32_t *>(
+            m_pView + shm::kOff_AvatarSequence + slot * sizeof(uint32_t));
+        uint32_t before = *sequencePtr;
+        if ((before & 1u) != 0)
+            return false;
+        std::atomic_thread_fence(std::memory_order_acquire);
+
+        uint32_t candidateLength = *reinterpret_cast<uint32_t *>(
+            m_pView + shm::kOff_AvatarLength + slot * sizeof(uint32_t));
+        uint64_t candidateIncarnation = *reinterpret_cast<uint64_t *>(
+            m_pView + shm::kOff_AvatarIncarnation + slot * sizeof(uint64_t));
+        std::atomic_thread_fence(std::memory_order_acquire);
+        uint32_t after = *sequencePtr;
+        if (before != after || (after & 1u) != 0 ||
+            candidateLength > static_cast<uint32_t>(shm::kAvatarMaxBytes))
+        {
+            return false;
+        }
+
+        sequence = after;
+        length = candidateLength;
+        incarnation = candidateIncarnation;
+        return true;
+    }
+
+    // Reads one stable avatar request from the C# writer
+    bool SlotPublisher::ReadAvatarRequest(int slot, AvatarRequest &request) const
+    {
+        if (!m_pView || slot < 0 || slot >= shm::kMaxSlots)
+            return false;
+
+        auto *sequence = reinterpret_cast<volatile uint32_t *>(
+            m_pView + shm::kOff_AvatarSequence + slot * sizeof(uint32_t));
+        uint32_t before = *sequence;
+        if ((before & 1u) != 0)
+            return false;
+
+        std::atomic_thread_fence(std::memory_order_acquire);
+        uint32_t length = *reinterpret_cast<uint32_t *>(
+            m_pView + shm::kOff_AvatarLength + slot * sizeof(uint32_t));
+        uint64_t incarnation = *reinterpret_cast<uint64_t *>(
+            m_pView + shm::kOff_AvatarIncarnation + slot * sizeof(uint64_t));
+        if (length > static_cast<uint32_t>(shm::kAvatarMaxBytes))
+            return false;
+
+        std::vector<unsigned char> data(length);
+        if (length > 0)
+        {
+            std::memcpy(data.data(),
+                        m_pView + shm::kOff_AvatarData + slot * shm::kAvatarMaxBytes,
+                        length);
+        }
+        std::atomic_thread_fence(std::memory_order_acquire);
+        uint32_t after = *sequence;
+        if (before != after || (after & 1u) != 0)
+            return false;
+
+        request.Sequence = after;
+        request.Length = length;
+        request.Incarnation = incarnation;
+        request.Data = std::move(data);
+        return true;
+    }
+
+    // Publishes whether the native avatar override is currently active
+    void SlotPublisher::PublishAvatarState(int slot, bool applied, uint64_t steamId)
+    {
+        if (!m_pView || slot < 0 || slot >= shm::kMaxSlots)
+            return;
+        *AvatarAppliedSidPtr(slot) = applied ? steamId : 0;
+        *AvatarAppliedPtr(slot) = applied ? 1 : 0;
         BumpGen();
     }
 

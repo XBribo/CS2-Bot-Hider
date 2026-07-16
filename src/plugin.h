@@ -29,7 +29,7 @@ namespace cs2bh
 
         const char *GetAuthor() override { return "XBribo(๑•.•๑)"; }
         const char *GetName() override { return "CS2-Bot-Hider"; }
-        const char *GetDescription() override { return "Bot persona/steamid/ping/crosshair hider"; }
+        const char *GetDescription() override { return "Bot persona/steamid/ping/crosshair/avatar hider"; }
         const char *GetURL() override { return ""; }
         const char *GetLicense() override { return "AGPL-3.0"; }
         const char *GetVersion() override { return "0.3.2"; }

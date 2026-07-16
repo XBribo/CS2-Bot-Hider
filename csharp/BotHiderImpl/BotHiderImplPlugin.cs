@@ -3,6 +3,7 @@ using CounterStrikeSharp.API;
 using CounterStrikeSharp.API.Core;
 using CounterStrikeSharp.API.Core.Attributes.Registration;
 using CounterStrikeSharp.API.Core.Capabilities;
+using CounterStrikeSharp.API.Modules.Admin;
 using CounterStrikeSharp.API.Modules.Commands;
 using CounterStrikeSharp.API.Modules.Memory;
 using CounterStrikeSharp.API.Modules.Timers;
@@ -422,6 +423,7 @@ public class BotHiderImplPlugin : BasePlugin
 
     // bh_status — dump every managed slot's state
     [ConsoleCommand("bh_status", "List all BotHider-managed slots")]
+    [CommandHelper(0, "", CommandUsage.CLIENT_AND_SERVER)]
     public void OnStatus(CCSPlayerController? player, CommandInfo cmd)
     {
         if (_client == null) { cmd.ReplyToCommand("[BotHider] not initialized"); return; }
@@ -444,7 +446,9 @@ public class BotHiderImplPlugin : BasePlugin
                 $"sid={_client.GetBotSteamId(s)}/{_client.GetBaseBotSteamId(s)} " +
                 $"name='{_client.GetPersonaName(s)}'/'{_client.GetBasePersonaName(s)}' " +
                 $"ping={_client.GetPing(s)} " +
-                $"crosshair='{_client.GetCrosshairCode(s)}' isbot={isBot}");
+                $"crosshair='{_client.GetCrosshairCode(s)}' " +
+                $"avatar={_client.HasBotAvatar(s)}/{_client.GetConfiguredAvatarSize(s)}B " +
+                $"isbot={isBot}");
         }
     }
 
@@ -494,6 +498,32 @@ public class BotHiderImplPlugin : BasePlugin
         string code = cmd.GetArg(2);
         bool ok = _client.SetCrosshairCode(slot, code);
         cmd.ReplyToCommand($"[BotHider] SetCrosshairCode({slot},'{code}') -> {ok}");
+    }
+
+    // bh_setavatar <slot> <png_path|0> applies or clears a custom avatar
+    [ConsoleCommand("bh_setavatar", "Set a bot avatar: bh_setavatar <slot> <png_path|0>")]
+    [CommandHelper(2, "<slot> <png_path|0>", CommandUsage.CLIENT_AND_SERVER)]
+    [RequiresPermissions("@css/root")]
+    public void OnSetAvatar(CCSPlayerController? player, CommandInfo cmd)
+    {
+        if (_client == null)
+        {
+            cmd.ReplyToCommand("[BotHider] not initialized");
+            return;
+        }
+        if (cmd.ArgCount < 3 || !int.TryParse(cmd.GetArg(1), out int slot))
+        {
+            cmd.ReplyToCommand("usage: bh_setavatar <slot> <png_path|0>");
+            return;
+        }
+
+        string path = cmd.GetArg(2);
+        bool ok = _client.TrySetBotAvatar(slot, path, out string error);
+        cmd.ReplyToCommand(ok
+            ? path == "0"
+                ? $"[BotHider] avatar clear queued slot={slot}"
+                : $"[BotHider] avatar queued slot={slot} bytes={_client.GetConfiguredAvatarSize(slot)}"
+            : $"[BotHider] avatar rejected slot={slot}: {error}");
     }
 
     // bh_disguise <0|1> — toggle the m_bFakePlayer disguise
@@ -548,6 +578,9 @@ internal sealed class BotHiderCapabilityApi : IBotHiderApi
     // Returns the current crosshair code for the slot.
     public string GetCrosshairCode(int slot) => _client.GetCrosshairCode(slot);
 
+    // Returns whether native has applied a custom avatar to the bot
+    public bool HasBotAvatar(int slot) => _client.HasBotAvatar(slot);
+
     // Returns the current scoreboard flair item definition index
     public uint GetScoreboardFlair(int slot) => _client.GetScoreboardFlair(slot);
 
@@ -569,6 +602,10 @@ internal sealed class BotHiderCapabilityApi : IBotHiderApi
     // Set crosshair code for a managed bot, empty or "0" to clear
     public bool SetCrosshairCode(int slot, string code) =>
         _client.SetCrosshairCode(slot, code);
+
+    // Reads and applies a PNG avatar file or clears it with "0"
+    public bool SetBotAvatar(int slot, string pngPath) =>
+        _client.SetBotAvatar(slot, pngPath);
 
     // Toggles the global disguise behavior.
     public bool SetDisguise(bool enabled) => _client.SetDisguise(enabled);

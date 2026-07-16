@@ -13,22 +13,9 @@
 `BotHider` is a plugin for **Counter-Strike 2** that makes bots look like real human players.
 
 - Removes the `BOT` tag from the scoreboard
-- Each bot gets its own SteamID64, display name, ping, crosshair, and scoreboard flair
+- Each bot gets its own SteamID64, display name, ping, crosshair, scoreboard flair, and optional custom PNG avatar
 - Adds a fake ping
 - Applies a scoreboard flair medal
-
-------------------------------------------------------------------------
-
-## Console Commands
-
-| Command | Description |
-|---------|-------------|
-| `bh_status` | Show every bot's details: slot, SteamID, name, ping, crosshair |
-| `bh_setname <slot> <name>` | Change a bot's name |
-| `bh_setsid <slot> <SteamID64>` | Change a bot's SteamID |
-| `bh_setflair <slot> <item_def_index>` | Change a bot's scoreboard flair (`0` clears it) |
-| `bh_disguise <0/1>` | Turn bot disguise off (0) or on (1) |
-| `bh_namesource <0/1>` | **0** = use name from `botprofile.db` (default)<br>**1** = use name from `bot_info.json` (only affects new bots) |
 
 ------------------------------------------------------------------------
 
@@ -37,6 +24,43 @@
 1. Download the latest `BotHider-windows.zip` or `BotHider-linux.zip` from the [Releases page](https://github.com/XBribo/CS2-Bot-Hider/releases/latest).
 2. Extract the archive and copy the `/addons/` folder into your server's `/game/csgo/` directory.
 3. Restart the server.
+
+------------------------------------------------------------------------
+
+## Console Commands
+
+| Command | Description |
+|---------|-------------|
+| `bh_status` | Show every bot's details |
+| `bh_setname <slot> <name>` | Change a bot's name |
+| `bh_setsid <slot> <SteamID64>` | Change a bot's SteamID |
+| `bh_setflair <slot> <item_def_index>` | Change a bot's scoreboard flair (`0` clears it) |
+| `bh_setavatar <slot> <png_path/0>` | Apply a server-local PNG avatar, or use `0` to clear it (`@css/root` or server console/RCON) |
+| `bh_disguise <0/1>` | Turn bot disguise off (0) or on (1) |
+| `bh_namesource <0/1>` | **0** = use name from `botprofile.db` (default)<br>**1** = use name from `bot_info.json` (only affects new bots) |
+
+------------------------------------------------------------------------
+
+## Custom Bot Avatars
+
+BotHider can apply a server-local PNG file as the avatar of a managed bot. The file must:
+
+- Be a valid, non-empty PNG
+- Be no larger than **16 KiB**
+- Be readable by the game server
+
+Use the engine player slot shown by `bh_status`. Quote paths that contain spaces:
+
+```text
+bh_setavatar 1 "E:/game/csgo/addons/avatars/player.png"
+bh_setavatar 1 0
+```
+
+These commands can be executed from the server console/RCON or by a CounterStrikeSharp administrator with `@css/root`. `bh_status` reports avatar state as `avatar=<applied>/<bytes>`, for example `avatar=True/8011B`.
+
+The avatar is associated with the bot's final SteamID64. BotHider automatically rebinds it when that bot's SteamID changes, clears the old override when the bot disconnects, and prevents a new bot in the same slot from inheriting it.
+
+CS2 uses separate caches for some HUD surfaces. `ServerAvatarOverrides` updates the scoreboard avatar, but the compact score strip can retain its previous cached avatar and is not guaranteed to refresh immediately.
 
 ------------------------------------------------------------------------
 

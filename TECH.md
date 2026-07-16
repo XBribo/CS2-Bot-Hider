@@ -17,6 +17,7 @@ When the engine spawns a fake client, BotHider:
 - Renames the bot to a curated **persona name**
 - Applies a **jittered ping** and a **crosshair share-code**
 - Applies a **scoreboard flair** via `CCSPlayerController_InventoryServices.m_rank`
+- Applies an optional **custom PNG avatar** through `ServerAvatarOverrides`
 - Patches `CCSPlayerController.IsBot` to report `true` for managed bots (preserving compatibility with other plugins)
 
 ------------------------------------------------------------------------
@@ -101,12 +102,14 @@ public interface IBotHiderApi
     string   GetPersonaName(int slot);      // assigned display name
     int      GetPing(int slot);             // current jittered ping (ms)
     string   GetCrosshairCode(int slot);    // assigned crosshair share-code
+    bool     HasBotAvatar(int slot);        // native override is active for the current SteamID
     uint     GetScoreboardFlair(int slot);  // assigned scoreboard flair defidx
     (string Name, ulong Addr)[] GetSignatures();
 
     // --- write (applied on the next server frame) ---
     bool     SetBotSteamId(int slot, ulong steamId64);
     bool     SetCrosshairCode(int slot, string code); // empty or "0" to clear
+    bool     SetBotAvatar(int slot, string pngPath);  // valid PNG up to 16 KiB, or "0" to clear
     bool     SetPersonaName(int slot, string name);
     bool     SetScoreboardFlair(int slot, uint itemDefIndex);
 
@@ -181,6 +184,42 @@ if (_api.SetPersonaName(3, "ZywOo"))
 ```
 
 `SetPersonaName` also immediately updates the scoreboard via the controller schema.
+
+------------------------------------------------------------------------
+
+## Custom Avatar Pipeline
+
+`SetBotAvatar` is implemented by the managed/native bridge rather than by CounterStrikeSharp schema writes:
+
+1. `BotHiderImpl` resolves the server-local path and rejects missing, empty, non-PNG, or larger-than-16-KiB files before reading the complete file.
+2. The PNG bytes, byte length, request sequence, and current slot incarnation are written to a per-slot shared-memory region. An odd/even seqlock prevents native code from consuming a partially written PNG.
+3. The native plugin processes changed requests on the game thread, enables `sv_reliableavatardata`, and finds the `ServerAvatarOverrides` network string table.
+4. The bot's final SteamID64 is used as the string-table key and the PNG bytes are stored as its user data. Index `0` is reserved as an empty sentinel because player avatar data must use a nonzero index.
+5. Applied state and the applied SteamID64 are published back to C#, which is what `HasBotAvatar` and `bh_status` report.
+
+The shared-memory wire version remains `v1`. The mapping is enlarged to `1,064,960` bytes and contains a 16-KiB PNG area for each of the 64 player slots, so the native plugin and `BotHiderImpl` must be updated together.
+
+Avatar requests are bound to the current native slot incarnation. A disconnected bot therefore cannot leak its avatar to a new bot that later occupies the same slot. If the managed bot's SteamID changes, native code clears the old SteamID entry and reapplies the same PNG under the final new SteamID. A recreated map string table also forces reapplication.
+
+```csharp
+if (_api.SetBotAvatar(slot, @"E:\avatars\player.png"))
+    Console.WriteLine("Avatar queued");
+
+// SetBotAvatar reports that the request was accepted; native applies it next frame
+bool applied = _api.HasBotAvatar(slot);
+
+_api.SetBotAvatar(slot, "0");
+```
+
+Console equivalents:
+
+```text
+bh_setavatar <slot> <png_path|0>
+```
+
+Use `0` in place of `png_path` to clear the avatar. The command accepts server console/RCON callers and clients with CounterStrikeSharp `@css/root`. `bh_status` is available to both clients and the server and includes `avatar=<applied>/<configured_bytes>` for each managed slot.
+
+`ServerAvatarOverrides` reliably changes the scoreboard avatar. The compact score strip is a separate CS2 HUD surface and can retain cached avatar state; BotHider cannot force that client-side cache to refresh through the network string table alone.
 
 ------------------------------------------------------------------------
 

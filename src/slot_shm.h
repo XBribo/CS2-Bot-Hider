@@ -61,8 +61,20 @@ namespace cs2bh::shm
     inline constexpr int kOff_Incarnation = 13216;      // uint64[64]
     // Ends at 13216 + 64*8 = 13728
 
-    inline constexpr int kTotalSize = 16384; // 4 pages
-    static_assert(kOff_Incarnation + kMaxSlots * sizeof(uint64_t) <= kTotalSize,
+    // Custom avatar request and native application state
+    inline constexpr int kAvatarMaxBytes = 16 * 1024;
+    inline constexpr int kOff_AvatarSequence = 13728;    // uint32[64], seqlock
+    inline constexpr int kOff_AvatarLength = 13984;      // uint32[64]
+    inline constexpr int kOff_AvatarIncarnation = 14240; // uint64[64]
+    inline constexpr int kOff_AvatarApplied = 14752;     // byte[64]
+    inline constexpr int kOff_AvatarAppliedSid = 14816;  // uint64[64]
+    inline constexpr int kOff_AvatarData = 16384;        // byte[64][16 KiB]
+
+    inline constexpr int kTotalSize =
+        kOff_AvatarData + kMaxSlots * kAvatarMaxBytes;
+    static_assert(kOff_AvatarAppliedSid + kMaxSlots * sizeof(uint64_t) <= kOff_AvatarData,
+                  "Avatar metadata overlaps avatar data");
+    static_assert(kOff_AvatarData + kMaxSlots * kAvatarMaxBytes <= kTotalSize,
                   "Shared-memory data exceeds the mapping size");
 
     // Command opcodes.

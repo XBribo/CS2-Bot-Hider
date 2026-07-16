@@ -17,7 +17,10 @@ public sealed class SharedMemoryClient : IBotHiderApi, IDisposable
     private const int MaxSlots = 64;
     private const int NameLen = 32;
     private const int CmdCount = 64;
-    private const int TotalSize = 16384;
+    private const int AvatarMaxBytes = 16 * 1024;
+    private const int TotalSize = 1_064_960;
+    private static readonly byte[] AvatarPngSignature =
+        [0x89, (byte)'P', (byte)'N', (byte)'G', 0x0D, 0x0A, 0x1A, 0x0A];
 
     // Data region offsets
     private const int OffMagic = 0;
@@ -42,6 +45,13 @@ public sealed class SharedMemoryClient : IBotHiderApi, IDisposable
     private const int OffBaseSyntheticSid = 10656;  // uint64[64]
     private const int OffBasePersonaName = 11168;  // char[64][32]
     private const int OffIncarnation = 13216;  // uint64[64]
+    // Custom avatar request and native application state
+    private const int OffAvatarSequence = 13728;  // uint32[64]
+    private const int OffAvatarLength = 13984;  // uint32[64]
+    private const int OffAvatarIncarnation = 14240;  // uint64[64]
+    private const int OffAvatarApplied = 14752;  // byte[64]
+    private const int OffAvatarAppliedSid = 14816;  // uint64[64]
+    private const int OffAvatarData = 16384;  // byte[64][16 KiB]
 
     // Command region offsets
     private const int OffWriteIdx = 2640;
@@ -192,6 +202,27 @@ public sealed class SharedMemoryClient : IBotHiderApi, IDisposable
     public string GetCrosshairCode(int slot)
         => ReadFixedUtf8(slot, OffCrosshair, CrosshairLen);
 
+    // Returns whether native has applied an avatar to the current SteamID
+    public bool HasBotAvatar(int slot)
+    {
+        if (!IsManagedBot(slot) || _view!.ReadByte(OffAvatarApplied + slot) == 0)
+            return false;
+        ulong appliedSid = _view.ReadUInt64(OffAvatarAppliedSid + slot * sizeof(ulong));
+        return appliedSid != 0 && appliedSid == GetBotSteamId(slot);
+    }
+
+    // Returns the configured PNG size for the current slot incarnation
+    public int GetConfiguredAvatarSize(int slot)
+    {
+        if (!IsManagedBot(slot) ||
+            !TryReadAvatarMetadata(slot, out _, out uint length, out ulong incarnation) ||
+            incarnation == 0 || incarnation != GetSlotIncarnation(slot))
+        {
+            return 0;
+        }
+        return checked((int)length);
+    }
+
     // Write crosshair code to shared memory, empty or "0" to clear
     public bool SetCrosshairCode(int slot, string code)
     {
@@ -326,6 +357,153 @@ public sealed class SharedMemoryClient : IBotHiderApi, IDisposable
             _view.Write(OffWriteIdx, w + 1);
         }
         return true;
+    }
+
+    // Reads and queues one validated PNG avatar file
+    public bool SetBotAvatar(int slot, string pngPath)
+        => TrySetBotAvatar(slot, pngPath, out _);
+
+    // Reads and queues one PNG avatar file with a validation error
+    public bool TrySetBotAvatar(int slot, string pngPath, out string error)
+    {
+        error = string.Empty;
+        if (pngPath == "0")
+        {
+            if (ClearAvatarRequest(slot)) return true;
+            error = "shared memory is unavailable";
+            return false;
+        }
+        if (!IsManagedBot(slot))
+        {
+            error = "slot is not a BotHider-managed bot";
+            return false;
+        }
+        if (string.IsNullOrWhiteSpace(pngPath))
+        {
+            error = "avatar path is empty";
+            return false;
+        }
+
+        byte[] bytes;
+        try
+        {
+            string fullPath = Path.GetFullPath(pngPath);
+            var file = new FileInfo(fullPath);
+            if (!file.Exists)
+            {
+                error = "avatar PNG does not exist";
+                return false;
+            }
+            if (file.Length == 0)
+            {
+                error = "avatar PNG is empty";
+                return false;
+            }
+            if (file.Length > AvatarMaxBytes)
+            {
+                error = "avatar PNG must be 16 KiB or smaller";
+                return false;
+            }
+            bytes = File.ReadAllBytes(fullPath);
+        }
+        catch (Exception ex)
+        {
+            error = $"failed to read avatar PNG: {ex.Message}";
+            return false;
+        }
+
+        if (bytes.Length == 0)
+        {
+            error = "avatar PNG is empty";
+            return false;
+        }
+        if (bytes.Length > AvatarMaxBytes)
+        {
+            error = "avatar PNG must be 16 KiB or smaller";
+            return false;
+        }
+        if (!bytes.AsSpan().StartsWith(AvatarPngSignature))
+        {
+            error = "avatar file is not a PNG";
+            return false;
+        }
+
+        ulong incarnation = GetSlotIncarnation(slot);
+        if (incarnation == 0)
+        {
+            error = "managed slot has no active incarnation";
+            return false;
+        }
+        if (!WriteAvatarRequest(slot, incarnation, bytes))
+        {
+            error = "shared memory is unavailable";
+            return false;
+        }
+        return true;
+    }
+
+    // Queues removal of the custom avatar for one slot
+    internal bool ClearAvatarRequest(int slot)
+    {
+        if (!Valid(slot)) return false;
+        return WriteAvatarRequest(slot, 0UL, ReadOnlySpan<byte>.Empty);
+    }
+
+    // Writes one avatar request using a per-slot seqlock
+    private bool WriteAvatarRequest(int slot, ulong incarnation, ReadOnlySpan<byte> bytes)
+    {
+        if (!Valid(slot) || bytes.Length > AvatarMaxBytes) return false;
+        lock (_writeLock)
+        {
+            int sequenceOffset = OffAvatarSequence + slot * sizeof(uint);
+            uint current = _view!.ReadUInt32(sequenceOffset);
+            uint writing = unchecked((current & 1U) == 0 ? current + 1U : current + 2U);
+            _view.Write(sequenceOffset, writing);
+            Interlocked.MemoryBarrier();
+
+            _view.Write(OffAvatarIncarnation + slot * sizeof(ulong), incarnation);
+            _view.Write(OffAvatarLength + slot * sizeof(uint), (uint)bytes.Length);
+            byte[] buffer = new byte[AvatarMaxBytes];
+            bytes.CopyTo(buffer);
+            _view.WriteArray(OffAvatarData + slot * AvatarMaxBytes,
+                             buffer, 0, AvatarMaxBytes);
+
+            Interlocked.MemoryBarrier();
+            _view.Write(sequenceOffset, unchecked(writing + 1U));
+        }
+        return true;
+    }
+
+    // Reads stable avatar request metadata without copying PNG data
+    private bool TryReadAvatarMetadata(int slot, out uint sequence,
+                                       out uint length, out ulong incarnation)
+    {
+        sequence = 0;
+        length = 0;
+        incarnation = 0;
+        if (!Valid(slot)) return false;
+
+        int sequenceOffset = OffAvatarSequence + slot * sizeof(uint);
+        for (int attempt = 0; attempt < 3; attempt++)
+        {
+            uint before = _view!.ReadUInt32(sequenceOffset);
+            if ((before & 1U) != 0) continue;
+            Interlocked.MemoryBarrier();
+            uint candidateLength = _view.ReadUInt32(
+                OffAvatarLength + slot * sizeof(uint));
+            ulong candidateIncarnation = _view.ReadUInt64(
+                OffAvatarIncarnation + slot * sizeof(ulong));
+            Interlocked.MemoryBarrier();
+            uint after = _view.ReadUInt32(sequenceOffset);
+            if (before != after || (after & 1U) != 0) continue;
+            if (candidateLength > AvatarMaxBytes) return false;
+
+            sequence = after;
+            length = candidateLength;
+            incarnation = candidateIncarnation;
+            return true;
+        }
+        return false;
     }
 
     // Encodes a fixed-size UTF-8 field without truncating a character
