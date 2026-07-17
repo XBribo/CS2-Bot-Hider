@@ -1,4 +1,10 @@
 namespace BotHiderApi;
+
+public static class BotHiderContract
+{
+    public const int MaxPlayerNameUtf8Bytes = 31;
+}
+
 // Slot is the engine player slot (CCSPlayerController.Slot.Value)
 public interface IBotHiderApi
 {
@@ -32,7 +38,7 @@ public interface IBotHiderApi
     // Reads and applies a PNG avatar file, or clears it when pngPath is "0"
     bool SetBotAvatar(int slot, string pngPath);
 
-    // returns false if the slot/name is invalid
+    // Normalizes the name to at most 31 UTF-8 bytes and rejects an empty result
     bool SetPersonaName(int slot, string name);
 
     // returns false if the slot/flair is invalid

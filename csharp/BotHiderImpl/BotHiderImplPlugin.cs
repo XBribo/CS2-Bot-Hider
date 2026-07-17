@@ -473,7 +473,8 @@ public class BotHiderImplPlugin : BasePlugin
         { cmd.ReplyToCommand("usage: bh_setname <slot> <name>"); return; }
         string name = cmd.GetArg(2);
         bool ok = _client.SetPersonaName(slot, name);
-        cmd.ReplyToCommand($"[BotHider] SetPersonaName({slot},'{name}') -> {ok}");
+        string appliedName = ok ? _client.GetPersonaName(slot) : name;
+        cmd.ReplyToCommand($"[BotHider] SetPersonaName({slot},'{appliedName}') -> {ok}");
     }
 
     // bh_setflair <slot> <item_def_index> — set a bot's scoreboard flair

@@ -110,7 +110,7 @@ public interface IBotHiderApi
     bool     SetBotSteamId(int slot, ulong steamId64);
     bool     SetCrosshairCode(int slot, string code); // empty or "0" to clear
     bool     SetBotAvatar(int slot, string pngPath);  // valid PNG up to 16 KiB, or "0" to clear
-    bool     SetPersonaName(int slot, string name);
+    bool     SetPersonaName(int slot, string name);     // visible graphemes, maximum 31 UTF-8 bytes
     bool     SetScoreboardFlair(int slot, uint itemDefIndex);
 
     // --- global toggles ---
@@ -153,8 +153,8 @@ public override void OnAllPluginsLoaded(bool hotReload) => _api = Cap.Get();
 
 | Check | Result for managed bots |
 |-------|--------------------------|
-| `player.IsBot` | `true` (restored by BotHider's Harmony patch) |
-| `_api.IsManagedBot(slot)` | `true` (direct, patch-free) |
+| `player.IsBot` | `true` |
+| `_api.IsManagedBot(slot)` | `true` |
 
 ```csharp
 foreach (int slot in _api.GetManagedSlots())
@@ -165,7 +165,7 @@ foreach (int slot in _api.GetManagedSlots())
 }
 ```
 
-Use `_api.IsManagedBot(slot)` when you need a guarantee independent of Harmony (e.g., code already inlined before the patch).
+Use `_api.IsManagedBot(slot)` when you need a guarantee independent of Harmony.
 
 ------------------------------------------------------------------------
 
@@ -185,19 +185,19 @@ if (_api.SetPersonaName(3, "ZywOo"))
 
 `SetPersonaName` also immediately updates the scoreboard via the controller schema.
 
+Names are normalized inside BotHider before they enter the 32-byte shared-memory field. Control and format-only text elements are removed, leading and trailing whitespace is discarded, and the remaining name is truncated to `BotHiderContract.MaxPlayerNameUtf8Bytes` (31) at a complete Unicode text-element boundary. A name whose normalized result is empty is rejected.
+
 ------------------------------------------------------------------------
 
 ## Custom Avatar Pipeline
 
-`SetBotAvatar` is implemented by the managed/native bridge rather than by CounterStrikeSharp schema writes:
+`SetBotAvatar` is implemented by the managed/native bridge:
 
 1. `BotHiderImpl` resolves the server-local path and rejects missing, empty, non-PNG, or larger-than-16-KiB files before reading the complete file.
 2. The PNG bytes, byte length, request sequence, and current slot incarnation are written to a per-slot shared-memory region. An odd/even seqlock prevents native code from consuming a partially written PNG.
 3. The native plugin processes changed requests on the game thread, enables `sv_reliableavatardata`, and finds the `ServerAvatarOverrides` network string table.
 4. The bot's final SteamID64 is used as the string-table key and the PNG bytes are stored as its user data. Index `0` is reserved as an empty sentinel because player avatar data must use a nonzero index.
 5. Applied state and the applied SteamID64 are published back to C#, which is what `HasBotAvatar` and `bh_status` report.
-
-The shared-memory wire version remains `v1`. The mapping is enlarged to `1,064,960` bytes and contains a 16-KiB PNG area for each of the 64 player slots, so the native plugin and `BotHiderImpl` must be updated together.
 
 Avatar requests are bound to the current native slot incarnation. A disconnected bot therefore cannot leak its avatar to a new bot that later occupies the same slot. If the managed bot's SteamID changes, native code clears the old SteamID entry and reapplies the same PNG under the final new SteamID. A recreated map string table also forces reapplication.
 
@@ -217,9 +217,7 @@ Console equivalents:
 bh_setavatar <slot> <png_path|0>
 ```
 
-Use `0` in place of `png_path` to clear the avatar. The command accepts server console/RCON callers and clients with CounterStrikeSharp `@css/root`. `bh_status` is available to both clients and the server and includes `avatar=<applied>/<configured_bytes>` for each managed slot.
-
-`ServerAvatarOverrides` reliably changes the scoreboard avatar. The compact score strip is a separate CS2 HUD surface and can retain cached avatar state; BotHider cannot force that client-side cache to refresh through the network string table alone.
+Use `0` in place of `png_path` to clear the avatar. The command accepts server console/RCON callers and clients with CounterStrikeSharp `@css/root`.
 
 ------------------------------------------------------------------------
 
