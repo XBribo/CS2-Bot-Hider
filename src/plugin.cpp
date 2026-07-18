@@ -1562,7 +1562,8 @@ namespace cs2bh
         if (m_bDisguiseEnabled)
         {
             ssc::ClearFakePlayer(pClient);
-            SetControllerFakeClientFlag(idx, false);
+            if (!m_bBotAddInProgress)
+                SetControllerFakeClientFlag(idx, false);
         }
 
         uint64_t sid = 0;
@@ -1603,7 +1604,7 @@ namespace cs2bh
         if (m_bDisguiseEnabled)
         {
             ssc::ClearFakePlayer(pClient);
-            SetControllerFakeClientFlag(idx, false);
+            SetControllerFakeClientFlag(idx, m_bBotAddInProgress);
         }
 
         auto *entry = g_SlotEntry[idx];
@@ -1750,13 +1751,13 @@ namespace cs2bh
             RETURN_META(MRES_IGNORED);
         const char *cmdName = cmd.GetName();
 
-        // Capture the current quota so POST can set it to old+1
+        // Restore existing bots while bot_add performs its quota census
         if (IsBotAddCommand(cmdName))
         {
-            m_QuotaBeforeAdd = 0;
-            ConVarRefAbstract botQuota("bot_quota");
-            if (botQuota.IsValidRef())
-                m_QuotaBeforeAdd = botQuota.GetInt();
+            m_bBotAddInProgress = true;
+            m_AddFlippedSlots.fill(false);
+            if (m_bDisguiseEnabled && !m_bRebuilding)
+                FlipManagedController904(false, &m_AddFlippedSlots);
             RETURN_META(MRES_IGNORED);
         }
 
@@ -1833,14 +1834,21 @@ namespace cs2bh
         {
             if (m_bDisguiseEnabled && !m_bRebuilding)
             {
-                ConVarRefAbstract botQuota("bot_quota");
-                if (botQuota.IsValidRef())
+                FlipManagedController904(true, &m_AddFlippedSlots);
+                m_bBotAddInProgress = false;
+                for (int idx = 0; idx < PersonaPool::kMaxSlots; ++idx)
                 {
-                    int want = m_QuotaBeforeAdd + 1;
-                    if (botQuota.GetInt() != want)
-                        botQuota.SetInt(want);
+                    if (!Manager().IsManaged(idx))
+                        continue;
+                    void *pClient = ResolveClientBySlot(idx);
+                    if (!pClient)
+                        continue;
+                    ssc::ClearFakePlayer(pClient);
+                    SetControllerFakeClientFlag(idx, false);
                 }
             }
+            m_bBotAddInProgress = false;
+            m_AddFlippedSlots.fill(false);
             RETURN_META(MRES_IGNORED);
         }
 

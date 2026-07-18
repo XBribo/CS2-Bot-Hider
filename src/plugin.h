@@ -75,7 +75,8 @@ namespace cs2bh
 
         bool m_bRebuilding = false;
 
-        int m_QuotaBeforeAdd = 0;
+        bool m_bBotAddInProgress = false;
+        std::array<bool, 64> m_AddFlippedSlots{};
 
         int m_ManagedBeforeKick = 0;
         int m_QuotaBeforeKick = -1;
