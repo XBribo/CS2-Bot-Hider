@@ -8,6 +8,7 @@
 #include <playerslot.h>
 #include <tier1/utlvector.h>
 #include <array>
+#include <cstdint>
 
 class CServerSideClient;
 class INetworkGameClient;
@@ -19,6 +20,15 @@ enum ENetworkDisconnectionReason : int;
 
 namespace cs2bh
 {
+
+    struct ManagedControllerFlagSnapshot
+    {
+        void *Client = nullptr;
+        void *Controller = nullptr;
+        uint32_t Handle = 0xFFFFFFFF;
+        uint16_t UserId = 0;
+        bool Modified = false;
+    };
 
     class HiderPlugin : public ISmmPlugin, public IMetamodListener
     {
@@ -32,7 +42,7 @@ namespace cs2bh
         const char *GetDescription() override { return "Bot persona/steamid/ping/crosshair/avatar hider"; }
         const char *GetURL() override { return ""; }
         const char *GetLicense() override { return "AGPL-3.0"; }
-        const char *GetVersion() override { return "0.3.2"; }
+        const char *GetVersion() override { return "0.3.3"; }
         const char *GetDate() override { return __DATE__; }
         const char *GetLogTag() override { return "BH"; }
 
@@ -76,7 +86,7 @@ namespace cs2bh
         bool m_bRebuilding = false;
 
         bool m_bBotAddInProgress = false;
-        std::array<bool, 64> m_AddFlippedSlots{};
+        std::array<ManagedControllerFlagSnapshot, 64> m_AddFlippedSlots{};
 
         int m_ManagedBeforeKick = 0;
         int m_QuotaBeforeKick = -1;
