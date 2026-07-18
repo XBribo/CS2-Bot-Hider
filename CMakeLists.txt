@@ -102,20 +102,26 @@ set(SDK_SOURCES
 
 add_library(BotHider SHARED
     src/plugin.cpp
-    src/personas.cpp
-    src/steamid_provider.cpp
-    src/ping_display.cpp
-    src/fake_client_manager.cpp
-    src/bot_info.cpp
-    src/slot_publisher.cpp
-    src/sig_scan.cpp
-    src/schema_resolver.cpp
+    src/AvatarOverride/avatar_override.cpp
+    src/BotIdentity/personas.cpp
+    src/BotIdentity/steamid_provider.cpp
+    src/BotIdentity/ping_display.cpp
+    src/BotIdentity/fake_client_manager.cpp
+    src/BotIdentity/bot_info.cpp
+    src/BotIdentity/identity_hooks.cpp
+    src/SharedMemory/slot_publisher.cpp
+    src/common/sig_scan.cpp
+    src/common/schema_resolver.cpp
     ${PROTO_SRCS}
     ${SDK_SOURCES}
 )
 
 target_include_directories(BotHider PRIVATE
     src
+    src/AvatarOverride
+    src/BotIdentity
+    src/SharedMemory
+    src/common
     ${NLOHMANN_JSON_INCLUDE}
     ${GENERATED_DIR}
     ${HL2SDK}/thirdparty/protobuf-3.21.8/src

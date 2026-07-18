@@ -2,9 +2,11 @@
 // All constants (offsets, vtable slots, schema candidates) live in version_targets.h
 
 #include "plugin.h"
+#include "avatar_override.h"
 #include "bot_info.h"
 #include "personas.h"
 #include "fake_client_manager.h"
+#include "identity_hooks.h"
 #include "ping_display.h"
 #include "serversideclient_ref.h"
 #include "slot_publisher.h"
@@ -13,18 +15,13 @@
 #include "schema_resolver.h"
 
 #include <algorithm>
-#include <atomic>
 #include <cstdio>
 #include <cstdint>
 #include <cstring>
-#include <functional>
 #include <array>
-#include <mutex>
 #include <string>
-#include <thread>
 #include <vector>
 
-#include <funchook.h>
 #include <nlohmann/json.hpp>
 #include <entity2/entityinstance.h>
 
@@ -68,7 +65,6 @@ IVEngineServer *engine = nullptr;
 ICvar *icvar = nullptr;
 IServerGameClients *gameclients = nullptr;
 IServerGameDLL *server = nullptr;
-static INetworkStringTableContainer *g_pNetworkStringTables = nullptr;
 extern INetworkServerService *g_pNetworkServerService;
 
 // GameResourceServiceServerV001
@@ -83,36 +79,7 @@ static UtilRemoveFn g_pfnUtilRemove = nullptr;
 // Cross-check anchor: address of the CGameEntitySystem singleton global that UTIL_Remove references.
 static void **g_ppEntSysGlobal = nullptr;
 
-static funchook_t *g_pFunchook = nullptr;
-static size_t g_PreparedFunchookCount = 0;
-static bool g_FunchooksInstalled = false;
-
-// * inline detour on CCSBotManager::MaintainBotQuota
-using MaintainQuotaFn = int64_t(CS2BH_FASTCALL *)(void * /*CCSBotManager*/);
-static MaintainQuotaFn g_pfnQuotaTramp = nullptr;
-static void *g_pQuotaHookTarget = nullptr;
-
-using HandleJoinTeamFn = int64_t(CS2BH_FASTCALL *)(void * /*CCSPlayerController*/, unsigned int, bool);
-static HandleJoinTeamFn g_pfnHandleJoinTeamTramp = nullptr;
-static void *g_pHandleJoinTeamHookTarget = nullptr;
-
-using ApplyHumanTeamRestrictionFn = int64_t(CS2BH_FASTCALL *)();
-static ApplyHumanTeamRestrictionFn g_pfnApplyHumanTeamRestrictionTramp = nullptr;
-static void *g_pApplyHumanTeamRestrictionHookTarget = nullptr;
-
-using PackEntitiesFn = void(CS2BH_FASTCALL *)(void *, void *, int, void *, void *);
 using ClientSetNameFn = void(CS2BH_FASTCALL *)(void *, const char *);
-static PackEntitiesFn g_pfnPackEntitiesTramp = nullptr;
-static void *g_pPackEntitiesHookTarget = nullptr;
-static std::atomic_bool g_PackEntitiesFirstCallLogged = false;
-static std::recursive_mutex g_PackEntitiesMutex;
-static thread_local uint32_t g_PackEntitiesDepth = 0;
-
-struct BotPawnRef
-{
-    void *Instance = nullptr;
-    uint32_t Handle = 0xFFFFFFFF;
-};
 
 struct PendingControllerRemoval
 {
@@ -125,295 +92,6 @@ struct PendingControllerRemoval
 
 static std::vector<PendingControllerRemoval> g_PendingControllerRemovals;
 
-struct ManagedControllerTrace
-{
-    int Slot = -1;
-    uint32_t Handle = 0xFFFFFFFF;
-    uint32_t Flags = 0;
-    unsigned int CurrentTeam = 0;
-    bool Managed = false;
-    bool Hltv = false;
-};
-
-namespace cs2bh
-{
-    std::vector<BotPawnRef> ApplyBotFlagOverride();
-    void RestoreBotFlagOverride(const std::vector<BotPawnRef> &pawns);
-    // Collects identity state for one managed controller
-    ManagedControllerTrace TraceManagedController(void *controller);
-    // Toggles the transient fake-client bit after validating controller identity
-    bool SetJoinTeamFakeClientFlag(void *controller, uint32_t handle, bool enabled);
-}
-
-class PackEntitiesDepthGuard
-{
-public:
-    // Marks the current thread as executing the outer packing callback
-    PackEntitiesDepthGuard()
-    {
-        ++g_PackEntitiesDepth;
-    }
-
-    // Clears the current thread packing depth
-    ~PackEntitiesDepthGuard()
-    {
-        --g_PackEntitiesDepth;
-    }
-};
-
-class ScopedBotFlagOverride
-{
-public:
-    // Clears FL_BOT and marks changed fields before entity packing
-    ScopedBotFlagOverride() : m_ModifiedPawns(cs2bh::ApplyBotFlagOverride())
-    {
-    }
-
-    // Restores only FL_BOT after entity packing without marking changes
-    ~ScopedBotFlagOverride()
-    {
-        cs2bh::RestoreBotFlagOverride(m_ModifiedPawns);
-    }
-
-private:
-    std::vector<BotPawnRef> m_ModifiedPawns;
-};
-
-class ScopedJoinTeamFakeClientFlag
-{
-public:
-    // Restores the controller bot bit only during team validation
-    ScopedJoinTeamFakeClientFlag(void *controller, uint32_t handle, bool enable)
-        : m_Controller(controller),
-          m_Handle(handle),
-          m_Applied(enable && cs2bh::SetJoinTeamFakeClientFlag(controller, handle, true))
-    {
-    }
-
-    // Clears only the bit added by this scope
-    ~ScopedJoinTeamFakeClientFlag()
-    {
-        if (m_Applied &&
-            !cs2bh::SetJoinTeamFakeClientFlag(m_Controller, m_Handle, false))
-        {
-            META_CONPRINTF("[BOTHIDER] warning: failed to restore JoinTeam fake-client scope\n");
-        }
-    }
-
-    // Reports whether the temporary flag was applied
-    bool Applied() const
-    {
-        return m_Applied;
-    }
-
-private:
-    void *m_Controller = nullptr;
-    uint32_t m_Handle = 0xFFFFFFFF;
-    bool m_Applied = false;
-};
-
-// Passes entity packing through unchanged and logs the first calling thread
-static void CS2BH_FASTCALL Detour_PackEntities(void *serverObject, void *packContext,
-                                              int clientCount, void *clients,
-                                              void *snapshotContext)
-{
-    if (!g_PackEntitiesFirstCallLogged.exchange(true, std::memory_order_relaxed))
-    {
-        size_t threadId = std::hash<std::thread::id>{}(std::this_thread::get_id());
-        META_CONPRINTF("[BOTHIDER] CNetworkGameServer::PackEntities first entered on thread %zu\n",
-                       threadId);
-    }
-
-    std::lock_guard<std::recursive_mutex> lock(g_PackEntitiesMutex);
-    if (g_PackEntitiesDepth != 0)
-    {
-        g_pfnPackEntitiesTramp(serverObject, packContext, clientCount, clients, snapshotContext);
-        return;
-    }
-
-    PackEntitiesDepthGuard depthGuard;
-    ScopedBotFlagOverride flagOverride;
-    g_pfnPackEntitiesTramp(serverObject, packContext, clientCount, clients, snapshotContext);
-}
-
-// Prepares one target and replaces its original pointer with the trampoline
-template <typename Function>
-static bool PrepareFunchook(Function &original, void *target, void *detour, const char *name)
-{
-    if (!g_pFunchook)
-    {
-        g_pFunchook = funchook_create();
-        if (!g_pFunchook)
-        {
-            META_CONPRINTF("[BOTHIDER] warning: funchook_create failed for %s\n", name);
-            return false;
-        }
-    }
-
-    void *trampoline = target;
-    int result = funchook_prepare(g_pFunchook, &trampoline, detour);
-    if (result != FUNCHOOK_ERROR_SUCCESS)
-    {
-        META_CONPRINTF("[BOTHIDER] warning: funchook_prepare failed for %s: %s (%d)\n",
-                       name, funchook_error_message(g_pFunchook), result);
-        original = nullptr;
-        return false;
-    }
-
-    original = reinterpret_cast<Function>(trampoline);
-    ++g_PreparedFunchookCount;
-    return true;
-}
-
-// Clears all published funchook targets and trampoline pointers
-static void ClearFunchookBindings()
-{
-    g_pfnQuotaTramp = nullptr;
-    g_pfnPackEntitiesTramp = nullptr;
-    g_pQuotaHookTarget = nullptr;
-    g_pPackEntitiesHookTarget = nullptr;
-    g_pfnHandleJoinTeamTramp = nullptr;
-    g_pHandleJoinTeamHookTarget = nullptr;
-    g_pfnApplyHumanTeamRestrictionTramp = nullptr;
-    g_pApplyHumanTeamRestrictionHookTarget = nullptr;
-    g_PreparedFunchookCount = 0;
-    g_FunchooksInstalled = false;
-}
-
-// Installs every successfully prepared hook through the shared handle
-static void InstallPreparedFunchooks()
-{
-    if (!g_pFunchook || g_PreparedFunchookCount == 0)
-    {
-        if (g_pFunchook)
-            funchook_destroy(g_pFunchook);
-        g_pFunchook = nullptr;
-        ClearFunchookBindings();
-        return;
-    }
-
-    int result = funchook_install(g_pFunchook, 0);
-    if (result != FUNCHOOK_ERROR_SUCCESS)
-    {
-        META_CONPRINTF("[BOTHIDER] warning: funchook_install failed: %s (%d)\n",
-                       funchook_error_message(g_pFunchook), result);
-        funchook_destroy(g_pFunchook);
-        g_pFunchook = nullptr;
-        ClearFunchookBindings();
-        return;
-    }
-
-    g_FunchooksInstalled = true;
-    if (g_pQuotaHookTarget)
-        META_CONPRINTF("[BOTHIDER] bot-quota fix installed at %p\n", g_pQuotaHookTarget);
-    if (g_pPackEntitiesHookTarget)
-        META_CONPRINTF("[BOTHIDER] CNetworkGameServer::PackEntities hook installed at %p\n",
-                       g_pPackEntitiesHookTarget);
-    if (g_pHandleJoinTeamHookTarget)
-        META_CONPRINTF("[BOTHIDER] CCSPlayerController::HandleCommand_JoinTeam hook installed at %p\n",
-                       g_pHandleJoinTeamHookTarget);
-    if (g_pApplyHumanTeamRestrictionHookTarget)
-        META_CONPRINTF("[BOTHIDER] MpHumanTeam_ApplyRestriction hook installed at %p\n",
-                       g_pApplyHumanTeamRestrictionHookTarget);
-}
-
-// Uninstalls all hooks before releasing their shared funchook handle
-static bool RemoveFunchooks()
-{
-    if (g_PackEntitiesDepth != 0)
-    {
-        META_CONPRINTF("[BOTHIDER] error: refusing funchook removal during PackEntities\n");
-        return false;
-    }
-
-    std::unique_lock<std::recursive_mutex> lock(g_PackEntitiesMutex);
-    if (!g_pFunchook)
-    {
-        ClearFunchookBindings();
-        return true;
-    }
-
-    if (g_FunchooksInstalled)
-    {
-        int result = funchook_uninstall(g_pFunchook, 0);
-        if (result != FUNCHOOK_ERROR_SUCCESS)
-        {
-            std::string message = funchook_error_message(g_pFunchook);
-            lock.unlock();
-            META_CONPRINTF("[BOTHIDER] error: funchook_uninstall failed: %s (%d)\n",
-                           message.c_str(), result);
-            return false;
-        }
-    }
-
-    int result = funchook_destroy(g_pFunchook);
-    std::string destroyMessage;
-    if (result != FUNCHOOK_ERROR_SUCCESS)
-        destroyMessage = funchook_error_message(g_pFunchook);
-    g_pFunchook = nullptr;
-    ClearFunchookBindings();
-    lock.unlock();
-    if (result != FUNCHOOK_ERROR_SUCCESS)
-        META_CONPRINTF("[BOTHIDER] warning: funchook_destroy failed: %s (%d)\n",
-                       destroyMessage.c_str(), result);
-    return true;
-}
-
-namespace cs2bh
-{
-    // Flips managed Bot identity around engine Bot-sensitive passes
-    int FlipManagedController904(
-        bool restore,
-        std::array<cs2bh::ManagedControllerFlagSnapshot, 64> *saved);
-}
-
-// Detour
-static int64_t CS2BH_FASTCALL Detour_MaintainBotQuota(void *mgr)
-{
-    std::array<cs2bh::ManagedControllerFlagSnapshot, 64> flipped{};
-    cs2bh::FlipManagedController904(false, &flipped);
-    int64_t r = g_pfnQuotaTramp ? g_pfnQuotaTramp(mgr) : 0;
-    cs2bh::FlipManagedController904(true, &flipped);
-    return r;
-}
-
-// Restores Bot identity while the engine applies mp_humanteam to humans
-static int64_t CS2BH_FASTCALL Detour_ApplyHumanTeamRestriction()
-{
-    std::array<cs2bh::ManagedControllerFlagSnapshot, 64> flipped{};
-    int scoped = cs2bh::FlipManagedController904(false, &flipped);
-    int64_t result = g_pfnApplyHumanTeamRestrictionTramp
-                         ? g_pfnApplyHumanTeamRestrictionTramp()
-                         : 0;
-    cs2bh::FlipManagedController904(true, &flipped);
-    if (scoped > 0)
-        META_CONPRINTF("[BOTHIDER] MpHumanTeam_ApplyRestriction bot scope=%d\n", scoped);
-    return result;
-}
-
-// Restores Bot identity only while the engine validates an initial team join
-static int64_t CS2BH_FASTCALL Detour_HandleCommandJoinTeam(void *controller,
-                                                           unsigned int requestedTeam,
-                                                           bool unknownFlag)
-{
-    ManagedControllerTrace trace = cs2bh::TraceManagedController(controller);
-    const bool needsFakeClientScope = trace.Managed && !trace.Hltv &&
-                                      (trace.Flags & 0x100u) == 0;
-    ScopedJoinTeamFakeClientFlag fakeClientScope(
-        controller, trace.Handle, needsFakeClientScope);
-    if (fakeClientScope.Applied())
-    {
-        META_CONPRINTF(
-            "[BOTHIDER] HandleCommand_JoinTeam bot scope ctrl=%p slot=%d current=%u requested=%u\n",
-            controller, trace.Slot, trace.CurrentTeam, requestedTeam);
-    }
-
-    int64_t result = g_pfnHandleJoinTeamTramp
-                         ? g_pfnHandleJoinTeamTramp(controller, requestedTeam, unknownFlag)
-                         : 0;
-    return result;
-}
-
 namespace cs2bh
 {
 
@@ -425,241 +103,6 @@ namespace cs2bh
 
     // Current controller field used to resolve each managed bot pawn
     static int g_BotPawnHandleOffset = -1;
-
-    struct AvatarRuntimeState
-    {
-        uint32_t ProcessedSequence = 0xFFFFFFFFu;
-        uint64_t ProcessedSteamId = 0;
-        uint64_t AppliedSteamId = 0;
-        bool Applied = false;
-    };
-
-    static std::array<AvatarRuntimeState, PersonaPool::kMaxSlots> g_AvatarStates{};
-    static INetworkStringTable *g_pLastAvatarTable = nullptr;
-
-    // Formats a SteamID64 key for ServerAvatarOverrides
-    static void FormatAvatarSteamId(uint64_t steamId, char *buffer, size_t length)
-    {
-        std::snprintf(buffer, length, "%llu",
-                      static_cast<unsigned long long>(steamId));
-    }
-
-    // Clears one SteamID entry from ServerAvatarOverrides
-    static void ClearAvatarOverride(INetworkStringTable *table, uint64_t steamId)
-    {
-        if (!table || steamId == 0)
-            return;
-        char key[32];
-        FormatAvatarSteamId(steamId, key, sizeof(key));
-        int index = table->FindStringIndex(key);
-        if (index <= 0)
-            return;
-
-        SetStringUserDataRequest_t empty{};
-        if (!table->SetStringUserData(index, &empty, true))
-        {
-            META_CONPRINTF("[BOTHIDER] warning: failed to clear avatar sid=%s index=%d\n",
-                           key, index);
-        }
-    }
-
-    // Writes one validated PNG to ServerAvatarOverrides
-    static bool SetAvatarOverride(INetworkStringTable *table, uint64_t steamId,
-                                  const std::vector<unsigned char> &bytes,
-                                  int &index, char *error, size_t errorLength)
-    {
-        if (!table || steamId == 0 || bytes.empty())
-        {
-            std::snprintf(error, errorLength, "invalid avatar request");
-            return false;
-        }
-        if (table->GetNumStrings() == 0)
-        {
-            SetStringUserDataRequest_t empty{};
-            int sentinel = table->AddString(true, "__bothider_no_avatar__", &empty);
-            if (sentinel != 0)
-            {
-                std::snprintf(error, errorLength,
-                              "failed to reserve string-table index 0");
-                return false;
-            }
-        }
-
-        const StringUserData_t *fallback = table->GetStringUserData(0);
-        if (fallback && fallback->m_cbDataSize != 0)
-        {
-            std::snprintf(error, errorLength,
-                          "string-table index 0 contains avatar data");
-            return false;
-        }
-
-        char key[32];
-        FormatAvatarSteamId(steamId, key, sizeof(key));
-        SetStringUserDataRequest_t userData{};
-        userData.m_pRawData = const_cast<unsigned char *>(bytes.data());
-        userData.m_cbDataSize = static_cast<unsigned int>(bytes.size());
-
-        index = table->FindStringIndex(key);
-        if (index == 0)
-        {
-            std::snprintf(error, errorLength,
-                          "refusing to use reserved string-table index 0");
-            return false;
-        }
-        if (index < 0)
-        {
-            index = table->AddString(true, key, &userData);
-            if (index <= 0)
-            {
-                std::snprintf(error, errorLength,
-                              "failed to allocate a string-table entry");
-                return false;
-            }
-            return true;
-        }
-        if (!table->SetStringUserData(index, &userData, true))
-        {
-            std::snprintf(error, errorLength,
-                          "failed to update string-table user data");
-            return false;
-        }
-        return true;
-    }
-
-    // Enables reliable server avatar data before writing overrides
-    static bool EnsureReliableAvatarData()
-    {
-        ConVarRefAbstract reliableAvatarData("sv_reliableavatardata");
-        if (!reliableAvatarData.IsValidRef() ||
-            !reliableAvatarData.IsConVarDataAvailable())
-        {
-            META_CONPRINTF("[BOTHIDER] avatar error: sv_reliableavatardata unavailable\n");
-            return false;
-        }
-        if (!reliableAvatarData.GetBool())
-        {
-            reliableAvatarData.SetBool(true);
-            if (!reliableAvatarData.GetBool())
-            {
-                META_CONPRINTF("[BOTHIDER] avatar error: failed to enable sv_reliableavatardata\n");
-                return false;
-            }
-        }
-        return true;
-    }
-
-    // Resets native avatar bookkeeping when the string table changes
-    static void ResetAvatarRuntime()
-    {
-        g_AvatarStates.fill(AvatarRuntimeState{});
-        g_pLastAvatarTable = nullptr;
-        for (int slot = 0; slot < PersonaPool::kMaxSlots; ++slot)
-            Publisher().PublishAvatarState(slot, false, 0);
-    }
-
-    // Applies stable shared-memory avatar requests on the game thread
-    static void ProcessAvatarOverrides()
-    {
-        if (!g_pNetworkStringTables)
-            return;
-        INetworkStringTable *table =
-            g_pNetworkStringTables->FindTable("ServerAvatarOverrides");
-        if (!table)
-            return;
-
-        if (table != g_pLastAvatarTable)
-        {
-            g_AvatarStates.fill(AvatarRuntimeState{});
-            g_pLastAvatarTable = table;
-            for (int slot = 0; slot < PersonaPool::kMaxSlots; ++slot)
-                Publisher().PublishAvatarState(slot, false, 0);
-        }
-
-        static constexpr unsigned char kPngSignature[8] =
-            {0x89, 'P', 'N', 'G', 0x0d, 0x0a, 0x1a, 0x0a};
-        for (int slot = 0; slot < PersonaPool::kMaxSlots; ++slot)
-        {
-            uint32_t sequence = 0;
-            uint32_t length = 0;
-            uint64_t incarnation = 0;
-            if (!Publisher().ReadAvatarMetadata(slot, sequence, length, incarnation))
-                continue;
-
-            AvatarRuntimeState &state = g_AvatarStates[slot];
-            bool currentRequest = Manager().IsManaged(slot) &&
-                                  length > 0 &&
-                                  incarnation != 0 &&
-                                  incarnation == Publisher().GetIncarnation(slot);
-            uint64_t steamId = currentRequest ? Manager().GetSyntheticSid(slot) : 0;
-            if (!currentRequest || steamId == 0)
-            {
-                if (!state.Applied &&
-                    state.ProcessedSequence == sequence &&
-                    state.ProcessedSteamId == 0)
-                {
-                    continue;
-                }
-                if (state.Applied)
-                    ClearAvatarOverride(table, state.AppliedSteamId);
-                state.ProcessedSequence = sequence;
-                state.ProcessedSteamId = 0;
-                state.AppliedSteamId = 0;
-                state.Applied = false;
-                Publisher().PublishAvatarState(slot, false, 0);
-                continue;
-            }
-
-            if (state.ProcessedSequence == sequence &&
-                state.ProcessedSteamId == steamId)
-            {
-                continue;
-            }
-
-            SlotPublisher::AvatarRequest request;
-            if (!Publisher().ReadAvatarRequest(slot, request) ||
-                request.Sequence != sequence || request.Length != length ||
-                request.Incarnation != incarnation)
-            {
-                continue;
-            }
-
-            if (state.Applied)
-                ClearAvatarOverride(table, state.AppliedSteamId);
-            state.ProcessedSequence = request.Sequence;
-            state.ProcessedSteamId = steamId;
-            state.AppliedSteamId = 0;
-            state.Applied = false;
-            Publisher().PublishAvatarState(slot, false, 0);
-
-            if (request.Data.size() < sizeof(kPngSignature) ||
-                std::memcmp(request.Data.data(), kPngSignature,
-                            sizeof(kPngSignature)) != 0)
-            {
-                META_CONPRINTF("[BOTHIDER] avatar rejected slot=%d: invalid PNG signature\n",
-                               slot);
-                continue;
-            }
-            if (!EnsureReliableAvatarData())
-                continue;
-
-            int index = -1;
-            char avatarError[128] = {0};
-            if (!SetAvatarOverride(table, steamId, request.Data, index,
-                                   avatarError, sizeof(avatarError)))
-            {
-                META_CONPRINTF("[BOTHIDER] avatar rejected slot=%d sid=%llu: %s\n",
-                               slot, static_cast<unsigned long long>(steamId), avatarError);
-                continue;
-            }
-
-            state.AppliedSteamId = steamId;
-            state.Applied = true;
-            Publisher().PublishAvatarState(slot, true, steamId);
-            META_CONPRINTF("[BOTHIDER] avatar applied slot=%d sid=%llu bytes=%u index=%d\n",
-                           slot, static_cast<unsigned long long>(steamId),
-                           request.Length, index);
-        }
-    }
 
     // Resolve CServerSideClient* for a slot
     static void *ResolveClientBySlot(int slot)
@@ -840,134 +283,6 @@ namespace cs2bh
         targets::kEntIdentity_Size = FindPlatformOffset(gamedata, "CEntityIdentity::Size", targets::kEntIdentity_Size);
         targets::kEntIdentity_InstanceOffset = FindPlatformOffset(gamedata, "CEntityIdentity::m_pInstance", targets::kEntIdentity_InstanceOffset);
         targets::kEntIdentity_ClassNameOffset = FindPlatformOffset(gamedata, "CEntityIdentity::m_designerName", targets::kEntIdentity_ClassNameOffset);
-    }
-
-    // Resolves and prepares the bot quota flip-around detour
-    static void InstallQuotaHook(const nlohmann::json &gamedata, const sig::ModuleInfo &serverModule)
-    {
-        if (!serverModule)
-            return;
-        std::string sigStr = sig::FindPlatformSig(gamedata, "CCSBotManager::MaintainBotQuota");
-        std::vector<uint8_t> bytes;
-        std::vector<bool> wild;
-        if (sigStr.empty() || !sig::ParseSigString(sigStr, bytes, wild))
-        {
-            META_CONPRINTF("[BOTHIDER] warning: MaintainBotQuota sig missing — quota fix disabled\n");
-            return;
-        }
-        void *target = sig::FindPatternIn(serverModule, bytes, wild);
-        if (!target)
-        {
-            META_CONPRINTF("[BOTHIDER] warning: MaintainBotQuota sig not found — quota fix disabled\n");
-            return;
-        }
-        if (PrepareFunchook(g_pfnQuotaTramp, target,
-                            reinterpret_cast<void *>(&Detour_MaintainBotQuota),
-                            "CCSBotManager::MaintainBotQuota"))
-            g_pQuotaHookTarget = target;
-    }
-
-    // Resolves and prepares the HandleCommand_JoinTeam identity-scope detour
-    static void InstallHandleJoinTeamHook(const nlohmann::json &gamedata,
-                                          const sig::ModuleInfo &serverModule)
-    {
-        if (!serverModule)
-            return;
-
-        std::string sigString = sig::FindPlatformSig(
-            gamedata, "CCSPlayerController::HandleCommand_JoinTeam");
-        std::vector<uint8_t> bytes;
-        std::vector<bool> wild;
-        if (sigString.empty() || !sig::ParseSigString(sigString, bytes, wild))
-        {
-            META_CONPRINTF("[BOTHIDER] warning: HandleCommand_JoinTeam signature missing or malformed\n");
-            return;
-        }
-
-        std::vector<void *> matches = sig::FindPatternMatchesIn(serverModule, bytes, wild);
-        META_CONPRINTF("[BOTHIDER] CCSPlayerController::HandleCommand_JoinTeam signature matches=%zu\n",
-                       matches.size());
-        if (matches.size() != 1)
-        {
-            META_CONPRINTF("[BOTHIDER] warning: HandleCommand_JoinTeam hook requires exactly one match\n");
-            return;
-        }
-
-        void *target = matches.front();
-        if (PrepareFunchook(g_pfnHandleJoinTeamTramp, target,
-                            reinterpret_cast<void *>(&Detour_HandleCommandJoinTeam),
-                            "CCSPlayerController::HandleCommand_JoinTeam"))
-            g_pHandleJoinTeamHookTarget = target;
-    }
-
-    // Resolves and prepares the mp_humanteam identity-scope detour
-    static void InstallHumanTeamRestrictionHook(const nlohmann::json &gamedata,
-                                                const sig::ModuleInfo &serverModule)
-    {
-        if (!serverModule)
-            return;
-
-        std::string sigString = sig::FindPlatformSig(
-            gamedata, "MpHumanTeam_ApplyRestriction");
-        std::vector<uint8_t> bytes;
-        std::vector<bool> wild;
-        if (sigString.empty() || !sig::ParseSigString(sigString, bytes, wild))
-        {
-            META_CONPRINTF("[BOTHIDER] warning: MpHumanTeam_ApplyRestriction signature missing or malformed\n");
-            return;
-        }
-
-        std::vector<void *> matches = sig::FindPatternMatchesIn(serverModule, bytes, wild);
-        META_CONPRINTF("[BOTHIDER] MpHumanTeam_ApplyRestriction signature matches=%zu\n",
-                       matches.size());
-        if (matches.size() != 1)
-        {
-            META_CONPRINTF("[BOTHIDER] warning: MpHumanTeam_ApplyRestriction hook requires exactly one match\n");
-            return;
-        }
-
-        void *target = matches.front();
-        if (PrepareFunchook(g_pfnApplyHumanTeamRestrictionTramp, target,
-                            reinterpret_cast<void *>(&Detour_ApplyHumanTeamRestriction),
-                            "MpHumanTeam_ApplyRestriction"))
-            g_pApplyHumanTeamRestrictionHookTarget = target;
-    }
-
-    // Resolves and prepares the pass-through engine entity-packing detour
-    static void InstallPackEntitiesHook(const nlohmann::json &gamedata)
-    {
-        std::string sigString = sig::FindPlatformSig(gamedata, "CNetworkGameServer::PackEntities");
-        std::vector<uint8_t> bytes;
-        std::vector<bool> wild;
-        if (sigString.empty() || !sig::ParseSigString(sigString, bytes, wild))
-        {
-            META_CONPRINTF("[BOTHIDER] warning: PackEntities signature missing or malformed\n");
-            return;
-        }
-
-        sig::ModuleInfo codeModule = sig::ModuleCodeFromName(targets::kEngineModuleName);
-        if (!codeModule)
-        {
-            META_CONPRINTF("[BOTHIDER] warning: %s code range unresolved - PackEntities hook disabled\n",
-                           targets::kEngineModuleName);
-            return;
-        }
-
-        std::vector<void *> matches = sig::FindPatternMatchesIn(codeModule, bytes, wild);
-        META_CONPRINTF("[BOTHIDER] CNetworkGameServer::PackEntities signature matches=%zu\n",
-                       matches.size());
-        if (matches.size() != 1)
-        {
-            META_CONPRINTF("[BOTHIDER] warning: PackEntities hook requires exactly one match\n");
-            return;
-        }
-
-        void *target = matches.front();
-        g_PackEntitiesFirstCallLogged.store(false, std::memory_order_relaxed);
-        if (PrepareFunchook(g_pfnPackEntitiesTramp, target,
-                            reinterpret_cast<void *>(&Detour_PackEntities),
-                            "CNetworkGameServer::PackEntities"))
-            g_pPackEntitiesHookTarget = target;
     }
 
     // SEH-isolated single reads, used by the controller-resolution walk
@@ -2215,7 +1530,7 @@ namespace cs2bh
         }
         g_PendingControllerRemovals.clear();
         Manager().ReleaseAll();
-        ProcessAvatarOverrides();
+        avatar::ProcessOverrides();
         BotInfo().ResetAssignments();
         META_CONPRINTF("[BOTHIDER] StartChangeLevel PRE — map='%s' landmark='%s'\n",
                        mapName ? mapName : "?", landmark ? landmark : "");
@@ -2303,7 +1618,7 @@ namespace cs2bh
                 META_CONPRINTF("[BOTHIDER] name source -> %s\n",
                                useBotInfo ? "bot_info" : "botprofile");
             });
-        ProcessAvatarOverrides();
+        avatar::ProcessOverrides();
         RETURN_META(MRES_IGNORED);
     }
 
@@ -2311,7 +1626,7 @@ namespace cs2bh
                                   char const *, bool, bool)
     {
         g_PendingControllerRemovals.clear();
-        ResetAvatarRuntime();
+        avatar::ResetRuntime();
         auto *gameServer = g_pNetworkServerService
                                ? g_pNetworkServerService->GetIGameServer()
                                : nullptr;
@@ -2337,8 +1652,8 @@ namespace cs2bh
     {
         g_PendingControllerRemovals.clear();
         Manager().ReleaseAll();
-        ProcessAvatarOverrides();
-        ResetAvatarRuntime();
+        avatar::ProcessOverrides();
+        avatar::ResetRuntime();
         BotInfo().ResetAssignments();
         META_CONPRINTF("[BOTHIDER] OnLevelShutdown — state drained\n");
     }
@@ -2354,9 +1669,10 @@ namespace cs2bh
         GET_V_IFACE_ANY(GetEngineFactory, g_pNetworkServerService, INetworkServerService,
                         NETWORKSERVERSERVICE_INTERFACE_VERSION);
 
-        g_pNetworkStringTables = static_cast<INetworkStringTableContainer *>(
+        auto *networkStringTables = static_cast<INetworkStringTableContainer *>(
             ismm->GetEngineFactory()(INTERFACENAME_NETWORKSTRINGTABLESERVER, nullptr));
-        if (!g_pNetworkStringTables)
+        avatar::SetStringTableContainer(networkStringTables);
+        if (!networkStringTables)
         {
             META_CONPRINTF("[BOTHIDER] warning: network string table interface unavailable - "
                            "custom avatars disabled\n");
@@ -2414,17 +1730,7 @@ namespace cs2bh
                     serverModule = sig::ModuleFromName(targets::kServerModuleName);
                 ResolveUtilRemoveAndEntSys(gamedata, serverModule);
 
-                // Install the bot-quota flip-around detour
-                InstallQuotaHook(gamedata, serverModule);
-
-                // Install the initial team-join identity scope
-                InstallHandleJoinTeamHook(gamedata, serverModule);
-
-                // Keep managed bots outside mp_humanteam enforcement
-                InstallHumanTeamRestrictionHook(gamedata, serverModule);
-
-                // Install the pass-through engine entity-packing detour
-                InstallPackEntitiesHook(gamedata);
+                identity_hooks::PrepareAll(gamedata, serverModule);
             }
         }
         if (g_pfnUtilRemove)
@@ -2461,7 +1767,7 @@ namespace cs2bh
             META_CONPRINTF("[BOTHIDER] warning: SchemaSystem unresolved — idle-kick and FL_BOT overrides disabled\n");
         }
 
-        InstallPreparedFunchooks();
+        identity_hooks::InstallPrepared();
 
         Manager().Init();
 
@@ -2471,10 +1777,10 @@ namespace cs2bh
             META_CONPRINTF("[BOTHIDER] shared memory '%s' mapped\n", shm::kMappingName);
             // Publish resolved hook/sig addresses for bh_status (0 = unresolved)
             Publisher().PublishSignature("UTIL_Remove", reinterpret_cast<void *>(g_pfnUtilRemove));
-            Publisher().PublishSignature("MaintainBotQuota", g_pQuotaHookTarget);
-            Publisher().PublishSignature("PackEntities", g_pPackEntitiesHookTarget);
-            Publisher().PublishSignature("HandleJoinTeam", g_pHandleJoinTeamHookTarget);
-            Publisher().PublishSignature("HumanTeamRestriction", g_pApplyHumanTeamRestrictionHookTarget);
+            Publisher().PublishSignature("MaintainBotQuota", identity_hooks::MaintainQuotaTarget());
+            Publisher().PublishSignature("PackEntities", identity_hooks::PackEntitiesTarget());
+            Publisher().PublishSignature("HandleJoinTeam", identity_hooks::HandleJoinTeamTarget());
+            Publisher().PublishSignature("HumanTeamRestriction", identity_hooks::HumanTeamRestrictionTarget());
         }
         else
         {
@@ -2518,7 +1824,7 @@ namespace cs2bh
 
     bool HiderPlugin::Unload(char *error, size_t maxlen)
     {
-        if (!RemoveFunchooks())
+        if (!identity_hooks::Remove())
         {
             std::snprintf(error, maxlen, "failed to uninstall funchook detours");
             return false;
@@ -2544,10 +1850,10 @@ namespace cs2bh
         m_pHookedGameServer = nullptr;
         g_PendingControllerRemovals.clear();
         Manager().ReleaseAll();
-        ProcessAvatarOverrides();
-        ResetAvatarRuntime();
+        avatar::ProcessOverrides();
+        avatar::ResetRuntime();
         Publisher().Shutdown();
-        g_pNetworkStringTables = nullptr;
+        avatar::SetStringTableContainer(nullptr);
         return true;
     }
 
