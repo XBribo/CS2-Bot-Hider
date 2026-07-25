@@ -1,0 +1,68 @@
+name: Bug report
+description: Report a problem with the plugin or bot behavior
+title: "[Bug] "
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for helping improve CS2-Bot-Hider.
+
+        Please report only one problem per issue and check existing issues before submitting.
+
+  - type: dropdown
+    id: operating-system
+    attributes:
+      label: Operating system
+      description: Which operating system are you using?
+      options:
+        - Windows
+        - Linux
+        - Other
+    validations:
+      required: true
+
+  - type: dropdown
+    id: host-type
+    attributes:
+      label: How are you running the game?
+      description: Select the option that best matches your setup.
+      options:
+        - Local game hosted from the CS2 client
+        - Dedicated server
+        - Not sure
+    validations:
+      required: true
+
+  - type: textarea
+    id: problem
+    attributes:
+      label: What happened?
+      description: Describe the problem, where it happened, and how often it occurs.
+      placeholder: |
+        Example:
+        - Map or game mode:
+        - What the bot did:
+        - What you expected:
+        - Does it happen every time or only sometimes?
+    validations:
+      required: true
+
+  - type: dropdown
+    id: problem-origin
+    attributes:
+      label: Does this appear to be a built-in CS2 bot limitation or a plugin-related problem?
+      description: If possible, try the same situation after disabling the plugin or related module.
+      options:
+        - It still happens without the plugin (probably a built-in bot limitation)
+        - It only happens with the plugin enabled (probably plugin-related)
+        - I have not tested this or I am not sure
+    validations:
+      required: true
+
+  - type: textarea
+    id: evidence
+    attributes:
+      label: Screenshots, video, or logs
+      description: Optional. Attach anything that makes the problem easier to understand or reproduce.
+    validations:
+      required: false

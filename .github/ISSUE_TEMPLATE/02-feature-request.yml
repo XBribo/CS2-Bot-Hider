@@ -1,0 +1,53 @@
+name: Feature request
+description: Suggest one focused improvement to the plugin
+title: "[Feature] "
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Feature requests should solve a specific problem.
+
+        Please keep one request in each issue. Collections of unrelated ideas may be closed.
+
+  - type: textarea
+    id: problem
+    attributes:
+      label: What problem are you trying to solve?
+      description: Explain the real gameplay or usability problem before describing a solution.
+    validations:
+      required: true
+
+  - type: textarea
+    id: proposed-improvement
+    attributes:
+      label: What improvement would you like?
+      description: Describe the expected behavior as simply and clearly as possible.
+    validations:
+      required: true
+
+  - type: dropdown
+    id: plugin-scope
+    attributes:
+      label: Is this related to the plugin or to the built-in CS2 bots?
+      options:
+        - The plugin could reasonably improve this
+        - This seems to be a built-in CS2 bot limitation
+        - I am not sure
+    validations:
+      required: true
+
+  - type: checkboxes
+    id: request-scope
+    attributes:
+      label: Request scope
+      options:
+        - label: This issue contains one feature request only.
+          required: true
+
+  - type: textarea
+    id: additional-context
+    attributes:
+      label: Additional context
+      description: Optional. Add examples, screenshots, or links that help explain the request.
+    validations:
+      required: false
