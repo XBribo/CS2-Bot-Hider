@@ -16,6 +16,9 @@ on:
         type: boolean
         default: false
 
+permissions:
+  contents: read
+
 env:
   HL2SDK_REPO: alliedmodders/hl2sdk
   HL2SDK_REF: cs2
