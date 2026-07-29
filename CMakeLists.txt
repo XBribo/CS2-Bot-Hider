@@ -107,8 +107,13 @@ add_library(BotHider SHARED
     src/BotIdentity/ping_display.cpp
     src/BotIdentity/fake_client_manager.cpp
     src/BotIdentity/bot_info.cpp
+    src/BotIdentity/client_hooks.cpp
+    src/BotIdentity/command_hooks.cpp
     src/BotIdentity/identity_hooks.cpp
+    src/BotIdentity/identity_runtime.cpp
+    src/BotIdentity/identity_state.cpp
     src/SharedMemory/slot_publisher.cpp
+    src/common/entity_access.cpp
     src/common/sig_scan.cpp
     src/common/schema_resolver.cpp
     ${PROTO_SRCS}
