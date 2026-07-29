@@ -120,11 +120,10 @@ For more technical details on how identities are assigned, see [TECH.md](TECH.md
 
 ## Special thanks
 
-- [cs2-insanity](https://github.com/Frad70/cs2-insanity) for helping determine the framework.
-- [CS2Fixes](https://github.com/Source2ZE/CS2Fixes) for helping identify the `UTIL_Remove` signature.
-- [Misaka17032](https://github.com/Misaka17032) and [mrc4tt](https://github.com/mrc4tt) for adding Linux support.
+- [replica](https://github.com/44076-meow/replica) for helping determine the framework.
+- [御坂17032号](https://github.com/Misaka17032) and [Miksen](https://github.com/mrc4tt) for adding Linux support.
 - [ed0ard](https://github.com/ed0ard) for helping with testing and bug fixes.
-- [unicbm](https://github.com/unicbm) for the ScoreboardFlair idea.
+- [un1](https://github.com/unicbm) for the ScoreboardFlair idea.
 
 ------------------------------------------------------------------------
 
