@@ -1,3 +1,5 @@
+using System.Security.Cryptography;
+
 using QRCoder;
 using SteamKit2;
 using SteamKit2.Authentication;
@@ -10,7 +12,6 @@ namespace BotHiderFlairGenerator;
 internal sealed class Cs2GcClient : IAsyncDisposable
 {
     private const uint AppId = 730;
-    private const uint LoginId = 0x42484647;
     private readonly SteamClient _steamClient = new();
     private readonly CallbackManager _callbacks;
     private readonly SteamUser _steamUser;
@@ -22,6 +23,12 @@ internal sealed class Cs2GcClient : IAsyncDisposable
     private Task? _callbackPump;
     private TaskCompletionSource<uint>? _pendingProfile;
     private uint _pendingAccountId;
+    private string? _accountName;
+    private string? _refreshToken;
+    private bool _retryingConnectionManager;
+    private int _connectionManagerRetries;
+    private readonly uint _loginId =
+        unchecked((uint)RandomNumberGenerator.GetInt32(1, int.MaxValue));
 
     // Initializes Steam handlers and callback subscriptions.
     public Cs2GcClient()
@@ -110,18 +117,22 @@ internal sealed class Cs2GcClient : IAsyncDisposable
     {
         try
         {
+            if (_accountName is not null && _refreshToken is not null)
+            {
+                LogOnWithRefreshToken();
+                return;
+            }
+
             var authSession = await _steamClient.Authentication.BeginAuthSessionViaQRAsync(
                 new AuthSessionDetails());
             authSession.ChallengeURLChanged = () => DrawQrCode(authSession);
             DrawQrCode(authSession);
             var result = await authSession.PollingWaitForResultAsync();
+            authSession.ChallengeURLChanged = null;
             Console.WriteLine($"Steam account authorized: {result.AccountName}");
-            _steamUser.LogOn(new SteamUser.LogOnDetails
-            {
-                Username = result.AccountName,
-                AccessToken = result.RefreshToken,
-                LoginID = LoginId
-            });
+            _accountName = result.AccountName;
+            _refreshToken = result.RefreshToken;
+            LogOnWithRefreshToken();
         }
         catch (Exception exception)
         {
@@ -129,9 +140,26 @@ internal sealed class Cs2GcClient : IAsyncDisposable
         }
     }
 
+    // Logs on with the in-memory refresh token from QR authentication
+    private void LogOnWithRefreshToken()
+    {
+        _steamUser.LogOn(new SteamUser.LogOnDetails
+        {
+            Username = _accountName,
+            AccessToken = _refreshToken,
+            LoginID = _loginId
+        });
+    }
+
     // Reports an unexpected Steam disconnect.
     private void OnDisconnected(SteamClient.DisconnectedCallback callback)
     {
+        if (_retryingConnectionManager)
+        {
+            _retryingConnectionManager = false;
+            _steamClient.Connect();
+            return;
+        }
         if (!_shutdown.IsCancellationRequested)
             FailSession("Disconnected from Steam.");
     }
@@ -139,6 +167,15 @@ internal sealed class Cs2GcClient : IAsyncDisposable
     // Launches the CS2 GC session after Steam login succeeds.
     private void OnLoggedOn(SteamUser.LoggedOnCallback callback)
     {
+        if (callback.Result == EResult.TryAnotherCM &&
+            _connectionManagerRetries++ < 5)
+        {
+            Console.WriteLine(
+                $"Steam requested another connection manager, retry {_connectionManagerRetries}/5.");
+            _retryingConnectionManager = true;
+            _steamClient.Disconnect();
+            return;
+        }
         if (callback.Result != EResult.OK)
         {
             FailSession($"Steam logon failed: {callback.Result}/{callback.ExtendedResult}");
@@ -158,6 +195,8 @@ internal sealed class Cs2GcClient : IAsyncDisposable
     // Reports a Steam logoff while the generator is active.
     private void OnLoggedOff(SteamUser.LoggedOffCallback callback)
     {
+        if (_retryingConnectionManager)
+            return;
         if (!_shutdown.IsCancellationRequested)
             FailSession($"Logged off from Steam: {callback.Result}");
     }
@@ -232,6 +271,12 @@ internal sealed class Cs2GcClient : IAsyncDisposable
             QRCodeGenerator.ECCLevel.L);
         using var code = new AsciiQRCode(data);
         Console.WriteLine(code.GetGraphic(1, drawQuietZones: false));
+        using var pngCode = new PngByteQRCode(data);
+        string pngPath = Path.Combine(
+            Path.GetTempPath(),
+            $"BotHiderFlairGenerator-steam-login-{Guid.NewGuid():N}.png");
+        File.WriteAllBytes(pngPath, pngCode.GetGraphic(16));
+        Console.WriteLine($"QR image: {pngPath}");
     }
 
     // Fails connection and any active profile request.
