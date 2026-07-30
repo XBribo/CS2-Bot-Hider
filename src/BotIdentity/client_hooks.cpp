@@ -90,10 +90,13 @@ namespace cs2bh
             entry ? entry->CrosshairCode.c_str() : nullptr;
         const uint32_t scoreboardFlair =
             entry ? entry->ScoreboardFlair : 0;
+        const uint64_t steamId =
+            identity_runtime::MakeUniqueSteamId(
+                index, configuredSteamId);
         if (!Manager().AdoptSlot(
                 index,
                 displayName.c_str(),
-                configuredSteamId,
+                steamId,
                 crosshairCode,
                 scoreboardFlair))
         {
@@ -112,11 +115,8 @@ namespace cs2bh
             }
         }
 
-        uint64_t steamId = 0;
-        if (configuredSteamId != 0)
+        if (steamId != 0)
         {
-            steamId = identity_runtime::MakeUniqueSteamId(
-                index, configuredSteamId);
             ssc::WriteSteamId(client, steamId);
             Manager().SetSyntheticSid(index, steamId);
             Publisher().UpdateBaseSyntheticSid(index, steamId);
@@ -164,12 +164,13 @@ namespace cs2bh
                 index, m_bBotAddInProgress);
         }
 
-        const BotEntry *entry = identity_state::SlotEntry(index);
-        if (entry && entry->SteamId64 != 0)
+        const uint64_t desiredSteamId =
+            Manager().GetSyntheticSid(index);
+        const uint64_t steamId =
+            identity_runtime::MakeUniqueSteamId(
+                index, desiredSteamId);
+        if (steamId != 0)
         {
-            const uint64_t steamId =
-                identity_runtime::MakeUniqueSteamId(
-                    index, entry->SteamId64);
             ssc::WriteSteamId(client, steamId);
             Manager().SetSyntheticSid(index, steamId);
             Publisher().UpdateBaseSyntheticSid(index, steamId);

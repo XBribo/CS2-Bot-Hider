@@ -65,7 +65,10 @@ namespace cs2bh
                 e.AccountId = val["steamid"].get<uint32_t>();
             else if (val.contains("steamid") && val["steamid"].is_number_integer())
                 e.AccountId = static_cast<uint32_t>(val["steamid"].get<int64_t>());
-            e.SteamId64 = kSteamId64Base + static_cast<uint64_t>(e.AccountId);
+            e.SteamId64 =
+                e.AccountId != 0
+                    ? kSteamId64Base + static_cast<uint64_t>(e.AccountId)
+                    : 0;
             if (val.contains("crosshair_code") && val["crosshair_code"].is_string())
                 e.CrosshairCode = val["crosshair_code"].get<std::string>();
             if (val.contains("scoreboard_flair") && val["scoreboard_flair"].is_number_unsigned())

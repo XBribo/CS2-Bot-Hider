@@ -12,6 +12,7 @@
 
 #include <algorithm>
 #include <array>
+#include <chrono>
 #include <cstdint>
 #include <cstring>
 #include <vector>
@@ -54,6 +55,23 @@ namespace cs2bh
                 return true;
         }
         return false;
+    }
+
+    // Generates a random value for SteamID pool selection
+    static uint64_t NextSteamIdRandom()
+    {
+        static uint64_t state =
+            static_cast<uint64_t>(
+                std::chrono::steady_clock::now()
+                    .time_since_epoch()
+                    .count()) |
+            1ULL;
+        uint64_t x = state;
+        x ^= x >> 12;
+        x ^= x << 25;
+        x ^= x >> 27;
+        state = x;
+        return x * 0x2545F4914F6CDD1DULL;
     }
 
     // Resolves the current pawn for one managed bot slot
@@ -429,19 +447,28 @@ namespace cs2bh
                 return desired;
             }
 
+            std::vector<uint64_t> available;
+            available.reserve(BotInfo().Count());
             for (const BotEntry &entry : BotInfo().All())
             {
-                if (entry.SteamId64 != 0 &&
-                    !IsSteamIdInUseByOther(entry.SteamId64, slot))
+                if (entry.SteamId64 == 0 ||
+                    IsSteamIdInUseByOther(entry.SteamId64, slot) ||
+                    std::find(
+                        available.begin(),
+                        available.end(),
+                        entry.SteamId64) != available.end())
                 {
-                    return entry.SteamId64;
+                    continue;
                 }
+                available.push_back(entry.SteamId64);
             }
+            if (!available.empty())
+                return available[NextSteamIdRandom() % available.size()];
 
+            if (desired == 0)
+                return 0;
             const uint64_t base =
-                desired != 0
-                    ? desired
-                    : BotInfoStore::kSteamId64Base + 1;
+                desired;
             for (int bump = 1; bump <= 4096; ++bump)
             {
                 const uint64_t candidate =

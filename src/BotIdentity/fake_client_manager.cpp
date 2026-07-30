@@ -59,8 +59,8 @@ namespace cs2bh
         int baseline = 20 + static_cast<int>(SimpleRand(state) % 70);
 
         s.Active = true;
-        // Prefer the bot_info.json id
-        s.SyntheticSid = steamId64 != 0 ? steamId64 : m_pSteamIds->Generate(slot);
+        // Uses the already validated SteamID selected for this slot
+        s.SyntheticSid = steamId64;
         s.ScoreboardFlair = scoreboardFlair;
         s.Jitter = PingJitter(baseline);
         s.Display = PingDisplay{};
