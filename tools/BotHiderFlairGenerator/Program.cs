@@ -115,16 +115,21 @@ internal static class Program
     // Selects valid entries that still need a flair lookup.
     private static List<BotEntry> ReadEntries(JsonObject root, bool overwrite)
     {
+        if (root["players"] is not JsonObject players)
+            throw new JsonException("bot_info.json must contain a players object.");
+
         var entries = new List<BotEntry>();
-        foreach ((string name, JsonNode? node) in root)
+        foreach ((string accountIdText, JsonNode? node) in players)
         {
             if (node is not JsonObject item ||
-                !TryReadAccountId(item["steamid"], out uint accountId))
+                !TryReadAccountId(accountIdText, out uint accountId))
             {
-                Console.Error.WriteLine($"Skipping '{name}': invalid steamid.");
+                Console.Error.WriteLine(
+                    $"Skipping account '{accountIdText}': invalid steamid.");
                 continue;
             }
 
+            string name = item["player_name"]?.GetValue<string>() ?? accountIdText;
             uint currentFlair = ReadUInt32(item["scoreboard_flair"]);
             if (!overwrite && currentFlair != 0)
                 continue;
@@ -267,10 +272,10 @@ internal static class Program
     }
 
     // Reads either a 32-bit account ID or a full individual SteamID64.
-    private static bool TryReadAccountId(JsonNode? node, out uint accountId)
+    private static bool TryReadAccountId(string text, out uint accountId)
     {
         accountId = 0;
-        if (node is null || !ulong.TryParse(node.ToString(), out ulong value))
+        if (!ulong.TryParse(text, out ulong value))
             return false;
 
         const ulong steamId64Base = 76561197960265728UL;
