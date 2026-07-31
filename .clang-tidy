@@ -58,7 +58,7 @@
 Checks: >
   -*,
   abseil-*,
-  bugprone-*,GetGame
+  bugprone-*,
   google-*,
   misc-*,
   modernize-*,
@@ -67,7 +67,6 @@ Checks: >
   readability-*,
   -google-readability-braces-around-statements,
   -google-readability-namespace-comments,
-  -google-runtime-references,
   -misc-non-private-member-variables-in-classes,
   -misc-const-correctness,
   -modernize-return-braced-init-list,
@@ -113,5 +112,3 @@ CheckOptions:
   readability-identifier-naming.MemberHungarianPrefix: On
   readability-identifier-naming.PointerParameterHungarianPrefix: On
   readability-identifier-naming.PointerParameterCase: CamelCase
-  readability-identifier-naming.HungarianNotation.UserDefinedType.std::string: s
-

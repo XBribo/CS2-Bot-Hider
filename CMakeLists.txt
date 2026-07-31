@@ -8,11 +8,12 @@ set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 #   MMSOURCE_DEV  : metamod-source checkout
 #   CSGO_PROTO    : directory containing network_connection.proto
 #   PROTOC        : optional override for protoc.exe (must be 3.21.x)
-# 
+#
 
 set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_CXX_EXTENSIONS OFF)
+
 if(MSVC)
     set(CMAKE_MSVC_RUNTIME_LIBRARY "MultiThreaded$<$<CONFIG:Debug>:Debug>")
 endif()
@@ -22,11 +23,13 @@ if(NOT CMAKE_SIZEOF_VOID_P EQUAL 8)
 endif()
 
 set(HL2SDK $ENV{HL2SDKCS2})
-set(MMS    $ENV{MMSOURCE_DEV})
+set(MMS $ENV{MMSOURCE_DEV})
 set(PROTO_DIR $ENV{CSGO_PROTO})
+
 if(HL2SDK AND NOT PROTO_DIR)
     set(PROTO_DIR "${HL2SDK}/common")
 endif()
+
 foreach(v HL2SDK MMS)
     if(NOT ${v} OR NOT EXISTS "${${v}}")
         message(FATAL_ERROR "${v} env var not set or path missing: '${${v}}'")
@@ -41,20 +44,26 @@ if(DEFINED ENV{PROTOC} AND EXISTS "$ENV{PROTOC}")
 else()
     find_program(PROTOC_EXE protoc REQUIRED)
 endif()
-execute_process(COMMAND "${PROTOC_EXE}" --version
-                OUTPUT_VARIABLE PROTOC_VER
-                OUTPUT_STRIP_TRAILING_WHITESPACE)
+execute_process(
+    COMMAND "${PROTOC_EXE}" --version
+    OUTPUT_VARIABLE PROTOC_VER
+    OUTPUT_STRIP_TRAILING_WHITESPACE
+)
+
 if(NOT PROTOC_VER MATCHES "libprotoc 3\\.21\\.")
     message(FATAL_ERROR "protoc must be 3.21.x (got '${PROTOC_VER}')")
 endif()
+
 message(STATUS "protoc: ${PROTOC_EXE} (${PROTOC_VER})")
 
 include(FetchContent)
+
 set(FUNCHOOK_BUILD_SHARED OFF CACHE BOOL "" FORCE)
 set(FUNCHOOK_BUILD_STATIC ON CACHE BOOL "" FORCE)
 set(FUNCHOOK_BUILD_TESTS OFF CACHE BOOL "" FORCE)
 set(FUNCHOOK_INSTALL OFF CACHE BOOL "" FORCE)
 set(FUNCHOOK_DISASM distorm CACHE STRING "" FORCE)
+
 FetchContent_Declare(
     funchook
     GIT_REPOSITORY https://github.com/kubo/funchook.git
@@ -62,24 +71,26 @@ FetchContent_Declare(
     GIT_SHALLOW TRUE
     GIT_SUBMODULES_RECURSE TRUE
 )
+
 FetchContent_MakeAvailable(funchook)
 set_target_properties(funchook-static PROPERTIES POSITION_INDEPENDENT_CODE ON)
 
 set(PROTO_FILES network_connection.proto)
 set(GENERATED_DIR "${CMAKE_BINARY_DIR}/generated")
 file(MAKE_DIRECTORY "${GENERATED_DIR}")
+
 set(PROTO_SRCS "")
 set(PROTO_INPUTS "")
 foreach(p ${PROTO_FILES})
     string(REGEX REPLACE "\\.proto$" ".pb.cc" cc ${p})
-    string(REGEX REPLACE "\\.proto$" ".pb.h"  hh ${p})
-    list(APPEND PROTO_SRCS   "${GENERATED_DIR}/${cc}" "${GENERATED_DIR}/${hh}")
+    string(REGEX REPLACE "\\.proto$" ".pb.h" hh ${p})
+    list(APPEND PROTO_SRCS "${GENERATED_DIR}/${cc}" "${GENERATED_DIR}/${hh}")
     list(APPEND PROTO_INPUTS "${PROTO_DIR}/${p}")
 endforeach()
+
 add_custom_command(
     OUTPUT ${PROTO_SRCS}
-    COMMAND "${PROTOC_EXE}" --cpp_out=${GENERATED_DIR}
-                            --proto_path=${PROTO_DIR} ${PROTO_FILES}
+    COMMAND "${PROTOC_EXE}" --cpp_out=${GENERATED_DIR} --proto_path=${PROTO_DIR} ${PROTO_FILES}
     DEPENDS ${PROTO_INPUTS}
     WORKING_DIRECTORY "${PROTO_DIR}"
     COMMENT "protoc ${PROTO_FILES}"
@@ -99,7 +110,8 @@ set(SDK_SOURCES
     ${MMS}/core/sourcehook/sourcehook_impl_cproto.cpp
 )
 
-add_library(BotHider SHARED
+add_library(
+    BotHider SHARED
     src/plugin.cpp
     src/AvatarOverride/avatar_override.cpp
     src/BotIdentity/personas.cpp
@@ -120,7 +132,9 @@ add_library(BotHider SHARED
     ${SDK_SOURCES}
 )
 
-target_include_directories(BotHider PRIVATE
+target_include_directories(
+    BotHider
+    PRIVATE
     src
     src/AvatarOverride
     src/BotIdentity
@@ -158,7 +172,9 @@ if(WIN32)
     set(HL2SDK_LIBDIR ${HL2SDK}/lib/public/win64)
     # MSVC has no <byteswap.h> clash, so tier1 goes on the normal include path
     target_include_directories(BotHider PRIVATE ${HL2SDK}/public/tier1)
-    target_link_libraries(BotHider PRIVATE
+    target_link_libraries(
+        BotHider
+        PRIVATE
         psapi
         ${HL2SDK_LIBDIR}/tier0.lib
         ${HL2SDK_LIBDIR}/mathlib.lib
@@ -168,17 +184,25 @@ if(WIN32)
     if(MSVC)
         target_link_options(BotHider PRIVATE /NODEFAULTLIB:LIBCMTD)
     endif()
-    target_compile_definitions(BotHider PRIVATE
+    target_compile_definitions(
+        BotHider
+        PRIVATE
         _CRT_SECURE_NO_WARNINGS
-        WIN32 _WIN32 _WINDOWS
-        COMPILER_MSVC COMPILER_MSVC64
-        NOMINMAX _ALLOW_KEYWORD_MACROS
+        WIN32
+        _WIN32
+        _WINDOWS
+        COMPILER_MSVC
+        COMPILER_MSVC64
+        NOMINMAX
+        _ALLOW_KEYWORD_MACROS
     )
 elseif(CMAKE_SYSTEM_NAME STREQUAL "Linux")
     set(BOT_HIDER_PLATFORM_DIR linuxsteamrt64)
     set(BOT_HIDER_SUFFIX ".so")
     set(HL2SDK_LIBDIR ${HL2SDK}/lib/linux64)
-    target_link_libraries(BotHider PRIVATE
+    target_link_libraries(
+        BotHider
+        PRIVATE
         ${HL2SDK_LIBDIR}/libtier0.so
         ${HL2SDK_LIBDIR}/mathlib.a
         ${HL2SDK_LIBDIR}/interfaces.a
@@ -186,8 +210,12 @@ elseif(CMAKE_SYSTEM_NAME STREQUAL "Linux")
         pthread
         dl
     )
-    target_compile_definitions(BotHider PRIVATE
-        POSIX _LINUX LINUX
+    target_compile_definitions(
+        BotHider
+        PRIVATE
+        POSIX
+        _LINUX
+        LINUX
         COMPILER_GCC
         stricmp=strcasecmp
         _stricmp=strcasecmp
@@ -198,7 +226,9 @@ elseif(CMAKE_SYSTEM_NAME STREQUAL "Linux")
         _alloca=alloca
         strcmpi=strcasecmp
     )
-    target_compile_options(BotHider PRIVATE
+    target_compile_options(
+        BotHider
+        PRIVATE
         -fPIC
         -fno-rtti
         -fvisibility=hidden
@@ -210,7 +240,9 @@ elseif(CMAKE_SYSTEM_NAME STREQUAL "Linux")
         -Wno-narrowing
         -Wno-deprecated-copy
     )
-    set_target_properties(BotHider PROPERTIES
+    set_target_properties(
+        BotHider
+        PROPERTIES
         SKIP_BUILD_RPATH TRUE
         BUILD_RPATH ""
         INSTALL_RPATH ""
@@ -221,13 +253,16 @@ endif()
 
 set(BOT_HIDER_PACKAGE_BIN_DIR "${CMAKE_BINARY_DIR}/package/addons/BotHider/bin/${BOT_HIDER_PLATFORM_DIR}")
 set(BOT_HIDER_VDF_FILE "addons/BotHider/bin/${BOT_HIDER_PLATFORM_DIR}/BotHider")
+
 configure_file(
     "${CMAKE_SOURCE_DIR}/cmake/BotHider.vdf.in"
     "${CMAKE_BINARY_DIR}/BotHider.vdf"
     @ONLY
 )
 
-set_target_properties(BotHider PROPERTIES
+set_target_properties(
+    BotHider
+    PROPERTIES
     OUTPUT_NAME "BotHider"
     PREFIX ""
     SUFFIX "${BOT_HIDER_SUFFIX}"
@@ -239,7 +274,9 @@ set_target_properties(BotHider PROPERTIES
     LIBRARY_OUTPUT_DIRECTORY_DEBUG   "${BOT_HIDER_PACKAGE_BIN_DIR}"
 )
 
-add_custom_command(TARGET BotHider POST_BUILD
+add_custom_command(
+    TARGET BotHider
+    POST_BUILD
     COMMAND ${CMAKE_COMMAND} -E make_directory
         "${CMAKE_BINARY_DIR}/package/addons/metamod"
     COMMAND ${CMAKE_COMMAND} -E make_directory
@@ -256,13 +293,16 @@ add_custom_command(TARGET BotHider POST_BUILD
 )
 
 if(MSVC)
-    target_compile_options(BotHider PRIVATE
-        /W3 /permissive-
-        /utf-8   # UTF-8
-        /wd4267  # size_t -> int conversion
-        /wd4244  # narrowing conversion
-        /wd4146  # unary minus on unsigned
-        /wd4996  # deprecated CRT
-        /wd4661  # template instantiation needed
+    target_compile_options(
+        BotHider
+        PRIVATE
+        /W3
+        /permissive-
+        /utf-8 # UTF-8
+        /wd4267 # size_t -> int conversion
+        /wd4244 # narrowing conversion
+        /wd4146 # unary minus on unsigned
+        /wd4996 # deprecated CRT
+        /wd4661 # template instantiation needed
     )
 endif()

@@ -41,22 +41,17 @@
 #include <tier1/utlvector.h>
 #include <tier1/convar.h>
 
-SH_DECL_HOOK6_void(IServerGameClients, OnClientConnected, SH_NOATTRIB, 0,
-                   CPlayerSlot, const char *, uint64, const char *, const char *, bool);
-SH_DECL_HOOK4_void(IServerGameClients, ClientPutInServer, SH_NOATTRIB, 0,
-                   CPlayerSlot, char const *, int, uint64);
-SH_DECL_HOOK5_void(IServerGameClients, ClientDisconnect, SH_NOATTRIB, 0,
-                   CPlayerSlot, ENetworkDisconnectionReason, const char *, uint64, const char *);
-SH_DECL_HOOK3(INetworkGameServer, StartChangeLevel, SH_NOATTRIB, 0,
-              CUtlVector<INetworkGameClient *> *, const char *, const char *, void *);
+SH_DECL_HOOK6_void(IServerGameClients, OnClientConnected, SH_NOATTRIB, 0, CPlayerSlot, const char*, uint64, const char*, const char*, bool);
+SH_DECL_HOOK4_void(IServerGameClients, ClientPutInServer, SH_NOATTRIB, 0, CPlayerSlot, char const*, int, uint64);
+SH_DECL_HOOK5_void(
+    IServerGameClients, ClientDisconnect, SH_NOATTRIB, 0, CPlayerSlot, ENetworkDisconnectionReason, const char*, uint64, const char*);
+SH_DECL_HOOK3(INetworkGameServer, StartChangeLevel, SH_NOATTRIB, 0, CUtlVector<INetworkGameClient*>*, const char*, const char*, void*);
 SH_DECL_HOOK3_void(IServerGameDLL, GameFrame, SH_NOATTRIB, 0, bool, bool, bool);
-SH_DECL_HOOK3_void(ICvar, DispatchConCommand, SH_NOATTRIB, 0,
-                   ConCommandRef, const CCommandContext &, const CCommand &);
+SH_DECL_HOOK3_void(ICvar, DispatchConCommand, SH_NOATTRIB, 0, ConCommandRef, const CCommandContext&, const CCommand&);
 
-namespace cs2bh
-{
+namespace cs2bh {
 
-    HiderPlugin g_Plugin;
+HiderPlugin g_Plugin;
 
 } // namespace cs2bh
 
@@ -64,254 +59,223 @@ PLUGIN_EXPOSE(cs2bh::HiderPlugin, cs2bh::g_Plugin);
 
 // Interface globals
 
-IVEngineServer *engine = nullptr;
-ICvar *icvar = nullptr;
-IServerGameClients *gameclients = nullptr;
-IServerGameDLL *server = nullptr;
-extern INetworkServerService *g_pNetworkServerService;
+IVEngineServer* engine = nullptr;
+ICvar* icvar = nullptr;
+IServerGameClients* gameclients = nullptr;
+IServerGameDLL* server = nullptr;
+extern INetworkServerService* g_pNetworkServerService;
 
-namespace cs2bh
+namespace cs2bh {
+
+// Attaches level-scoped hooks and resets transient runtime state
+void HiderPlugin::OnLevelInit(char const* pMapName, char const*, char const*, char const*, bool, bool)
 {
-
-    // Attaches level-scoped hooks and resets transient runtime state
-    void HiderPlugin::OnLevelInit(char const *pMapName, char const *, char const *,
-                                  char const *, bool, bool)
+    identity_runtime::ClearPendingControllerRemovals();
+    avatar::ResetRuntime();
+    auto* gameServer = g_pNetworkServerService ? g_pNetworkServerService->GetIGameServer() : nullptr;
+    if (gameServer && gameServer != m_pHookedGameServer)
     {
-        identity_runtime::ClearPendingControllerRemovals();
-        avatar::ResetRuntime();
-        auto *gameServer = g_pNetworkServerService
-                               ? g_pNetworkServerService->GetIGameServer()
-                               : nullptr;
-        if (gameServer && gameServer != m_pHookedGameServer)
-        {
-            if (m_StartChangeLevelHookId != 0)
-            {
-                SH_REMOVE_HOOK_ID(m_StartChangeLevelHookId);
-                m_StartChangeLevelHookId = 0;
-            }
-            m_StartChangeLevelHookId = SH_ADD_HOOK_MEMFUNC(
-                INetworkGameServer, StartChangeLevel, gameServer,
-                this, &HiderPlugin::Hook_StartChangeLevel_Pre, false /* PRE */);
-            m_pHookedGameServer = static_cast<void *>(gameServer);
-            META_CONPRINTF("[BOTHIDER] StartChangeLevel hook attached to %p (id %d)\n",
-                           static_cast<void *>(gameServer), m_StartChangeLevelHookId);
-        }
-        META_CONPRINTF("[BOTHIDER] OnLevelInit map=%s\n", pMapName ? pMapName : "?");
-    }
-
-    // Releases all state owned by the current level
-    void HiderPlugin::OnLevelShutdown()
-    {
-        identity_state::ClearAll();
-        Manager().ReleaseAll();
-        avatar::ProcessOverrides();
-        avatar::ResetRuntime();
-        BotInfo().ResetAssignments();
-        META_CONPRINTF("[BOTHIDER] OnLevelShutdown — state drained\n");
-    }
-
-    // Resolves interfaces and installs every plugin module
-    bool HiderPlugin::Load(PluginId id, ISmmAPI *ismm, char *error, size_t maxlen, bool /*late*/)
-    {
-        PLUGIN_SAVEVARS();
-
-        GET_V_IFACE_CURRENT(GetEngineFactory, engine, IVEngineServer, INTERFACEVERSION_VENGINESERVER);
-        GET_V_IFACE_CURRENT(GetEngineFactory, icvar, ICvar, CVAR_INTERFACE_VERSION);
-        GET_V_IFACE_ANY(GetServerFactory, gameclients, IServerGameClients, INTERFACEVERSION_SERVERGAMECLIENTS);
-        GET_V_IFACE_ANY(GetServerFactory, server, IServerGameDLL, INTERFACEVERSION_SERVERGAMEDLL);
-        GET_V_IFACE_ANY(GetEngineFactory, g_pNetworkServerService, INetworkServerService,
-                        NETWORKSERVERSERVICE_INTERFACE_VERSION);
-
-        auto *networkStringTables = static_cast<INetworkStringTableContainer *>(
-            ismm->GetEngineFactory()(INTERFACENAME_NETWORKSTRINGTABLESERVER, nullptr));
-        avatar::SetStringTableContainer(networkStringTables);
-        if (!networkStringTables)
-        {
-            META_CONPRINTF("[BOTHIDER] warning: network string table interface unavailable - "
-                           "custom avatars disabled\n");
-        }
-
-        // GameResourceServiceServer — needed to resolve CCSPlayerController by slot
-        // Served by engine2.dll
-        void *gameResourceService = ismm->GetEngineFactory(false)(
-            targets::kIface_GameResourceServiceServer, nullptr);
-        entity_access::SetGameResourceService(gameResourceService);
-        if (!gameResourceService)
-        {
-            META_CONPRINTF("[BOTHIDER] warning: %s unresolved — controller mgmt disabled\n",
-                           targets::kIface_GameResourceServiceServer);
-        }
-        else
-        {
-            META_CONPRINTF("[BOTHIDER] GameResourceService at %p\n", gameResourceService);
-        }
-
-        // Resolve UTIL_Remove
-        // Required to destroy controllers on kick
-        {
-            std::string gdPath = g_SMAPI->GetBaseDir();
-            gdPath += "/addons/BotHider/gamedata.json";
-            nlohmann::json gamedata;
-            if (!sig::LoadGamedata(gdPath.c_str(), gamedata))
-            {
-                META_CONPRINTF("[BOTHIDER] warning: gamedata.json not loaded at '%s' — "
-                               "controller cleanup disabled\n",
-                               gdPath.c_str());
-            }
-            else
-            {
-                // Override member offsets from gamedata.json (fallback kept if absent)
-                entity_access::LoadMemberOffsets(gamedata);
-                META_CONPRINTF(
-                    "[BOTHIDER] unified targets: SetName=#%d team=%d entitySystem=%d "
-                    "entityList=%d identitySize=%d instance=%d className=%d\n",
-                    targets::kVTSlot_ClientSetName,
-                    targets::kController_TeamOffset,
-                    targets::kEntSys_OffsetInGameResSvc,
-                    targets::kEntSys_IdentityChunksOffset,
-                    targets::kEntIdentity_Size,
-                    targets::kEntIdentity_InstanceOffset,
-                    targets::kEntIdentity_ClassNameOffset);
-                if (targets::kVTSlot_ClientSetName < 0)
-                {
-                    META_CONPRINTF(
-                        "[BOTHIDER] warning: CServerSideClient::SetName vtable slot missing - "
-                        "name overwrite disabled\n");
-                }
-
-                sig::ModuleInfo serverModule = sig::ModuleFromInterfacePtr(gameclients);
-                if (!serverModule)
-                    serverModule = sig::ModuleFromName(targets::kServerModuleName);
-                entity_access::ResolveUtilRemoveAndEntSys(gamedata, serverModule);
-
-                identity_hooks::PrepareAll(gamedata, serverModule);
-            }
-        }
-        if (entity_access::UtilRemoveTarget())
-        {
-            META_CONPRINTF("[BOTHIDER] UTIL_Remove resolved at %p (entSysGlobal=%p)\n",
-                           entity_access::UtilRemoveTarget(),
-                           entity_access::EntitySystemGlobalAddress());
-        }
-        else
-        {
-            META_CONPRINTF("[BOTHIDER] warning: UTIL_Remove signature unresolved — "
-                           "controller cleanup disabled\n");
-        }
-
-        g_pCVar = icvar;
-        g_SMAPI->AddListener(this, this);
-
-        // Resolve controller pawn and idle-timer schema offsets
-        if (schema::Init())
-        {
-            int pawnOff = schema::GetFieldOffset("CBasePlayerController", "m_hPawn");
-            int playerPawnOff = schema::GetFieldOffset("CCSPlayerController", "m_hPlayerPawn");
-            int idleOff = schema::GetFieldOffset("CCSPlayerPawnBase", "m_flIdleTimeSinceLastAction");
-            entity_access::SetBotPawnHandleOffset(
-                playerPawnOff >= 0 ? playerPawnOff : pawnOff);
-            META_CONPRINTF("[BOTHIDER] schema resolved m_hPlayerPawn=%d m_hPawn=%d "
-                           "m_flIdleTimeSinceLastAction=%d\n",
-                           playerPawnOff, pawnOff, idleOff);
-            if (entity_access::BotPawnHandleOffset() < 0)
-                META_CONPRINTF("[BOTHIDER] warning: bot pawn handle unresolved - FL_BOT override disabled\n");
-        }
-        else
-        {
-            entity_access::SetBotPawnHandleOffset(-1);
-            META_CONPRINTF("[BOTHIDER] warning: SchemaSystem unresolved — idle-kick and FL_BOT overrides disabled\n");
-        }
-
-        identity_hooks::InstallPrepared();
-
-        Manager().Init();
-
-        // Open the shared-memory bridge
-        if (Publisher().Init())
-        {
-            META_CONPRINTF("[BOTHIDER] shared memory '%s' mapped\n", shm::kMappingName);
-            // Publish resolved hook/sig addresses for bh_status (0 = unresolved)
-            Publisher().PublishSignature("UTIL_Remove", entity_access::UtilRemoveTarget());
-            Publisher().PublishSignature("MaintainBotQuota", identity_hooks::MaintainQuotaTarget());
-            Publisher().PublishSignature("PackEntities", identity_hooks::PackEntitiesTarget());
-            Publisher().PublishSignature("HandleJoinTeam", identity_hooks::HandleJoinTeamTarget());
-            Publisher().PublishSignature("HumanTeamRestriction", identity_hooks::HumanTeamRestrictionTarget());
-        }
-        else
-        {
-            META_CONPRINTF("[BOTHIDER] warning: shared memory init failed — CSS bridge disabled\n");
-        }
-
-        // Load bot identity data from JSON config
-        std::string jsonPath = g_SMAPI->GetBaseDir();
-        jsonPath += "/addons/BotHider/bot_info.json";
-        META_CONPRINTF("[BOTHIDER] loading JSON from: %s\n", jsonPath.c_str());
-        if (BotInfo().Load(jsonPath.c_str()))
-        {
-            META_CONPRINTF("[BOTHIDER] bot_info.json loaded — %zu entries\n", BotInfo().Count());
-        }
-        else
-        {
-            META_CONPRINTF("[BOTHIDER] warning: bot_info.json not found or parse error at '%s' — "
-                           "bot identity will fall back to curated roster\n",
-                           jsonPath.c_str());
-        }
-
-        SH_ADD_HOOK(IServerGameClients, OnClientConnected, gameclients,
-                    SH_MEMBER(this, &HiderPlugin::Hook_OnClientConnected_Post), true);
-        SH_ADD_HOOK(IServerGameClients, ClientPutInServer, gameclients,
-                    SH_MEMBER(this, &HiderPlugin::Hook_ClientPutInServer_Post), true);
-        SH_ADD_HOOK(IServerGameClients, ClientDisconnect, gameclients,
-                    SH_MEMBER(this, &HiderPlugin::Hook_ClientDisconnect_Pre), false);
-        SH_ADD_HOOK(IServerGameDLL, GameFrame, server,
-                    SH_MEMBER(this, &HiderPlugin::Hook_GameFrame_Post), true);
-        SH_ADD_HOOK(ICvar, DispatchConCommand, icvar,
-                    SH_MEMBER(this, &HiderPlugin::Hook_DispatchConCommand_Pre), false);
-        SH_ADD_HOOK(ICvar, DispatchConCommand, icvar,
-                    SH_MEMBER(this, &HiderPlugin::Hook_DispatchConCommand_Post), true);
-
-        META_CONPRINTF("[BOTHIDER] loaded — m_bFakePlayer offset=%d, OCC=#%d CPiS=#%d\n",
-                       ssc::OFFSET_m_bFakePlayer,
-                       targets::kVTSlot_OnClientConnected,
-                       targets::kVTSlot_ClientPutInServer);
-        return true;
-    }
-
-    // Removes hooks and releases every plugin module
-    bool HiderPlugin::Unload(char *error, size_t maxlen)
-    {
-        if (!identity_hooks::Remove())
-        {
-            std::snprintf(error, maxlen, "failed to uninstall funchook detours");
-            return false;
-        }
-        SH_REMOVE_HOOK(IServerGameClients, OnClientConnected, gameclients,
-                       SH_MEMBER(this, &HiderPlugin::Hook_OnClientConnected_Post), true);
-        SH_REMOVE_HOOK(IServerGameClients, ClientPutInServer, gameclients,
-                       SH_MEMBER(this, &HiderPlugin::Hook_ClientPutInServer_Post), true);
-        SH_REMOVE_HOOK(IServerGameClients, ClientDisconnect, gameclients,
-                       SH_MEMBER(this, &HiderPlugin::Hook_ClientDisconnect_Pre), false);
-        SH_REMOVE_HOOK(IServerGameDLL, GameFrame, server,
-                       SH_MEMBER(this, &HiderPlugin::Hook_GameFrame_Post), true);
-        SH_REMOVE_HOOK(ICvar, DispatchConCommand, icvar,
-                       SH_MEMBER(this, &HiderPlugin::Hook_DispatchConCommand_Pre), false);
-        SH_REMOVE_HOOK(ICvar, DispatchConCommand, icvar,
-                       SH_MEMBER(this, &HiderPlugin::Hook_DispatchConCommand_Post), true);
-
         if (m_StartChangeLevelHookId != 0)
         {
             SH_REMOVE_HOOK_ID(m_StartChangeLevelHookId);
             m_StartChangeLevelHookId = 0;
         }
-        m_pHookedGameServer = nullptr;
-        identity_state::ClearAll();
-        Manager().ReleaseAll();
-        avatar::ProcessOverrides();
-        avatar::ResetRuntime();
-        Publisher().Shutdown();
-        avatar::SetStringTableContainer(nullptr);
-        entity_access::Reset();
-        return true;
+        m_StartChangeLevelHookId = SH_ADD_HOOK_MEMFUNC(INetworkGameServer, StartChangeLevel, gameServer, this,
+                                                       &HiderPlugin::Hook_StartChangeLevel_Pre, false /* PRE */);
+        m_pHookedGameServer = static_cast<void*>(gameServer);
+        META_CONPRINTF("[BOTHIDER] StartChangeLevel hook attached to %p (id %d)\n", static_cast<void*>(gameServer),
+                       m_StartChangeLevelHookId);
     }
+    META_CONPRINTF("[BOTHIDER] OnLevelInit map=%s\n", pMapName ? pMapName : "?");
+}
+
+// Releases all state owned by the current level
+void HiderPlugin::OnLevelShutdown()
+{
+    identity_state::ClearAll();
+    Manager().ReleaseAll();
+    avatar::ProcessOverrides();
+    avatar::ResetRuntime();
+    BotInfo().ResetAssignments();
+    META_CONPRINTF("[BOTHIDER] OnLevelShutdown — state drained\n");
+}
+
+// Resolves interfaces and installs every plugin module
+bool HiderPlugin::Load(PluginId id, ISmmAPI* ismm, char* error, size_t maxlen, bool /*late*/)
+{
+    PLUGIN_SAVEVARS();
+
+    GET_V_IFACE_CURRENT(GetEngineFactory, engine, IVEngineServer, INTERFACEVERSION_VENGINESERVER);
+    GET_V_IFACE_CURRENT(GetEngineFactory, icvar, ICvar, CVAR_INTERFACE_VERSION);
+    GET_V_IFACE_ANY(GetServerFactory, gameclients, IServerGameClients, INTERFACEVERSION_SERVERGAMECLIENTS);
+    GET_V_IFACE_ANY(GetServerFactory, server, IServerGameDLL, INTERFACEVERSION_SERVERGAMEDLL);
+    GET_V_IFACE_ANY(GetEngineFactory, g_pNetworkServerService, INetworkServerService, NETWORKSERVERSERVICE_INTERFACE_VERSION);
+
+    auto* networkStringTables =
+        static_cast<INetworkStringTableContainer*>(ismm->GetEngineFactory()(INTERFACENAME_NETWORKSTRINGTABLESERVER, nullptr));
+    avatar::SetStringTableContainer(networkStringTables);
+    if (!networkStringTables)
+    {
+        META_CONPRINTF("[BOTHIDER] warning: network string table interface unavailable - "
+                       "custom avatars disabled\n");
+    }
+
+    // GameResourceServiceServer — needed to resolve CCSPlayerController by slot
+    // Served by engine2.dll
+    void* gameResourceService = ismm->GetEngineFactory(false)(targets::kIface_GameResourceServiceServer, nullptr);
+    entity_access::SetGameResourceService(gameResourceService);
+    if (!gameResourceService)
+    {
+        META_CONPRINTF("[BOTHIDER] warning: %s unresolved — controller mgmt disabled\n", targets::kIface_GameResourceServiceServer);
+    }
+    else
+    {
+        META_CONPRINTF("[BOTHIDER] GameResourceService at %p\n", gameResourceService);
+    }
+
+    // Resolve UTIL_Remove
+    // Required to destroy controllers on kick
+    {
+        std::string gdPath = g_SMAPI->GetBaseDir();
+        gdPath += "/addons/BotHider/gamedata.json";
+        nlohmann::json gamedata;
+        if (!sig::LoadGamedata(gdPath.c_str(), gamedata))
+        {
+            META_CONPRINTF("[BOTHIDER] warning: gamedata.json not loaded at '%s' — "
+                           "controller cleanup disabled\n",
+                           gdPath.c_str());
+        }
+        else
+        {
+            // Override member offsets from gamedata.json (fallback kept if absent)
+            entity_access::LoadMemberOffsets(gamedata);
+            META_CONPRINTF("[BOTHIDER] unified targets: SetName=#%d team=%d entitySystem=%d "
+                           "entityList=%d identitySize=%d instance=%d className=%d\n",
+                           targets::kVTSlot_ClientSetName, targets::kController_TeamOffset, targets::kEntSys_OffsetInGameResSvc,
+                           targets::kEntSys_IdentityChunksOffset, targets::kEntIdentity_Size, targets::kEntIdentity_InstanceOffset,
+                           targets::kEntIdentity_ClassNameOffset);
+            if (targets::kVTSlot_ClientSetName < 0)
+            {
+                META_CONPRINTF("[BOTHIDER] warning: CServerSideClient::SetName vtable slot missing - "
+                               "name overwrite disabled\n");
+            }
+
+            sig::ModuleInfo serverModule = sig::ModuleFromInterfacePtr(gameclients);
+            if (!serverModule) serverModule = sig::ModuleFromName(targets::kServerModuleName);
+            entity_access::ResolveUtilRemoveAndEntSys(gamedata, serverModule);
+
+            identity_hooks::PrepareAll(gamedata, serverModule);
+        }
+    }
+    if (entity_access::UtilRemoveTarget())
+    {
+        META_CONPRINTF("[BOTHIDER] UTIL_Remove resolved at %p (entSysGlobal=%p)\n", entity_access::UtilRemoveTarget(),
+                       entity_access::EntitySystemGlobalAddress());
+    }
+    else
+    {
+        META_CONPRINTF("[BOTHIDER] warning: UTIL_Remove signature unresolved — "
+                       "controller cleanup disabled\n");
+    }
+
+    g_pCVar = icvar;
+    g_SMAPI->AddListener(this, this);
+
+    // Resolve controller pawn and idle-timer schema offsets
+    if (schema::Init())
+    {
+        int pawnOff = schema::GetFieldOffset("CBasePlayerController", "m_hPawn");
+        int playerPawnOff = schema::GetFieldOffset("CCSPlayerController", "m_hPlayerPawn");
+        int idleOff = schema::GetFieldOffset("CCSPlayerPawnBase", "m_flIdleTimeSinceLastAction");
+        entity_access::SetBotPawnHandleOffset(playerPawnOff >= 0 ? playerPawnOff : pawnOff);
+        META_CONPRINTF("[BOTHIDER] schema resolved m_hPlayerPawn=%d m_hPawn=%d "
+                       "m_flIdleTimeSinceLastAction=%d\n",
+                       playerPawnOff, pawnOff, idleOff);
+        if (entity_access::BotPawnHandleOffset() < 0)
+            META_CONPRINTF("[BOTHIDER] warning: bot pawn handle unresolved - FL_BOT override disabled\n");
+    }
+    else
+    {
+        entity_access::SetBotPawnHandleOffset(-1);
+        META_CONPRINTF("[BOTHIDER] warning: SchemaSystem unresolved — idle-kick and FL_BOT overrides disabled\n");
+    }
+
+    identity_hooks::InstallPrepared();
+
+    Manager().Init();
+
+    // Open the shared-memory bridge
+    if (Publisher().Init())
+    {
+        META_CONPRINTF("[BOTHIDER] shared memory '%s' mapped\n", shm::kMappingName);
+        // Publish resolved hook/sig addresses for bh_status (0 = unresolved)
+        Publisher().PublishSignature("UTIL_Remove", entity_access::UtilRemoveTarget());
+        Publisher().PublishSignature("MaintainBotQuota", identity_hooks::MaintainQuotaTarget());
+        Publisher().PublishSignature("PackEntities", identity_hooks::PackEntitiesTarget());
+        Publisher().PublishSignature("HandleJoinTeam", identity_hooks::HandleJoinTeamTarget());
+        Publisher().PublishSignature("HumanTeamRestriction", identity_hooks::HumanTeamRestrictionTarget());
+    }
+    else
+    {
+        META_CONPRINTF("[BOTHIDER] warning: shared memory init failed — CSS bridge disabled\n");
+    }
+
+    // Load bot identity data from JSON config
+    std::string jsonPath = g_SMAPI->GetBaseDir();
+    jsonPath += "/addons/BotHider/bot_info.json";
+    META_CONPRINTF("[BOTHIDER] loading JSON from: %s\n", jsonPath.c_str());
+    if (BotInfo().Load(jsonPath.c_str()))
+    {
+        META_CONPRINTF("[BOTHIDER] bot_info.json loaded — %zu entries\n", BotInfo().Count());
+    }
+    else
+    {
+        META_CONPRINTF("[BOTHIDER] warning: bot_info.json not found or parse error at '%s' — "
+                       "bot identity will fall back to curated roster\n",
+                       jsonPath.c_str());
+    }
+
+    SH_ADD_HOOK(IServerGameClients, OnClientConnected, gameclients, SH_MEMBER(this, &HiderPlugin::Hook_OnClientConnected_Post), true);
+    SH_ADD_HOOK(IServerGameClients, ClientPutInServer, gameclients, SH_MEMBER(this, &HiderPlugin::Hook_ClientPutInServer_Post), true);
+    SH_ADD_HOOK(IServerGameClients, ClientDisconnect, gameclients, SH_MEMBER(this, &HiderPlugin::Hook_ClientDisconnect_Pre), false);
+    SH_ADD_HOOK(IServerGameDLL, GameFrame, server, SH_MEMBER(this, &HiderPlugin::Hook_GameFrame_Post), true);
+    SH_ADD_HOOK(ICvar, DispatchConCommand, icvar, SH_MEMBER(this, &HiderPlugin::Hook_DispatchConCommand_Pre), false);
+    SH_ADD_HOOK(ICvar, DispatchConCommand, icvar, SH_MEMBER(this, &HiderPlugin::Hook_DispatchConCommand_Post), true);
+
+    META_CONPRINTF("[BOTHIDER] loaded — m_bFakePlayer offset=%d, OCC=#%d CPiS=#%d\n", ssc::OFFSET_m_bFakePlayer,
+                   targets::kVTSlot_OnClientConnected, targets::kVTSlot_ClientPutInServer);
+    return true;
+}
+
+// Removes hooks and releases every plugin module
+bool HiderPlugin::Unload(char* error, size_t maxlen)
+{
+    if (!identity_hooks::Remove())
+    {
+        std::snprintf(error, maxlen, "failed to uninstall funchook detours");
+        return false;
+    }
+    SH_REMOVE_HOOK(IServerGameClients, OnClientConnected, gameclients, SH_MEMBER(this, &HiderPlugin::Hook_OnClientConnected_Post), true);
+    SH_REMOVE_HOOK(IServerGameClients, ClientPutInServer, gameclients, SH_MEMBER(this, &HiderPlugin::Hook_ClientPutInServer_Post), true);
+    SH_REMOVE_HOOK(IServerGameClients, ClientDisconnect, gameclients, SH_MEMBER(this, &HiderPlugin::Hook_ClientDisconnect_Pre), false);
+    SH_REMOVE_HOOK(IServerGameDLL, GameFrame, server, SH_MEMBER(this, &HiderPlugin::Hook_GameFrame_Post), true);
+    SH_REMOVE_HOOK(ICvar, DispatchConCommand, icvar, SH_MEMBER(this, &HiderPlugin::Hook_DispatchConCommand_Pre), false);
+    SH_REMOVE_HOOK(ICvar, DispatchConCommand, icvar, SH_MEMBER(this, &HiderPlugin::Hook_DispatchConCommand_Post), true);
+
+    if (m_StartChangeLevelHookId != 0)
+    {
+        SH_REMOVE_HOOK_ID(m_StartChangeLevelHookId);
+        m_StartChangeLevelHookId = 0;
+    }
+    m_pHookedGameServer = nullptr;
+    identity_state::ClearAll();
+    Manager().ReleaseAll();
+    avatar::ProcessOverrides();
+    avatar::ResetRuntime();
+    Publisher().Shutdown();
+    avatar::SetStringTableContainer(nullptr);
+    entity_access::Reset();
+    return true;
+}
 
 } // namespace cs2bh

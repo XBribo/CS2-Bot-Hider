@@ -18,85 +18,80 @@ class CCommandContext;
 class CCommand;
 enum ENetworkDisconnectionReason : int;
 
-namespace cs2bh
+namespace cs2bh {
+
+struct ManagedControllerFlagSnapshot
 {
+    void* Client = nullptr;
+    void* Controller = nullptr;
+    uint32_t Handle = 0xFFFFFFFF;
+    uint16_t UserId = 0;
+    bool Modified = false;
+};
 
-    struct ManagedControllerFlagSnapshot
-    {
-        void *Client = nullptr;
-        void *Controller = nullptr;
-        uint32_t Handle = 0xFFFFFFFF;
-        uint16_t UserId = 0;
-        bool Modified = false;
-    };
+class HiderPlugin : public ISmmPlugin, public IMetamodListener
+{
+  public:
+    // ISmmPlugin
+    bool Load(PluginId id, ISmmAPI* ismm, char* error, size_t maxlen, bool late) override;
+    bool Unload(char* error, size_t maxlen) override;
 
-    class HiderPlugin : public ISmmPlugin, public IMetamodListener
-    {
-    public:
-        // ISmmPlugin
-        bool Load(PluginId id, ISmmAPI *ismm, char *error, size_t maxlen, bool late) override;
-        bool Unload(char *error, size_t maxlen) override;
+    const char* GetAuthor() override { return "XBribo(๑•.•๑)"; }
+    const char* GetName() override { return "CS2-Bot-Hider"; }
+    const char* GetDescription() override { return "Bot persona/steamid/ping/crosshair/avatar hider"; }
+    const char* GetURL() override { return ""; }
+    const char* GetLicense() override { return "AGPL-3.0"; }
+    const char* GetVersion() override { return "0.3.6"; }
+    const char* GetDate() override { return __DATE__; }
+    const char* GetLogTag() override { return "BH"; }
 
-        const char *GetAuthor() override { return "XBribo(๑•.•๑)"; }
-        const char *GetName() override { return "CS2-Bot-Hider"; }
-        const char *GetDescription() override { return "Bot persona/steamid/ping/crosshair/avatar hider"; }
-        const char *GetURL() override { return ""; }
-        const char *GetLicense() override { return "AGPL-3.0"; }
-        const char *GetVersion() override { return "0.3.6"; }
-        const char *GetDate() override { return __DATE__; }
-        const char *GetLogTag() override { return "BH"; }
+    // IMetamodListener
+    void OnLevelInit(char const* pMapName, char const*, char const*, char const*, bool, bool) override;
+    void OnLevelShutdown() override;
 
-        // IMetamodListener
-        void OnLevelInit(char const *pMapName, char const *, char const *, char const *, bool, bool) override;
-        void OnLevelShutdown() override;
+    // Hook entry points
+    void Hook_OnClientConnected_Post(
+        CPlayerSlot slot, const char* pszName, uint64 xuid, const char* pszNetworkID, const char* pszAddress, bool bFakePlayer);
+    void Hook_ClientPutInServer_Post(CPlayerSlot slot, char const* pszName, int type, uint64 xuid);
+    void Hook_ClientDisconnect_Pre(
+        CPlayerSlot slot, ENetworkDisconnectionReason reason, const char* pszName, uint64 xuid, const char* pszNetworkID);
+    CUtlVector<INetworkGameClient*>* Hook_StartChangeLevel_Pre(const char* mapName, const char* landmark, void* changelevelState);
+    void Hook_GameFrame_Post(bool simulating, bool bFirstTick, bool bLastTick);
 
-        // Hook entry points
-        void Hook_OnClientConnected_Post(CPlayerSlot slot, const char *pszName, uint64 xuid,
-                                         const char *pszNetworkID, const char *pszAddress,
-                                         bool bFakePlayer);
-        void Hook_ClientPutInServer_Post(CPlayerSlot slot, char const *pszName, int type, uint64 xuid);
-        void Hook_ClientDisconnect_Pre(CPlayerSlot slot, ENetworkDisconnectionReason reason,
-                                       const char *pszName, uint64 xuid, const char *pszNetworkID);
-        CUtlVector<INetworkGameClient *> *Hook_StartChangeLevel_Pre(
-            const char *mapName, const char *landmark, void *changelevelState);
-        void Hook_GameFrame_Post(bool simulating, bool bFirstTick, bool bLastTick);
+    // ICvar::DispatchConCommand  — restore bot identity before the engine and processes a kick
+    void Hook_DispatchConCommand_Pre(ConCommandRef cmd, const CCommandContext& ctx, const CCommand& args);
+    void Hook_DispatchConCommand_Post(ConCommandRef cmd, const CCommandContext& ctx, const CCommand& args);
 
-        // ICvar::DispatchConCommand  — restore bot identity before the engine and processes a kick
-        void Hook_DispatchConCommand_Pre(ConCommandRef cmd, const CCommandContext &ctx,
-                                         const CCommand &args);
-        void Hook_DispatchConCommand_Post(ConCommandRef cmd, const CCommandContext &ctx,
-                                          const CCommand &args);
+    // Toggle disguise globally
+    void SetDisguiseEnabled(bool enabled);
 
-        // Toggle disguise globally
-        void SetDisguiseEnabled(bool enabled);
+    void RebuildBots();
 
-        void RebuildBots();
+    // Toggle the display-name source: true=bot_info.json name, false=botprofile name
+    void SetUseBotInfoName(bool useBotInfo) { m_bUseBotInfoName = useBotInfo; }
 
-        // Toggle the display-name source: true=bot_info.json name, false=botprofile name
-        void SetUseBotInfoName(bool useBotInfo) { m_bUseBotInfoName = useBotInfo; }
+  private:
+    void* m_pHookedGameServer = nullptr;
+    int m_StartChangeLevelHookId = 0;
+    bool m_bSelfDisabled = false;
+    unsigned int m_TickCounter = 0; // throttles per-tick idle-timer reset
+    // Master disguise switch
+    bool m_bDisguiseEnabled = true;
 
-    private:
-        void *m_pHookedGameServer = nullptr;
-        int m_StartChangeLevelHookId = 0;
-        bool m_bSelfDisabled = false;
-        unsigned int m_TickCounter = 0; // throttles per-tick idle-timer reset
-        // Master disguise switch
-        bool m_bDisguiseEnabled = true;
+    bool m_bRebuilding = false;
 
-        bool m_bRebuilding = false;
+    bool m_bBotAddInProgress = false;
+    std::array<ManagedControllerFlagSnapshot, 64> m_AddFlippedSlots{};
 
-        bool m_bBotAddInProgress = false;
-        std::array<ManagedControllerFlagSnapshot, 64> m_AddFlippedSlots{};
+    int m_ManagedBeforeKick = 0;
+    int m_QuotaBeforeKick = -1;
+    bool m_AdjustQuotaAfterKick = false;
 
-        int m_ManagedBeforeKick = 0;
-        int m_QuotaBeforeKick = -1;
-        bool m_AdjustQuotaAfterKick = false;
+    // Display-name source: false=botprofile name, true=bot_info.json name
+    bool m_bUseBotInfoName = false;
+};
 
-        // Display-name source: false=botprofile name, true=bot_info.json name
-        bool m_bUseBotInfoName = false;
-    };
-
-    extern HiderPlugin g_Plugin;
+extern HiderPlugin g_Plugin;
 
 } // namespace cs2bh
 

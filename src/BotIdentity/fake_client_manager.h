@@ -11,51 +11,49 @@
 #include <memory>
 #include <mutex>
 
-namespace cs2bh
+namespace cs2bh {
+
+struct ManagedSlot
 {
+    bool Active = false;
+    uint64_t SyntheticSid = 0;
+    uint32_t ScoreboardFlair = 0;
+    PingJitter Jitter{ 50 }; // 50ms baseline
+    PingDisplay Display;
+    bool SteamIdWritten = false;
+};
 
-    struct ManagedSlot
-    {
-        bool Active = false;
-        uint64_t SyntheticSid = 0;
-        uint32_t ScoreboardFlair = 0;
-        PingJitter Jitter{50}; // 50ms baseline
-        PingDisplay Display;
-        bool SteamIdWritten = false;
-    };
+class FakeClientManager
+{
+  public:
+    FakeClientManager();
 
-    class FakeClientManager
-    {
-    public:
-        FakeClientManager();
+    void Init();
 
-        void Init();
+    bool AdoptSlot(int slot, const char* pszName, uint64_t steamId64, const char* crosshairCode, uint32_t scoreboardFlair);
 
-        bool AdoptSlot(int slot, const char *pszName, uint64_t steamId64,
-                       const char *crosshairCode, uint32_t scoreboardFlair);
+    // Release a slot on disconnect / mapchange
+    void ReleaseSlot(int slot);
+    void ReleaseAll();
 
-        // Release a slot on disconnect / mapchange
-        void ReleaseSlot(int slot);
-        void ReleaseAll();
+    void OnTick();
 
-        void OnTick();
+    // True if the slot has a managed bot bound
+    bool IsManaged(int slot) const;
 
-        // True if the slot has a managed bot bound
-        bool IsManaged(int slot) const;
+    uint64_t GetSyntheticSid(int slot) const;
 
-        uint64_t GetSyntheticSid(int slot) const;
+    // Override the SteamID64
+    void SetSyntheticSid(int slot, uint64_t sid);
 
-        // Override the SteamID64
-        void SetSyntheticSid(int slot, uint64_t sid);
+    SteamIdProvider* SteamIds() { return m_pSteamIds.get(); }
 
-        SteamIdProvider *SteamIds() { return m_pSteamIds.get(); }
+  private:
+    mutable std::mutex m_Mutex;
+    std::array<ManagedSlot, PersonaPool::kMaxSlots> m_Slots;
+    std::unique_ptr<SteamIdProvider> m_pSteamIds;
+};
 
-    private:
-        mutable std::mutex m_Mutex;
-        std::array<ManagedSlot, PersonaPool::kMaxSlots> m_Slots;
-        std::unique_ptr<SteamIdProvider> m_pSteamIds;
-    };
-
-    FakeClientManager &Manager();
+FakeClientManager& Manager();
 
 } // namespace cs2bh
