@@ -70,15 +70,15 @@ You can create a file named `bot_info.json` inside `/game/csgo/addons/BotHider/`
 
 ```json
 {
-    "s1mple": {
-        "steamid": 73936547,
+    "73936547": {
+        "player_name": "s1mple",
         "crosshair_code": "CSGO-pE5f8-6RQvk-HLpdN-KW3J6-BQwLA",
-        "scoreboard_flair": 874
+        "scoreboard_flair": 6034
     },
-    "ZywOo": {
-        "steamid": 12345678,
-        "crosshair_code": "CSGO-xxxxx-xxxxx-xxxxx-xxxxx-xxxxx",
-        "scoreboard_flair": 4974
+    "153400465": {
+        "player_name": "ZywOo",
+        "crosshair_code": "CSGO-FqJYj-kLuW3-V2QZ3-xbkQK-PHPYE",
+        "scoreboard_flair": 5226
     }
 }
 ```
