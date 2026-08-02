@@ -145,7 +145,6 @@ void HiderPlugin::Hook_ClientPutInServer_Post(CPlayerSlot slot, char const* pszN
         entity_access::RefreshClientUserInfo(index);
     }
 
-    META_CONPRINTF("[BOTHIDER] CPiS safety-net slot=%d name='%s'\n", index, pszName ? pszName : "<null>");
     RETURN_META(MRES_IGNORED);
 }
 

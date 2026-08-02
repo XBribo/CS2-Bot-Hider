@@ -84,9 +84,6 @@ void HiderPlugin::Hook_DispatchConCommand_Pre(ConCommandRef command, const CComm
                 char kickCommand[640];
                 std::snprintf(kickCommand, sizeof(kickCommand), "kick \"%s\"\n", target);
                 engine->ServerCommand(kickCommand);
-                META_CONPRINTF("[BOTHIDER] bot_kick '%s' redirected to kick "
-                               "for managed slot=%d\n",
-                               target, slot);
                 RETURN_META(MRES_SUPERCEDE);
             }
         }
@@ -108,7 +105,6 @@ void HiderPlugin::Hook_DispatchConCommand_Pre(ConCommandRef command, const CComm
         if (botQuota.IsValidRef()) m_QuotaBeforeKick = botQuota.GetInt();
     }
 
-    int restored = 0;
     for (int slot = 0; slot < PersonaPool::kMaxSlots; ++slot)
     {
         if (!Personas().IsSlotManaged(slot)) continue;
@@ -117,9 +113,7 @@ void HiderPlugin::Hook_DispatchConCommand_Pre(ConCommandRef command, const CComm
         ssc::SetFakePlayer(client);
         identity_runtime::SetControllerFakeClientFlag(slot, true);
         ssc::WriteSteamId(client, 0);
-        ++restored;
     }
-    META_CONPRINTF("[BOTHIDER] kick PRE '%s' restored=%d\n", commandName, restored);
     RETURN_META(MRES_IGNORED);
 }
 
@@ -157,7 +151,6 @@ void HiderPlugin::Hook_DispatchConCommand_Post(ConCommandRef command, const CCom
         RETURN_META(MRES_IGNORED);
     }
 
-    int redisguised = 0;
     int managedAfterKick = 0;
     for (int slot = 0; slot < PersonaPool::kMaxSlots; ++slot)
     {
@@ -173,7 +166,6 @@ void HiderPlugin::Hook_DispatchConCommand_Post(ConCommandRef command, const CCom
         const uint64_t steamId = Manager().GetSyntheticSid(slot);
         if (steamId != 0) ssc::WriteSteamId(client, steamId);
         entity_access::RefreshClientUserInfo(slot);
-        ++redisguised;
     }
 
     if (m_AdjustQuotaAfterKick && m_QuotaBeforeKick >= 0)
@@ -194,7 +186,6 @@ void HiderPlugin::Hook_DispatchConCommand_Post(ConCommandRef command, const CCom
     m_ManagedBeforeKick = 0;
     m_QuotaBeforeKick = -1;
     m_AdjustQuotaAfterKick = false;
-    META_CONPRINTF("[BOTHIDER] kick POST '%s' redisguised=%d quota=%d\n", commandName, redisguised, managedAfterKick);
     RETURN_META(MRES_IGNORED);
 }
 

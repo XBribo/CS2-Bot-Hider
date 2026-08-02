@@ -416,9 +416,6 @@ bool QueueControllerRemovalForClient(void* client, int slot)
 
     const uint16_t userId = *reinterpret_cast<uint16_t*>(reinterpret_cast<unsigned char*>(client) + ssc::OFFSET_m_UserID);
     pending.push_back({ controller, handle, slot, userId, 0 });
-    META_CONPRINTF("[BOTHIDER] deferred destroy queued slot=%d entIdx=%d "
-                   "handle=0x%08x\n",
-                   slot, entityIndex, handle);
     return true;
 }
 
@@ -464,11 +461,7 @@ void DrainPendingControllerRemovals()
             }
         }
 
-        entity_access::LogEntitySystemCrossCheck();
         entity_access::RemoveEntity(current);
-        META_CONPRINTF("[BOTHIDER] deferred destroy dispatched slot=%d "
-                       "entIdx=%d handle=0x%08x\n",
-                       item->Slot, entityIndex, item->Handle);
         item = pending.erase(item);
     }
 }

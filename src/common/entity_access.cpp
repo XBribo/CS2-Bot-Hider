@@ -33,7 +33,6 @@ static void* g_pGameResourceService = nullptr;
 static UtilRemoveFn g_pfnUtilRemove = nullptr;
 static void** g_ppEntSysGlobal = nullptr;
 static int g_BotPawnHandleOffset = -1;
-static bool g_EntitySystemCrossChecked = false;
 
 // Stores the GameResourceService interface used for entity resolution
 void SetGameResourceService(void* gameResourceService) { g_pGameResourceService = gameResourceService; }
@@ -68,7 +67,6 @@ void ResolveUtilRemoveAndEntSys(const nlohmann::json& gamedata, const sig::Modul
 {
     g_pfnUtilRemove = nullptr;
     g_ppEntSysGlobal = nullptr;
-    g_EntitySystemCrossChecked = false;
     if (!serverModule)
     {
         META_CONPRINTF("[BOTHIDER] warning: %s module unresolved for signature scan\n", targets::kServerModuleName);
@@ -281,23 +279,6 @@ bool RemoveEntity(void* instance)
     return true;
 }
 
-// Logs a one-time comparison of both resolved entity-system paths
-void LogEntitySystemCrossCheck()
-{
-    if (g_EntitySystemCrossChecked || !g_ppEntSysGlobal || !g_pGameResourceService)
-    {
-        return;
-    }
-
-    void* entitySystemFromChain = nullptr;
-    SafeReadPointer(reinterpret_cast<unsigned char*>(g_pGameResourceService) + targets::kEntSys_OffsetInGameResSvc, &entitySystemFromChain);
-    void* entitySystemFromRemove = nullptr;
-    SafeReadPointer(g_ppEntSysGlobal, &entitySystemFromRemove);
-    META_CONPRINTF("[BOTHIDER] entSys cross-check: chain=%p remove=%p %s\n", entitySystemFromChain, entitySystemFromRemove,
-                   entitySystemFromChain == entitySystemFromRemove ? "MATCH" : "MISMATCH");
-    g_EntitySystemCrossChecked = true;
-}
-
 // Stores the resolved controller pawn-handle offset
 void SetBotPawnHandleOffset(int offset) { g_BotPawnHandleOffset = offset; }
 
@@ -368,7 +349,6 @@ void Reset()
     g_pfnUtilRemove = nullptr;
     g_ppEntSysGlobal = nullptr;
     g_BotPawnHandleOffset = -1;
-    g_EntitySystemCrossChecked = false;
 }
 
 } // namespace cs2bh::entity_access

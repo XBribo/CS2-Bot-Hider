@@ -29,9 +29,6 @@ void* EntitySystemGlobalAddress();
 // Removes one entity through the resolved engine function
 bool RemoveEntity(void* instance);
 
-// Logs a one-time comparison of both resolved entity-system paths
-void LogEntitySystemCrossCheck();
-
 // Stores the resolved controller pawn-handle offset
 void SetBotPawnHandleOffset(int offset);
 
