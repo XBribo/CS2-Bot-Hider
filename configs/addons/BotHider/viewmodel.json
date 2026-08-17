@@ -1,7 +1,5 @@
 {
-    "source": "来自unicbm的持枪视角礼物",
-    "steamid_format": "32-bit Steam account ID",
-    "viewmodels_by_steamid": {
+    "viewmodels": {
         "424467": {
             "player_name": "FalleN",
             "left_handed": true,

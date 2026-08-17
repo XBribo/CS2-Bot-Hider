@@ -26,7 +26,6 @@ class SlotPublisher
     using SteamIdSink = std::function<void(int slot, uint64_t sid)>;
     using PersonaSink = std::function<void(int slot, const char* name)>;
     using DisguiseSink = std::function<void(bool enabled)>;
-    using RebuildSink = std::function<void()>;
     using NameSourceSink = std::function<void(bool useBotInfo)>;
 
     ~SlotPublisher();
@@ -54,7 +53,6 @@ class SlotPublisher
     void DrainCommands(const SteamIdSink& onSteamId,
                        const PersonaSink& onPersona,
                        const DisguiseSink& onDisguise,
-                       const RebuildSink& onRebuild,
                        const NameSourceSink& onNameSource);
 
     bool Active() const { return m_pView != nullptr; }

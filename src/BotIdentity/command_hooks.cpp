@@ -56,6 +56,24 @@ static int FindManagedSlotByPersonaName(const char* name)
     return -1;
 }
 
+// Restores native bot identity before engine-owned level teardown
+static int RestoreManagedClientsForLevelTeardown()
+{
+    int restored = 0;
+    for (int slot = 0; slot < PersonaPool::kMaxSlots; ++slot)
+    {
+        if (!Manager().IsManaged(slot)) continue;
+        void* client = entity_access::ResolveClientBySlot(slot);
+        if (!client) continue;
+
+        ssc::SetFakePlayer(client);
+        identity_runtime::SetControllerFakeClientFlag(slot, true);
+        ssc::WriteSteamId(client, 0);
+        ++restored;
+    }
+    return restored;
+}
+
 // Restores bot identity before bot-sensitive console commands
 void HiderPlugin::Hook_DispatchConCommand_Pre(ConCommandRef command, const CCommandContext&, const CCommand& arguments)
 {
@@ -247,54 +265,19 @@ void HiderPlugin::SetDisguiseEnabled(bool enabled)
     META_CONPRINTF("[BOTHIDER] disguise %s (no rebuild)\n", enabled ? "ON" : "OFF");
 }
 
-// Rebuilds every managed bot while preserving the live quota
-void HiderPlugin::RebuildBots()
-{
-    if (m_bSelfDisabled || !m_bDisguiseEnabled || !engine || m_bRebuilding)
-    {
-        return;
-    }
-
-    int managed = 0;
-    for (int slot = 0; slot < PersonaPool::kMaxSlots; ++slot)
-    {
-        if (!Manager().IsManaged(slot)) continue;
-        void* client = entity_access::ResolveClientBySlot(slot);
-        if (client)
-        {
-            ssc::SetFakePlayer(client);
-            identity_runtime::SetControllerFakeClientFlag(slot, true);
-        }
-        ++managed;
-    }
-    if (managed == 0) return;
-
-    int quota = managed;
-    ConVarRefAbstract botQuota("bot_quota");
-    if (botQuota.IsValidRef()) quota = botQuota.GetInt();
-
-    m_bRebuilding = true;
-    char quotaCommand[48];
-    std::snprintf(quotaCommand, sizeof(quotaCommand), "bot_quota %d\n", quota);
-    engine->ServerCommand("bot_quota 0\n");
-    engine->ServerCommand("bot_kick all\n");
-    engine->ServerCommand(quotaCommand);
-    META_CONPRINTF("[BOTHIDER] rematch rebuild kicked %d bot(s), "
-                   "bot_quota->%d\n",
-                   managed, quota);
-}
-
-// Clears managed state before a level transition
+// Restores native bot identity and clears managed state before a level transition
 CUtlVector<INetworkGameClient*>*
 HiderPlugin::Hook_StartChangeLevel_Pre(const char* mapName, const char* landmark, void* /*changelevelState*/)
 {
     if (m_bSelfDisabled) RETURN_META_VALUE(MRES_IGNORED, nullptr);
 
+    const int restoredClients = RestoreManagedClientsForLevelTeardown();
     identity_state::ClearAll();
     Manager().ReleaseAll();
     avatar::ProcessOverrides();
     BotInfo().ResetAssignments();
-    META_CONPRINTF("[BOTHIDER] StartChangeLevel PRE map='%s' landmark='%s'\n", mapName ? mapName : "?", landmark ? landmark : "");
+    META_CONPRINTF("[BOTHIDER] StartChangeLevel PRE restored=%d map='%s' landmark='%s'\n", restoredClients,
+                   mapName ? mapName : "?", landmark ? landmark : "");
     RETURN_META_VALUE(MRES_IGNORED, nullptr);
 }
 
@@ -357,10 +340,6 @@ void HiderPlugin::Hook_GameFrame_Post(bool simulating, bool /*bFirst*/, bool /*b
         // Toggles the global disguise state
         [this](bool enabled) {
         SetDisguiseEnabled(enabled);
-    },
-        // Rebuilds managed bots
-        [this]() {
-        RebuildBots();
     },
         // Changes the display-name source
         [this](bool useBotInfo) {

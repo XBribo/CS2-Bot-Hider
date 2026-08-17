@@ -41,7 +41,7 @@ class HiderPlugin : public ISmmPlugin, public IMetamodListener
     const char* GetDescription() override { return "Bot persona/steamid/ping/crosshair/avatar hider"; }
     const char* GetURL() override { return ""; }
     const char* GetLicense() override { return "AGPL-3.0"; }
-    const char* GetVersion() override { return "0.3.7"; }
+    const char* GetVersion() override { return "0.3.8"; }
     const char* GetDate() override { return __DATE__; }
     const char* GetLogTag() override { return "BH"; }
 
@@ -64,8 +64,6 @@ class HiderPlugin : public ISmmPlugin, public IMetamodListener
 
     // Toggle disguise globally
     void SetDisguiseEnabled(bool enabled);
-
-    void RebuildBots();
 
     // Toggle the display-name source: true=bot_info.json name, false=botprofile name
     void SetUseBotInfoName(bool useBotInfo) { m_bUseBotInfoName = useBotInfo; }

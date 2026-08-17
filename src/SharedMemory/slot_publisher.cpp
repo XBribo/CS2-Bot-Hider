@@ -330,7 +330,6 @@ void SlotPublisher::PublishSignature(const char* name, const void* addr)
 void SlotPublisher::DrainCommands(const SteamIdSink& onSteamId,
                                   const PersonaSink& onPersona,
                                   const DisguiseSink& onDisguise,
-                                  const RebuildSink& onRebuild,
                                   const NameSourceSink& onNameSource)
 {
     if (!m_pView) return;
@@ -349,12 +348,6 @@ void SlotPublisher::DrainCommands(const SteamIdSink& onSteamId,
         if (c.Type == shm::kCmd_SetDisguise && onDisguise)
         {
             onDisguise(c.SteamId != 0);
-            ++r;
-            continue;
-        }
-        if (c.Type == shm::kCmd_Rebuild && onRebuild)
-        {
-            onRebuild();
             ++r;
             continue;
         }

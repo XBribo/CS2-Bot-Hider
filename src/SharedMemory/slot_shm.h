@@ -80,8 +80,6 @@ enum CmdType : uint8_t
     kCmd_SetSteamId = 1,
     kCmd_SetPersona = 2,
     kCmd_SetDisguise = 3, // global toggle, on/off carried in Command.SteamId
-    kCmd_Rebuild = 4, // global clean-rebuild on same-map rematch
-    // 5 (KickAll) and 6 (Refill) match-end clean-rebuild removed
     kCmd_SetNameSource = 7, // global toggle, name source carried in Command.SteamId (1=bot_info 0=botprofile)
 };
 
