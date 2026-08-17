@@ -65,6 +65,9 @@ void* HandleJoinTeamTarget();
 // Returns the resolved human-team restriction hook target
 void* HumanTeamRestrictionTarget();
 
+// Returns the resolved same-map teardown helper target
+void* SameMapTeardownTarget();
+
 } // namespace identity_hooks
 
 } // namespace cs2bh

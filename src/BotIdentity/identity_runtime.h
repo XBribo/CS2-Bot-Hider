@@ -13,6 +13,9 @@ uint64_t MakeUniqueSteamId(int slot, uint64_t desired);
 // Synchronizes the controller fake-client bit for one slot
 bool SetControllerFakeClientFlag(int slot, bool fakeClient);
 
+// Restores native identity for managed bots before engine-owned teardown
+int RestoreManagedClientsForEngineTeardown();
+
 // Queues one client controller for identity-checked removal
 bool QueueControllerRemovalForClient(void* client, int slot);
 

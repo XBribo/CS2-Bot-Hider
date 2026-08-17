@@ -378,6 +378,24 @@ bool SetControllerFakeClientFlag(int slot, bool fakeClient)
     return true;
 }
 
+// Restores native identity for managed bots before engine-owned teardown
+int RestoreManagedClientsForEngineTeardown()
+{
+    int restored = 0;
+    for (int slot = 0; slot < PersonaPool::kMaxSlots; ++slot)
+    {
+        if (!Manager().IsManaged(slot)) continue;
+        void* client = entity_access::ResolveClientBySlot(slot);
+        if (!client) continue;
+
+        ssc::SetFakePlayer(client);
+        SetControllerFakeClientFlag(slot, true);
+        ssc::WriteSteamId(client, 0);
+        ++restored;
+    }
+    return restored;
+}
+
 // Queues one client controller for identity-checked removal
 bool QueueControllerRemovalForClient(void* client, int slot)
 {

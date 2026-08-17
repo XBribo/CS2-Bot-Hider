@@ -214,6 +214,7 @@ bool HiderPlugin::Load(PluginId id, ISmmAPI* ismm, char* error, size_t maxlen, b
         Publisher().PublishSignature("PackEntities", identity_hooks::PackEntitiesTarget());
         Publisher().PublishSignature("HandleJoinTeam", identity_hooks::HandleJoinTeamTarget());
         Publisher().PublishSignature("HumanTeamRestriction", identity_hooks::HumanTeamRestrictionTarget());
+        Publisher().PublishSignature("SameMapTeardown", identity_hooks::SameMapTeardownTarget());
     }
     else
     {

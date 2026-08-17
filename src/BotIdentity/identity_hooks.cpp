@@ -1,9 +1,12 @@
 #include "identity_hooks.h"
 
+#include "identity_runtime.h"
 #include "version_targets.h"
 
 #include <atomic>
+#include <cstring>
 #include <functional>
+#include <limits>
 #include <mutex>
 #include <string>
 #include <thread>
@@ -12,6 +15,7 @@
 #include <funchook.h>
 
 #if defined(_WIN32)
+#include <intrin.h>
 #define CS2BH_FASTCALL __fastcall
 #else
 #define CS2BH_FASTCALL
@@ -23,6 +27,7 @@ using MaintainQuotaFn = int64_t(CS2BH_FASTCALL*)(void*);
 using HandleJoinTeamFn = int64_t(CS2BH_FASTCALL*)(void*, unsigned int, bool);
 using ApplyHumanTeamRestrictionFn = int64_t(CS2BH_FASTCALL*)();
 using PackEntitiesFn = void(CS2BH_FASTCALL*)(void*, void*, int, void*, void*);
+using SameMapClientCollectorFn = void*(CS2BH_FASTCALL*)(void*, uintptr_t);
 
 static funchook_t* g_pFunchook = nullptr;
 static size_t g_PreparedFunchookCount = 0;
@@ -36,6 +41,9 @@ static ApplyHumanTeamRestrictionFn g_pfnApplyHumanTeamRestrictionTramp = nullptr
 static void* g_pApplyHumanTeamRestrictionHookTarget = nullptr;
 static PackEntitiesFn g_pfnPackEntitiesTramp = nullptr;
 static void* g_pPackEntitiesHookTarget = nullptr;
+static SameMapClientCollectorFn g_pfnSameMapCollectorTramp = nullptr;
+static void* g_pSameMapTeardownHookTarget = nullptr;
+static void* g_pSameMapTeardownReturnAddress = nullptr;
 static std::atomic_bool g_PackEntitiesFirstCallLogged = false;
 static std::recursive_mutex g_PackEntitiesMutex;
 static thread_local uint32_t g_PackEntitiesDepth = 0;
@@ -111,6 +119,23 @@ static void CS2BH_FASTCALL Detour_PackEntities(void* serverObject, void* packCon
     g_pfnPackEntitiesTramp(serverObject, packContext, clientCount, clients, snapshotContext);
 }
 
+// Restores managed clients only at the same-map teardown call site
+static void* CS2BH_FASTCALL Detour_SameMapClientCollector(void* collection, uintptr_t source)
+{
+#if defined(_MSC_VER)
+    void* returnAddress = _ReturnAddress();
+#else
+    void* returnAddress = __builtin_extract_return_addr(__builtin_return_address(0));
+#endif
+    if (returnAddress == g_pSameMapTeardownReturnAddress)
+    {
+        const int restored = identity_runtime::RestoreManagedClientsForEngineTeardown();
+        META_CONPRINTF("[BOTHIDER] same-map teardown PRE restored=%d\n", restored);
+    }
+
+    return g_pfnSameMapCollectorTramp ? g_pfnSameMapCollectorTramp(collection, source) : nullptr;
+}
+
 // Prepares one target and replaces its original pointer with the trampoline
 template <typename Function> static bool PrepareFunchook(Function& original, void* target, void* detour, const char* name)
 {
@@ -149,6 +174,9 @@ static void ClearBindings()
     g_pHandleJoinTeamHookTarget = nullptr;
     g_pfnApplyHumanTeamRestrictionTramp = nullptr;
     g_pApplyHumanTeamRestrictionHookTarget = nullptr;
+    g_pfnSameMapCollectorTramp = nullptr;
+    g_pSameMapTeardownHookTarget = nullptr;
+    g_pSameMapTeardownReturnAddress = nullptr;
     g_PreparedFunchookCount = 0;
     g_FunchooksInstalled = false;
 }
@@ -306,6 +334,64 @@ static void PreparePackEntitiesHook(const nlohmann::json& gamedata)
     }
 }
 
+// Resolves the helper called immediately before the same-map client teardown loop
+static void PrepareSameMapTeardownHook(const nlohmann::json& gamedata, const sig::ModuleInfo& serverModule)
+{
+    if (!serverModule) return;
+    constexpr const char* kTargetName = "CCSGameRules::SameMapTeardown";
+    std::string signature = sig::FindPlatformSig(gamedata, kTargetName);
+    std::vector<uint8_t> bytes;
+    std::vector<bool> wildcards;
+    if (signature.empty() || !sig::ParseSigString(signature, bytes, wildcards))
+    {
+        META_CONPRINTF("[BOTHIDER] warning: same-map teardown signature missing or malformed\n");
+        return;
+    }
+
+    std::vector<void*> matches = sig::FindPatternMatchesIn(serverModule, bytes, wildcards);
+    META_CONPRINTF("[BOTHIDER] CCSGameRules same-map teardown signature matches=%zu\n", matches.size());
+    if (matches.size() != 1)
+    {
+        META_CONPRINTF("[BOTHIDER] warning: same-map teardown hook requires exactly one match\n");
+        return;
+    }
+
+    constexpr int kMissingCallOffset = std::numeric_limits<int>::min();
+    const int callOffset = sig::FindPlatformOffset(gamedata, kTargetName, kMissingCallOffset);
+    if (callOffset == kMissingCallOffset)
+    {
+        META_CONPRINTF("[BOTHIDER] warning: same-map teardown helper call offset is missing\n");
+        return;
+    }
+
+    auto* callSite = static_cast<unsigned char*>(matches.front()) + callOffset;
+    const uintptr_t moduleBegin = reinterpret_cast<uintptr_t>(serverModule.Base);
+    const uintptr_t moduleEnd = moduleBegin + serverModule.Size;
+    const uintptr_t callAddress = reinterpret_cast<uintptr_t>(callSite);
+    if (callAddress < moduleBegin || callAddress > moduleEnd - 5 || callSite[0] != 0xE8)
+    {
+        META_CONPRINTF("[BOTHIDER] warning: same-map teardown helper call is invalid\n");
+        return;
+    }
+
+    int32_t displacement = 0;
+    std::memcpy(&displacement, callSite + 1, sizeof(displacement));
+    auto* target = callSite + 5 + displacement;
+    const uintptr_t targetAddress = reinterpret_cast<uintptr_t>(target);
+    if (targetAddress < moduleBegin || targetAddress >= moduleEnd)
+    {
+        META_CONPRINTF("[BOTHIDER] warning: same-map teardown helper target is outside server module\n");
+        return;
+    }
+
+    if (PrepareFunchook(g_pfnSameMapCollectorTramp, target, reinterpret_cast<void*>(&Detour_SameMapClientCollector),
+                        "CCSGameRules::SameMapTeardown helper"))
+    {
+        g_pSameMapTeardownHookTarget = target;
+        g_pSameMapTeardownReturnAddress = callSite + 5;
+    }
+}
+
 // Resolves and prepares every optional identity detour
 void PrepareAll(const nlohmann::json& gamedata, const sig::ModuleInfo& serverModule)
 {
@@ -313,6 +399,7 @@ void PrepareAll(const nlohmann::json& gamedata, const sig::ModuleInfo& serverMod
     PrepareHandleJoinTeamHook(gamedata, serverModule);
     PrepareHumanTeamRestrictionHook(gamedata, serverModule);
     PreparePackEntitiesHook(gamedata);
+    PrepareSameMapTeardownHook(gamedata, serverModule);
 }
 
 // Installs every successfully prepared identity detour
@@ -344,6 +431,9 @@ void InstallPrepared()
         META_CONPRINTF("[BOTHIDER] CCSPlayerController::HandleCommand_JoinTeam hook installed at %p\n", g_pHandleJoinTeamHookTarget);
     if (g_pApplyHumanTeamRestrictionHookTarget)
         META_CONPRINTF("[BOTHIDER] MpHumanTeam_ApplyRestriction hook installed at %p\n", g_pApplyHumanTeamRestrictionHookTarget);
+    if (g_pSameMapTeardownHookTarget)
+        META_CONPRINTF("[BOTHIDER] CCSGameRules same-map teardown hook installed at %p caller=%p\n", g_pSameMapTeardownHookTarget,
+                       g_pSameMapTeardownReturnAddress);
 }
 
 // Uninstalls all identity detours and releases their shared handle
@@ -396,5 +486,8 @@ void* HandleJoinTeamTarget() { return g_pHandleJoinTeamHookTarget; }
 
 // Returns the resolved human-team restriction hook target
 void* HumanTeamRestrictionTarget() { return g_pApplyHumanTeamRestrictionHookTarget; }
+
+// Returns the resolved same-map teardown helper target
+void* SameMapTeardownTarget() { return g_pSameMapTeardownHookTarget; }
 
 } // namespace cs2bh::identity_hooks

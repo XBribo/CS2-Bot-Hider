@@ -56,24 +56,6 @@ static int FindManagedSlotByPersonaName(const char* name)
     return -1;
 }
 
-// Restores native bot identity before engine-owned level teardown
-static int RestoreManagedClientsForLevelTeardown()
-{
-    int restored = 0;
-    for (int slot = 0; slot < PersonaPool::kMaxSlots; ++slot)
-    {
-        if (!Manager().IsManaged(slot)) continue;
-        void* client = entity_access::ResolveClientBySlot(slot);
-        if (!client) continue;
-
-        ssc::SetFakePlayer(client);
-        identity_runtime::SetControllerFakeClientFlag(slot, true);
-        ssc::WriteSteamId(client, 0);
-        ++restored;
-    }
-    return restored;
-}
-
 // Restores bot identity before bot-sensitive console commands
 void HiderPlugin::Hook_DispatchConCommand_Pre(ConCommandRef command, const CCommandContext&, const CCommand& arguments)
 {
@@ -271,7 +253,7 @@ HiderPlugin::Hook_StartChangeLevel_Pre(const char* mapName, const char* landmark
 {
     if (m_bSelfDisabled) RETURN_META_VALUE(MRES_IGNORED, nullptr);
 
-    const int restoredClients = RestoreManagedClientsForLevelTeardown();
+    const int restoredClients = identity_runtime::RestoreManagedClientsForEngineTeardown();
     identity_state::ClearAll();
     Manager().ReleaseAll();
     avatar::ProcessOverrides();
