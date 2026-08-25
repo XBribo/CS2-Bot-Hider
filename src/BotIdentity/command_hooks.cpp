@@ -56,7 +56,7 @@ static int FindManagedSlotByPersonaName(const char* name)
     return -1;
 }
 
-// Restores bot identity before bot-sensitive console commands
+// Opens one identity transaction for the complete engine population command.
 void HiderPlugin::Hook_DispatchConCommand_Pre(ConCommandRef command, const CCommandContext&, const CCommand& arguments)
 {
     if (m_bSelfDisabled || !command.IsValidRef()) RETURN_META(MRES_IGNORED);
@@ -64,12 +64,8 @@ void HiderPlugin::Hook_DispatchConCommand_Pre(ConCommandRef command, const CComm
 
     if (IsBotAddCommand(commandName))
     {
-        m_bBotAddInProgress = true;
-        m_AddFlippedSlots.fill(ManagedControllerFlagSnapshot{});
-        if (m_bDisguiseEnabled && !m_bRebuilding)
-        {
-            FlipManagedController904(false, &m_AddFlippedSlots);
-        }
+        identity_hooks::BeginPopulationTransaction(m_bDisguiseEnabled);
+        ++m_PopulationCommandDepth;
         RETURN_META(MRES_IGNORED);
     }
 
@@ -89,35 +85,14 @@ void HiderPlugin::Hook_DispatchConCommand_Pre(ConCommandRef command, const CComm
         }
     }
 
-    if (!IsKickCommand(commandName) || m_bRebuilding) RETURN_META(MRES_IGNORED);
+    if (!IsKickCommand(commandName)) RETURN_META(MRES_IGNORED);
 
-    m_ManagedBeforeKick = 0;
-    m_QuotaBeforeKick = -1;
-    m_AdjustQuotaAfterKick = std::strcmp(commandName, "bot_kick") != 0;
-    if (m_AdjustQuotaAfterKick)
-    {
-        for (int slot = 0; slot < PersonaPool::kMaxSlots; ++slot)
-        {
-            if (Manager().IsManaged(slot)) ++m_ManagedBeforeKick;
-        }
-
-        ConVarRefAbstract botQuota("bot_quota");
-        if (botQuota.IsValidRef()) m_QuotaBeforeKick = botQuota.GetInt();
-    }
-
-    for (int slot = 0; slot < PersonaPool::kMaxSlots; ++slot)
-    {
-        if (!Personas().IsSlotManaged(slot)) continue;
-        void* client = entity_access::ResolveClientBySlot(slot);
-        if (!client) continue;
-        ssc::SetFakePlayer(client);
-        identity_runtime::SetControllerFakeClientFlag(slot, true);
-        ssc::WriteSteamId(client, 0);
-    }
+    identity_hooks::BeginPopulationTransaction(m_bDisguiseEnabled);
+    ++m_PopulationCommandDepth;
     RETURN_META(MRES_IGNORED);
 }
 
-// Restores disguise state after bot-sensitive console commands
+// Closes the transaction after the engine command and any nested quota pass complete.
 void HiderPlugin::Hook_DispatchConCommand_Post(ConCommandRef command, const CCommandContext&, const CCommand& /*arguments*/)
 {
     if (m_bSelfDisabled || !command.IsValidRef()) RETURN_META(MRES_IGNORED);
@@ -125,126 +100,35 @@ void HiderPlugin::Hook_DispatchConCommand_Post(ConCommandRef command, const CCom
 
     if (IsBotAddCommand(commandName))
     {
-        if (m_bDisguiseEnabled && !m_bRebuilding)
+        if (m_PopulationCommandDepth != 0)
         {
-            FlipManagedController904(true, &m_AddFlippedSlots);
-            m_bBotAddInProgress = false;
-            for (int slot = 0; slot < PersonaPool::kMaxSlots; ++slot)
-            {
-                if (!Manager().IsManaged(slot)) continue;
-                void* client = entity_access::ResolveClientBySlot(slot);
-                if (!client) continue;
-                ssc::ClearFakePlayer(client);
-                identity_runtime::SetControllerFakeClientFlag(slot, false);
-            }
+            --m_PopulationCommandDepth;
+            identity_hooks::EndPopulationTransaction(m_bDisguiseEnabled);
         }
-        m_bBotAddInProgress = false;
-        m_AddFlippedSlots.fill(ManagedControllerFlagSnapshot{});
         RETURN_META(MRES_IGNORED);
     }
 
     if (!IsKickCommand(commandName)) RETURN_META(MRES_IGNORED);
-    if (m_bRebuilding)
+    if (m_PopulationCommandDepth != 0)
     {
-        m_bRebuilding = false;
-        META_CONPRINTF("[BOTHIDER] disguise-off kick done\n");
-        RETURN_META(MRES_IGNORED);
+        --m_PopulationCommandDepth;
+        identity_hooks::EndPopulationTransaction(m_bDisguiseEnabled);
     }
-
-    int managedAfterKick = 0;
-    for (int slot = 0; slot < PersonaPool::kMaxSlots; ++slot)
-    {
-        if (!Manager().IsManaged(slot)) continue;
-        ++managedAfterKick;
-        void* client = entity_access::ResolveClientBySlot(slot);
-        if (!client) continue;
-        if (m_bDisguiseEnabled)
-        {
-            ssc::ClearFakePlayer(client);
-            identity_runtime::SetControllerFakeClientFlag(slot, false);
-        }
-        const uint64_t steamId = Manager().GetSyntheticSid(slot);
-        if (steamId != 0) ssc::WriteSteamId(client, steamId);
-        entity_access::RefreshClientUserInfo(slot);
-    }
-
-    if (m_AdjustQuotaAfterKick && m_QuotaBeforeKick >= 0)
-    {
-        const int removedManaged = m_ManagedBeforeKick - managedAfterKick;
-        if (removedManaged > 0)
-        {
-            ConVarRefAbstract botQuota("bot_quota");
-            if (botQuota.IsValidRef())
-            {
-                int desiredQuota = m_QuotaBeforeKick - removedManaged;
-                if (desiredQuota < 0) desiredQuota = 0;
-                if (botQuota.GetInt() != desiredQuota) botQuota.SetInt(desiredQuota);
-            }
-        }
-    }
-
-    m_ManagedBeforeKick = 0;
-    m_QuotaBeforeKick = -1;
-    m_AdjustQuotaAfterKick = false;
     RETURN_META(MRES_IGNORED);
 }
 
 // Toggles the global disguise state
 void HiderPlugin::SetDisguiseEnabled(bool enabled)
 {
-    if (m_bDisguiseEnabled == enabled) return;
-    m_bDisguiseEnabled = enabled;
-
-    int managed = 0;
-    for (int slot = 0; slot < PersonaPool::kMaxSlots; ++slot)
+    if (m_bNativeBotMode)
     {
-        if (Manager().IsManaged(slot)) ++managed;
-    }
-
-    if (engine && managed > 0)
-    {
-        for (int slot = 0; slot < PersonaPool::kMaxSlots; ++slot)
-        {
-            if (!Manager().IsManaged(slot)) continue;
-            void* client = entity_access::ResolveClientBySlot(slot);
-            if (!client) continue;
-            ssc::SetFakePlayer(client);
-            identity_runtime::SetControllerFakeClientFlag(slot, true);
-        }
-
-        m_bRebuilding = true;
-        const int quota = identity_runtime::CountHumanClients() + managed;
-        char quotaCommand[48];
-        std::snprintf(quotaCommand, sizeof(quotaCommand), "bot_quota %d\n", quota);
-        engine->ServerCommand("bot_kick\n");
-        engine->ServerCommand(quotaCommand);
-        META_CONPRINTF("[BOTHIDER] disguise %s rebuilding %d bot(s), "
-                       "quota=%d\n",
-                       enabled ? "ON" : "OFF", managed, quota);
+        META_CONPRINTF("[BOTHIDER] disguise request ignored: identity mode is native_bot\n");
         return;
     }
-
-    for (int slot = 0; slot < PersonaPool::kMaxSlots; ++slot)
-    {
-        if (!Manager().IsManaged(slot)) continue;
-        void* client = entity_access::ResolveClientBySlot(slot);
-        if (!client) continue;
-        if (enabled)
-        {
-            ssc::ClearFakePlayer(client);
-            identity_runtime::SetControllerFakeClientFlag(slot, false);
-            const uint64_t steamId = Manager().GetSyntheticSid(slot);
-            if (steamId != 0) ssc::WriteSteamId(client, steamId);
-        }
-        else
-        {
-            ssc::SetFakePlayer(client);
-            identity_runtime::SetControllerFakeClientFlag(slot, true);
-            ssc::WriteSteamId(client, 0);
-        }
-        entity_access::RefreshClientUserInfo(slot);
-    }
-    META_CONPRINTF("[BOTHIDER] disguise %s (no rebuild)\n", enabled ? "ON" : "OFF");
+    if (m_bDisguiseEnabled == enabled) return;
+    m_bDisguiseEnabled = enabled;
+    identity_runtime::ApplyManagedDisguise(enabled);
+    META_CONPRINTF("[BOTHIDER] disguise %s\n", enabled ? "ON" : "OFF");
 }
 
 // Restores native bot identity and clears managed state before a level transition

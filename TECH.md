@@ -88,6 +88,18 @@ Display name is controlled separately by `bh_namesource`.
 
 `scoreboard_flair` is a CS2 item definition index. Missing, invalid, or `0` values are treated as clear/no flair. Use [unicbm/cs2-econ-id-index](https://github.com/unicbm/cs2-econ-id-index) to look up valid scoreboard flair item definition IDs.
 
+## Identity Mode (config.json)
+
+Located in `/game/csgo/addons/BotHider/config.json`:
+
+```json
+{
+    "identity_mode": "player"
+}
+```
+
+`player` is the default and enables the synthetic-player presentation. `native_bot` leaves the client/controller fake flags under Valve's native BotManager while BotHider continues to manage names, SteamIDs, and custom avatar presentation. If the file is missing, the native plugin creates it with `player` mode. The mode is read when the Metamod plugin loads; restart the server after changing it.
+
 ------------------------------------------------------------------------
 
 ## Exposed Interface (C#)

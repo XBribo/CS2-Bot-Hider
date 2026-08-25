@@ -22,6 +22,8 @@
 #include <cstdint>
 #include <cstring>
 #include <array>
+#include <fstream>
+#include <iterator>
 #include <string>
 #include <vector>
 
@@ -105,11 +107,56 @@ bool HiderPlugin::Load(PluginId id, ISmmAPI* ismm, char* error, size_t maxlen, b
 {
     PLUGIN_SAVEVARS();
 
+    // Load may run again on the same global plugin object. Always start from the
+    // documented player default; only an explicit native_bot config opts out.
+    m_bNativeBotMode = false;
+    m_bDisguiseEnabled = true;
+
     GET_V_IFACE_CURRENT(GetEngineFactory, engine, IVEngineServer, INTERFACEVERSION_VENGINESERVER);
     GET_V_IFACE_CURRENT(GetEngineFactory, icvar, ICvar, CVAR_INTERFACE_VERSION);
     GET_V_IFACE_ANY(GetServerFactory, gameclients, IServerGameClients, INTERFACEVERSION_SERVERGAMECLIENTS);
     GET_V_IFACE_ANY(GetServerFactory, server, IServerGameDLL, INTERFACEVERSION_SERVERGAMEDLL);
     GET_V_IFACE_ANY(GetEngineFactory, g_pNetworkServerService, INetworkServerService, NETWORKSERVERSERVICE_INTERFACE_VERSION);
+
+    // Read identity mode before client hooks are attached. Missing config keeps the
+    // historical synthetic-player behavior.
+    {
+        std::string configPath = g_SMAPI->GetBaseDir();
+        configPath += "/addons/BotHider/config.json";
+        META_CONPRINTF("[BOTHIDER] identity config path='%s'\n", configPath.c_str());
+        std::ifstream configFile(configPath, std::ios::binary);
+        if (configFile.is_open())
+        {
+            const std::string configText((std::istreambuf_iterator<char>(configFile)), std::istreambuf_iterator<char>());
+            const nlohmann::json config = nlohmann::json::parse(configText, nullptr, false);
+            if (config.is_object() && config.contains("identity_mode") && config["identity_mode"].is_string() &&
+                config["identity_mode"].get<std::string>() == "native_bot")
+            {
+                m_bNativeBotMode = true;
+                m_bDisguiseEnabled = false;
+            }
+            else if (config.is_discarded())
+            {
+                META_CONPRINTF("[BOTHIDER] warning: config.json parse error; using identity_mode=player\n");
+            }
+            META_CONPRINTF("[BOTHIDER] identity mode=%s\n", m_bNativeBotMode ? "native_bot" : "player");
+        }
+        else
+        {
+            // Make the setting visible on first install. A missing file must not
+            // silently make users guess which mode is active.
+            std::ofstream defaultConfig(configPath, std::ios::trunc);
+            if (defaultConfig.is_open())
+            {
+                defaultConfig << "{\n    \"identity_mode\": \"player\"\n}\n";
+                META_CONPRINTF("[BOTHIDER] config.json created with identity_mode=player\n");
+            }
+            else
+            {
+                META_CONPRINTF("[BOTHIDER] warning: config.json missing and could not be created; using player mode\n");
+            }
+        }
+    }
 
     auto* networkStringTables =
         static_cast<INetworkStringTableContainer*>(ismm->GetEngineFactory()(INTERFACENAME_NETWORKSTRINGTABLESERVER, nullptr));
@@ -149,6 +196,11 @@ bool HiderPlugin::Load(PluginId id, ISmmAPI* ismm, char* error, size_t maxlen, b
         {
             // Override member offsets from gamedata.json (fallback kept if absent)
             entity_access::LoadMemberOffsets(gamedata);
+            META_CONPRINTF("[BOTHIDER] %s offsets: NetChannel=%d ConnectionFlags=%d FakePlayer=%d "
+                           "ControllerFakeFlags=%d Team=%d ClientList=%d\n",
+                           sig::PlatformName(), ssc::OFFSET_m_NetChannel, ssc::OFFSET_m_nConnectionTypeFlags,
+                           ssc::OFFSET_m_bFakePlayer, targets::kController_FakeClientFlagsOffset,
+                           targets::kController_TeamOffset, targets::kClientListOffset);
             META_CONPRINTF("[BOTHIDER] unified targets: SetName=#%d team=%d entitySystem=%d "
                            "entityList=%d identitySize=%d instance=%d className=%d\n",
                            targets::kVTSlot_ClientSetName, targets::kController_TeamOffset, targets::kEntSys_OffsetInGameResSvc,

@@ -172,30 +172,6 @@ ManagedControllerTrace TraceManagedController(void* controller)
     return trace;
 }
 
-// Toggles the transient bit after validating the controller handle
-bool SetJoinTeamFakeClientFlag(void* controller, uint32_t handle, bool enabled)
-{
-    if (!controller || handle == 0xFFFFFFFF || targets::kController_FakeClientFlagsOffset < 0)
-    {
-        return false;
-    }
-
-    const int entityIndex = static_cast<int>(handle & 0x7FFF);
-    char className[64];
-    void* current = entity_access::ResolveEntityInstance(entityIndex, className, sizeof(className));
-    if (current != controller || std::strcmp(className, "cs_player_controller") != 0 || entity_access::IsEntityBeingDeleted(current) ||
-        static_cast<uint32_t>(reinterpret_cast<CEntityInstance*>(current)->GetRefEHandle().ToInt()) != handle)
-    {
-        return false;
-    }
-
-    auto* flags = reinterpret_cast<uint32_t*>(reinterpret_cast<unsigned char*>(current) + targets::kController_FakeClientFlagsOffset);
-    if (enabled) *flags |= 0x100u;
-    else
-        *flags &= ~0x100u;
-    return true;
-}
-
 // Clears FL_BOT for managed pawns during entity packing
 std::vector<BotPawnRef> ApplyBotFlagOverride()
 {
@@ -236,69 +212,9 @@ void RestoreBotFlagOverride(const std::vector<BotPawnRef>& pawns)
     }
 }
 
-// Flips managed controller identity around bot-sensitive engine passes
-int FlipManagedController904(bool restore, std::array<ManagedControllerFlagSnapshot, 64>* saved)
-{
-    if (!saved || targets::kController_FakeClientFlagsOffset < 0)
-    {
-        return 0;
-    }
-
-    const int controllerFlagsOffset = targets::kController_FakeClientFlagsOffset;
-    constexpr uint32_t kFakeClientBit = 0x100;
-    int touched = 0;
-    for (int slot = 0; slot < PersonaPool::kMaxSlots; ++slot)
-    {
-        if (!restore) (*saved)[slot] = ManagedControllerFlagSnapshot{};
-        if (!restore && !Manager().IsManaged(slot)) continue;
-
-        ManagedControllerFlagSnapshot& snapshot = (*saved)[slot];
-        if (restore && !snapshot.Modified) continue;
-
-        void* client = entity_access::ResolveClientBySlot(slot);
-        if (!client) continue;
-        const int entityIndex = *reinterpret_cast<int*>(reinterpret_cast<unsigned char*>(client) + ssc::OFFSET_m_nEntityIndex);
-        char className[64];
-        void* controller = entity_access::ResolveEntityInstance(entityIndex, className, sizeof(className));
-        if (!controller || std::strcmp(className, "cs_player_controller") != 0 || entity_access::IsEntityBeingDeleted(controller))
-        {
-            continue;
-        }
-
-        auto* entity = reinterpret_cast<CEntityInstance*>(controller);
-        const uint32_t handle = static_cast<uint32_t>(entity->GetRefEHandle().ToInt());
-        auto* flags = reinterpret_cast<uint32_t*>(reinterpret_cast<unsigned char*>(controller) + controllerFlagsOffset);
-        if (!restore)
-        {
-            if ((*flags & kFakeClientBit) == 0)
-            {
-                snapshot.Client = client;
-                snapshot.Controller = controller;
-                snapshot.Handle = handle;
-                snapshot.UserId = *reinterpret_cast<uint16_t*>(reinterpret_cast<unsigned char*>(client) + ssc::OFFSET_m_UserID);
-                snapshot.Modified = true;
-                *flags |= kFakeClientBit;
-                ++touched;
-            }
-            continue;
-        }
-
-        const uint16_t userId = *reinterpret_cast<uint16_t*>(reinterpret_cast<unsigned char*>(client) + ssc::OFFSET_m_UserID);
-        if (client != snapshot.Client || controller != snapshot.Controller || handle != snapshot.Handle || userId != snapshot.UserId)
-        {
-            snapshot = ManagedControllerFlagSnapshot{};
-            continue;
-        }
-        *flags &= ~kFakeClientBit;
-        snapshot = ManagedControllerFlagSnapshot{};
-        ++touched;
-    }
-    return touched;
-}
-
 namespace identity_runtime {
 
-// Counts connected human clients
+// Counts connected human clients, excluding managed/fake/HLTV clients
 int CountHumanClients()
 {
     if (!g_pNetworkServerService) return 0;
@@ -313,10 +229,46 @@ int CountHumanClients()
     {
         void* client = clients->Element(slot);
         if (!client) continue;
+        if (Manager().IsManaged(slot) || ssc::IsHltv(client) || ssc::IsFakePlayerSet(client)) continue;
         void* networkChannel = *reinterpret_cast<void**>(reinterpret_cast<unsigned char*>(client) + ssc::OFFSET_m_NetChannel);
         if (networkChannel) ++humans;
     }
     return humans;
+}
+
+void ApplyManagedDisguise(bool disguised)
+{
+    for (int slot = 0; slot < PersonaPool::kMaxSlots; ++slot)
+    {
+        if (!Manager().IsManaged(slot)) continue;
+        void* client = entity_access::ResolveClientBySlot(slot);
+        if (!client) continue;
+
+        if (disguised)
+        {
+            ssc::ClearFakePlayer(client);
+            SetControllerFakeClientFlag(slot, false);
+            const uint64_t steamId = Manager().GetSyntheticSid(slot);
+            if (steamId != 0) ssc::WriteSteamId(client, steamId);
+        }
+        else
+        {
+            ssc::SetFakePlayer(client);
+            SetControllerFakeClientFlag(slot, true);
+            // Native-bot mode keeps Valve's bot flags but retains the managed
+            // SteamID used by BotHider's presentation and avatar override.
+            if (g_Plugin.IsNativeBotMode())
+            {
+                const uint64_t steamId = Manager().GetSyntheticSid(slot);
+                if (steamId != 0) ssc::WriteSteamId(client, steamId);
+            }
+            else
+            {
+                ssc::WriteSteamId(client, 0);
+            }
+        }
+        entity_access::RefreshClientUserInfo(slot);
+    }
 }
 
 // Selects a non-colliding SteamID for one managed slot

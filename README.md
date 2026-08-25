@@ -25,6 +25,8 @@
 2. Extract the archive and copy the `/addons/` folder into your server's `/game/csgo/` directory.
 3. Restart the server.
 
+The packaged `addons/BotHider/config.json` selects the identity mode. Use `"player"` to keep BotHider's synthetic-player presentation, or set `"identity_mode": "native_bot"` to keep Valve's native bot flags while retaining BotHider-managed names, SteamIDs, and custom avatar presentation. If the file is missing, BotHider creates it with `player` mode on first load; edit it and restart the server to select `native_bot`.
+
 ------------------------------------------------------------------------
 
 ## Console Commands

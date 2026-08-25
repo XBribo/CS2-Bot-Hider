@@ -79,20 +79,19 @@ void HiderPlugin::Hook_OnClientConnected_Post(
     }
 
     identity_state::BindSlot(index, entry, pszName);
-    if (m_bDisguiseEnabled)
-    {
-        ssc::ClearFakePlayer(client);
-        if (!m_bBotAddInProgress)
-        {
-            identity_runtime::SetControllerFakeClientFlag(index, false);
-        }
-    }
 
     if (steamId != 0)
     {
         ssc::WriteSteamId(client, steamId);
         Manager().SetSyntheticSid(index, steamId);
         Publisher().UpdateBaseSyntheticSid(index, steamId);
+    }
+
+    if (m_bDisguiseEnabled)
+    {
+        ssc::ClearFakePlayer(client);
+        identity_runtime::SetControllerFakeClientFlag(index, false);
+        entity_access::RefreshClientUserInfo(index);
     }
 
     META_CONPRINTF("[BOTHIDER] slot=%d adopted name='%s' steamid64=%llu\n", index, displayName.c_str(),
@@ -117,12 +116,6 @@ void HiderPlugin::Hook_ClientPutInServer_Post(CPlayerSlot slot, char const* pszN
     if (identity_runtime::ReleaseManagedHltvSlot(index, client))
     {
         RETURN_META(MRES_IGNORED);
-    }
-
-    if (m_bDisguiseEnabled)
-    {
-        ssc::ClearFakePlayer(client);
-        identity_runtime::SetControllerFakeClientFlag(index, m_bBotAddInProgress);
     }
 
     const uint64_t desiredSteamId = Manager().GetSyntheticSid(index);

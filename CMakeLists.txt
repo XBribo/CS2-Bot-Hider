@@ -290,6 +290,9 @@ add_custom_command(
     COMMAND ${CMAKE_COMMAND} -E copy_if_different
         "${CMAKE_SOURCE_DIR}/configs/addons/BotHider/gamedata.json"
         "${CMAKE_BINARY_DIR}/package/addons/BotHider/gamedata.json"
+    COMMAND ${CMAKE_COMMAND} -E copy_if_different
+        "${CMAKE_SOURCE_DIR}/configs/addons/BotHider/config.json"
+        "${CMAKE_BINARY_DIR}/package/addons/BotHider/config.json"
 )
 
 if(MSVC)

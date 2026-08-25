@@ -20,15 +20,6 @@ enum ENetworkDisconnectionReason : int;
 
 namespace cs2bh {
 
-struct ManagedControllerFlagSnapshot
-{
-    void* Client = nullptr;
-    void* Controller = nullptr;
-    uint32_t Handle = 0xFFFFFFFF;
-    uint16_t UserId = 0;
-    bool Modified = false;
-};
-
 class HiderPlugin : public ISmmPlugin, public IMetamodListener
 {
   public:
@@ -58,12 +49,14 @@ class HiderPlugin : public ISmmPlugin, public IMetamodListener
     CUtlVector<INetworkGameClient*>* Hook_StartChangeLevel_Pre(const char* mapName, const char* landmark, void* changelevelState);
     void Hook_GameFrame_Post(bool simulating, bool bFirstTick, bool bLastTick);
 
-    // ICvar::DispatchConCommand  — restore bot identity before the engine and processes a kick
+    // ICvar::DispatchConCommand — wrap Valve population commands in one identity transaction
     void Hook_DispatchConCommand_Pre(ConCommandRef cmd, const CCommandContext& ctx, const CCommand& args);
     void Hook_DispatchConCommand_Post(ConCommandRef cmd, const CCommandContext& ctx, const CCommand& args);
 
     // Toggle disguise globally
     void SetDisguiseEnabled(bool enabled);
+    bool IsDisguiseEnabled() const { return m_bDisguiseEnabled; }
+    bool IsNativeBotMode() const { return m_bNativeBotMode; }
 
     // Toggle the display-name source: true=bot_info.json name, false=botprofile name
     void SetUseBotInfoName(bool useBotInfo) { m_bUseBotInfoName = useBotInfo; }
@@ -75,15 +68,8 @@ class HiderPlugin : public ISmmPlugin, public IMetamodListener
     unsigned int m_TickCounter = 0; // throttles per-tick idle-timer reset
     // Master disguise switch
     bool m_bDisguiseEnabled = true;
-
-    bool m_bRebuilding = false;
-
-    bool m_bBotAddInProgress = false;
-    std::array<ManagedControllerFlagSnapshot, 64> m_AddFlippedSlots{};
-
-    int m_ManagedBeforeKick = 0;
-    int m_QuotaBeforeKick = -1;
-    bool m_AdjustQuotaAfterKick = false;
+    bool m_bNativeBotMode = false;
+    unsigned int m_PopulationCommandDepth = 0;
 
     // Display-name source: false=botprofile name, true=bot_info.json name
     bool m_bUseBotInfoName = false;

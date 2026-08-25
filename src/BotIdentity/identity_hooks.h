@@ -36,13 +36,24 @@ void RestoreBotFlagOverride(const std::vector<BotPawnRef>& pawns);
 // Collects identity state for one managed controller
 ManagedControllerTrace TraceManagedController(void* controller);
 
-// Toggles the transient fake-client bit after validating controller identity
-bool SetJoinTeamFakeClientFlag(void* controller, uint32_t handle, bool enabled);
-
-// Flips managed Bot identity around engine Bot-sensitive passes
-int FlipManagedController904(bool restore, std::array<ManagedControllerFlagSnapshot, 64>* saved);
-
 namespace identity_hooks {
+
+// Enters/leaves a nested transaction covering one Valve bot population command
+void BeginPopulationTransaction(bool redisguise);
+void EndPopulationTransaction(bool redisguise);
+bool PopulationTransactionActive();
+
+class PopulationTransactionScope
+{
+  public:
+    explicit PopulationTransactionScope(bool redisguise);
+    ~PopulationTransactionScope();
+    PopulationTransactionScope(const PopulationTransactionScope&) = delete;
+    PopulationTransactionScope& operator=(const PopulationTransactionScope&) = delete;
+
+  private:
+    bool m_Redisguise;
+};
 
 // Resolves and prepares every optional identity detour
 void PrepareAll(const nlohmann::json& gamedata, const sig::ModuleInfo& serverModule);
