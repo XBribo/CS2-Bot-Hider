@@ -107,10 +107,11 @@ bool HiderPlugin::Load(PluginId id, ISmmAPI* ismm, char* error, size_t maxlen, b
 {
     PLUGIN_SAVEVARS();
 
-    // Load may run again on the same global plugin object. Always start from the
-    // documented player default; only an explicit native_bot config opts out.
-    m_bNativeBotMode = false;
-    m_bDisguiseEnabled = true;
+    // Load may run again on the same global plugin object
+    m_IdentityMode = IdentityMode::Player;
+    m_bFakePingEnabled = true;
+    m_FakePingMin = 20;
+    m_FakePingMax = 90;
 
     GET_V_IFACE_CURRENT(GetEngineFactory, engine, IVEngineServer, INTERFACEVERSION_VENGINESERVER);
     GET_V_IFACE_CURRENT(GetEngineFactory, icvar, ICvar, CVAR_INTERFACE_VERSION);
@@ -118,45 +119,73 @@ bool HiderPlugin::Load(PluginId id, ISmmAPI* ismm, char* error, size_t maxlen, b
     GET_V_IFACE_ANY(GetServerFactory, server, IServerGameDLL, INTERFACEVERSION_SERVERGAMEDLL);
     GET_V_IFACE_ANY(GetEngineFactory, g_pNetworkServerService, INetworkServerService, NETWORKSERVERSERVICE_INTERFACE_VERSION);
 
-    // Read identity mode before client hooks are attached. Missing config keeps the
-    // historical synthetic-player behavior.
+    // Reads startup identity and fake-ping settings
     {
         std::string configPath = g_SMAPI->GetBaseDir();
         configPath += "/addons/BotHider/config.json";
-        META_CONPRINTF("[BOTHIDER] identity config path='%s'\n", configPath.c_str());
         std::ifstream configFile(configPath, std::ios::binary);
         if (configFile.is_open())
         {
             const std::string configText((std::istreambuf_iterator<char>(configFile)), std::istreambuf_iterator<char>());
             const nlohmann::json config = nlohmann::json::parse(configText, nullptr, false);
-            if (config.is_object() && config.contains("identity_mode") && config["identity_mode"].is_string() &&
-                config["identity_mode"].get<std::string>() == "native_bot")
+            if (config.is_discarded())
             {
-                m_bNativeBotMode = true;
-                m_bDisguiseEnabled = false;
+                META_CONPRINTF("[BOTHIDER] warning: config.json parse error; using defaults\n");
             }
-            else if (config.is_discarded())
+            else if (config.is_object())
             {
-                META_CONPRINTF("[BOTHIDER] warning: config.json parse error; using identity_mode=player\n");
+                if (config.contains("identity_mode") && config["identity_mode"].is_string())
+                {
+                    const std::string mode = config["identity_mode"].get<std::string>();
+                    if (mode == "bot") m_IdentityMode = IdentityMode::Bot;
+                    else if (mode != "player")
+                        META_CONPRINTF("[BOTHIDER] warning: unsupported identity_mode='%s'; using player\n", mode.c_str());
+                }
+
+                if (config.contains("fake_ping") && config["fake_ping"].is_object())
+                {
+                    const auto& fakePing = config["fake_ping"];
+                    if (fakePing.contains("enabled") && fakePing["enabled"].is_boolean())
+                        m_bFakePingEnabled = fakePing["enabled"].get<bool>();
+
+                    int minimum = m_FakePingMin;
+                    int maximum = m_FakePingMax;
+                    if (fakePing.contains("min") && fakePing["min"].is_number_integer()) minimum = fakePing["min"].get<int>();
+                    if (fakePing.contains("max") && fakePing["max"].is_number_integer()) maximum = fakePing["max"].get<int>();
+                    if (minimum >= 1 && maximum <= 999 && minimum <= maximum)
+                    {
+                        m_FakePingMin = minimum;
+                        m_FakePingMax = maximum;
+                    }
+                    else
+                    {
+                        META_CONPRINTF("[BOTHIDER] warning: invalid fake_ping range %d-%d; using 20-90\n", minimum, maximum);
+                    }
+                }
             }
-            META_CONPRINTF("[BOTHIDER] identity mode=%s\n", m_bNativeBotMode ? "native_bot" : "player");
         }
         else
         {
-            // Make the setting visible on first install. A missing file must not
-            // silently make users guess which mode is active.
+            // Creates the documented defaults on first install
             std::ofstream defaultConfig(configPath, std::ios::trunc);
             if (defaultConfig.is_open())
             {
-                defaultConfig << "{\n    \"identity_mode\": \"player\"\n}\n";
-                META_CONPRINTF("[BOTHIDER] config.json created with identity_mode=player\n");
+                defaultConfig << "{\n"
+                                 "    \"identity_mode\": \"player\",\n"
+                                 "    \"fake_ping\": {\n"
+                                 "        \"enabled\": true,\n"
+                                 "        \"min\": 20,\n"
+                                 "        \"max\": 90\n"
+                                 "    }\n"
+                                 "}\n";
             }
             else
             {
-                META_CONPRINTF("[BOTHIDER] warning: config.json missing and could not be created; using player mode\n");
+                META_CONPRINTF("[BOTHIDER] warning: config.json missing and could not be created; using defaults\n");
             }
         }
     }
+    Manager().ConfigureFakePing(m_bFakePingEnabled, m_FakePingMin, m_FakePingMax);
 
     auto* networkStringTables =
         static_cast<INetworkStringTableContainer*>(ismm->GetEngineFactory()(INTERFACENAME_NETWORKSTRINGTABLESERVER, nullptr));
@@ -175,10 +204,6 @@ bool HiderPlugin::Load(PluginId id, ISmmAPI* ismm, char* error, size_t maxlen, b
     {
         META_CONPRINTF("[BOTHIDER] warning: %s unresolved — controller mgmt disabled\n", targets::kIface_GameResourceServiceServer);
     }
-    else
-    {
-        META_CONPRINTF("[BOTHIDER] GameResourceService at %p\n", gameResourceService);
-    }
 
     // Resolve UTIL_Remove
     // Required to destroy controllers on kick
@@ -196,16 +221,6 @@ bool HiderPlugin::Load(PluginId id, ISmmAPI* ismm, char* error, size_t maxlen, b
         {
             // Override member offsets from gamedata.json (fallback kept if absent)
             entity_access::LoadMemberOffsets(gamedata);
-            META_CONPRINTF("[BOTHIDER] %s offsets: NetChannel=%d ConnectionFlags=%d FakePlayer=%d "
-                           "ControllerFakeFlags=%d Team=%d ClientList=%d\n",
-                           sig::PlatformName(), ssc::OFFSET_m_NetChannel, ssc::OFFSET_m_nConnectionTypeFlags,
-                           ssc::OFFSET_m_bFakePlayer, targets::kController_FakeClientFlagsOffset,
-                           targets::kController_TeamOffset, targets::kClientListOffset);
-            META_CONPRINTF("[BOTHIDER] unified targets: SetName=#%d team=%d entitySystem=%d "
-                           "entityList=%d identitySize=%d instance=%d className=%d\n",
-                           targets::kVTSlot_ClientSetName, targets::kController_TeamOffset, targets::kEntSys_OffsetInGameResSvc,
-                           targets::kEntSys_IdentityChunksOffset, targets::kEntIdentity_Size, targets::kEntIdentity_InstanceOffset,
-                           targets::kEntIdentity_ClassNameOffset);
             if (targets::kVTSlot_ClientSetName < 0)
             {
                 META_CONPRINTF("[BOTHIDER] warning: CServerSideClient::SetName vtable slot missing - "
@@ -219,12 +234,7 @@ bool HiderPlugin::Load(PluginId id, ISmmAPI* ismm, char* error, size_t maxlen, b
             identity_hooks::PrepareAll(gamedata, serverModule);
         }
     }
-    if (entity_access::UtilRemoveTarget())
-    {
-        META_CONPRINTF("[BOTHIDER] UTIL_Remove resolved at %p (entSysGlobal=%p)\n", entity_access::UtilRemoveTarget(),
-                       entity_access::EntitySystemGlobalAddress());
-    }
-    else
+    if (!entity_access::UtilRemoveTarget())
     {
         META_CONPRINTF("[BOTHIDER] warning: UTIL_Remove signature unresolved — "
                        "controller cleanup disabled\n");
@@ -234,15 +244,13 @@ bool HiderPlugin::Load(PluginId id, ISmmAPI* ismm, char* error, size_t maxlen, b
     g_SMAPI->AddListener(this, this);
 
     // Resolve controller pawn and idle-timer schema offsets
-    if (schema::Init())
+    const bool schemaReady = schema::Init();
+    if (schemaReady)
     {
         int pawnOff = schema::GetFieldOffset("CBasePlayerController", "m_hPawn");
         int playerPawnOff = schema::GetFieldOffset("CCSPlayerController", "m_hPlayerPawn");
         int idleOff = schema::GetFieldOffset("CCSPlayerPawnBase", "m_flIdleTimeSinceLastAction");
         entity_access::SetBotPawnHandleOffset(playerPawnOff >= 0 ? playerPawnOff : pawnOff);
-        META_CONPRINTF("[BOTHIDER] schema resolved m_hPlayerPawn=%d m_hPawn=%d "
-                       "m_flIdleTimeSinceLastAction=%d\n",
-                       playerPawnOff, pawnOff, idleOff);
         if (entity_access::BotPawnHandleOffset() < 0)
             META_CONPRINTF("[BOTHIDER] warning: bot pawn handle unresolved - FL_BOT override disabled\n");
     }
@@ -257,9 +265,9 @@ bool HiderPlugin::Load(PluginId id, ISmmAPI* ismm, char* error, size_t maxlen, b
     Manager().Init();
 
     // Open the shared-memory bridge
-    if (Publisher().Init())
+    const bool sharedMemoryReady = Publisher().Init();
+    if (sharedMemoryReady)
     {
-        META_CONPRINTF("[BOTHIDER] shared memory '%s' mapped\n", shm::kMappingName);
         // Publish resolved hook/sig addresses for bh_status (0 = unresolved)
         Publisher().PublishSignature("UTIL_Remove", entity_access::UtilRemoveTarget());
         Publisher().PublishSignature("MaintainBotQuota", identity_hooks::MaintainQuotaTarget());
@@ -276,12 +284,7 @@ bool HiderPlugin::Load(PluginId id, ISmmAPI* ismm, char* error, size_t maxlen, b
     // Load bot identity data from JSON config
     std::string jsonPath = g_SMAPI->GetBaseDir();
     jsonPath += "/addons/BotHider/bot_info.json";
-    META_CONPRINTF("[BOTHIDER] loading JSON from: %s\n", jsonPath.c_str());
-    if (BotInfo().Load(jsonPath.c_str()))
-    {
-        META_CONPRINTF("[BOTHIDER] bot_info.json loaded — %zu entries\n", BotInfo().Count());
-    }
-    else
+    if (!BotInfo().Load(jsonPath.c_str()))
     {
         META_CONPRINTF("[BOTHIDER] warning: bot_info.json not found or parse error at '%s' — "
                        "bot identity will fall back to curated roster\n",
@@ -295,8 +298,18 @@ bool HiderPlugin::Load(PluginId id, ISmmAPI* ismm, char* error, size_t maxlen, b
     SH_ADD_HOOK(ICvar, DispatchConCommand, icvar, SH_MEMBER(this, &HiderPlugin::Hook_DispatchConCommand_Pre), false);
     SH_ADD_HOOK(ICvar, DispatchConCommand, icvar, SH_MEMBER(this, &HiderPlugin::Hook_DispatchConCommand_Post), true);
 
-    META_CONPRINTF("[BOTHIDER] loaded — m_bFakePlayer offset=%d, OCC=#%d CPiS=#%d\n", ssc::OFFSET_m_bFakePlayer,
-                   targets::kVTSlot_OnClientConnected, targets::kVTSlot_ClientPutInServer);
+    int installedHooks = 0;
+    if (identity_hooks::MaintainQuotaTarget()) ++installedHooks;
+    if (identity_hooks::PackEntitiesTarget()) ++installedHooks;
+    if (identity_hooks::HandleJoinTeamTarget()) ++installedHooks;
+    if (identity_hooks::HumanTeamRestrictionTarget()) ++installedHooks;
+    if (identity_hooks::SameMapTeardownTarget()) ++installedHooks;
+    META_CONPRINTF("[BOTHIDER] config mode=%s fake_ping=%s range=%d-%d identities=%zu\n",
+                   IsBotMode() ? "bot" : "player", m_bFakePingEnabled ? "on" : "off", m_FakePingMin, m_FakePingMax,
+                   BotInfo().Count());
+    META_CONPRINTF("[BOTHIDER] loaded v%s hooks=%d/5 util_remove=%s schema=%s shm=%s avatar=%s\n", GetVersion(), installedHooks,
+                   entity_access::UtilRemoveTarget() ? "ok" : "fail", schemaReady ? "ok" : "fail",
+                   sharedMemoryReady ? "ok" : "fail", networkStringTables ? "ok" : "fail");
     return true;
 }
 

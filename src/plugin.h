@@ -20,6 +20,12 @@ enum ENetworkDisconnectionReason : int;
 
 namespace cs2bh {
 
+enum class IdentityMode : uint8_t
+{
+    Player = 0,
+    Bot = 1,
+};
+
 class HiderPlugin : public ISmmPlugin, public IMetamodListener
 {
   public:
@@ -32,7 +38,7 @@ class HiderPlugin : public ISmmPlugin, public IMetamodListener
     const char* GetDescription() override { return "Bot persona/steamid/ping/crosshair/avatar hider"; }
     const char* GetURL() override { return ""; }
     const char* GetLicense() override { return "AGPL-3.0"; }
-    const char* GetVersion() override { return "0.3.8"; }
+    const char* GetVersion() override { return "0.4.0"; }
     const char* GetDate() override { return __DATE__; }
     const char* GetLogTag() override { return "BH"; }
 
@@ -53,10 +59,10 @@ class HiderPlugin : public ISmmPlugin, public IMetamodListener
     void Hook_DispatchConCommand_Pre(ConCommandRef cmd, const CCommandContext& ctx, const CCommand& args);
     void Hook_DispatchConCommand_Post(ConCommandRef cmd, const CCommandContext& ctx, const CCommand& args);
 
-    // Toggle disguise globally
-    void SetDisguiseEnabled(bool enabled);
-    bool IsDisguiseEnabled() const { return m_bDisguiseEnabled; }
-    bool IsNativeBotMode() const { return m_bNativeBotMode; }
+    // Changes the global managed-bot identity mode
+    void SetIdentityMode(IdentityMode mode);
+    bool IsDisguiseEnabled() const { return m_IdentityMode == IdentityMode::Player; }
+    bool IsBotMode() const { return m_IdentityMode == IdentityMode::Bot; }
 
     // Toggle the display-name source: true=bot_info.json name, false=botprofile name
     void SetUseBotInfoName(bool useBotInfo) { m_bUseBotInfoName = useBotInfo; }
@@ -66,9 +72,10 @@ class HiderPlugin : public ISmmPlugin, public IMetamodListener
     int m_StartChangeLevelHookId = 0;
     bool m_bSelfDisabled = false;
     unsigned int m_TickCounter = 0; // throttles per-tick idle-timer reset
-    // Master disguise switch
-    bool m_bDisguiseEnabled = true;
-    bool m_bNativeBotMode = false;
+    IdentityMode m_IdentityMode = IdentityMode::Player;
+    bool m_bFakePingEnabled = true;
+    int m_FakePingMin = 20;
+    int m_FakePingMax = 90;
     unsigned int m_PopulationCommandDepth = 0;
 
     // Display-name source: false=botprofile name, true=bot_info.json name

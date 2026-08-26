@@ -94,17 +94,28 @@ Located in `/game/csgo/addons/BotHider/config.json`:
 
 ```json
 {
-    "identity_mode": "player"
+    "identity_mode": "player",
+    "fake_ping": {
+        "enabled": true,
+        "min": 20,
+        "max": 90
+    }
 }
 ```
 
-`player` is the default and enables the synthetic-player presentation. `native_bot` leaves the client/controller fake flags under Valve's native BotManager while BotHider continues to manage names, SteamIDs, and custom avatar presentation. If the file is missing, the native plugin creates it with `player` mode. The mode is read when the Metamod plugin loads; restart the server after changing it.
+`player` is the default and enables the synthetic-player presentation. `bot` leaves the client/controller fake flags under Valve's native BotManager while BotHider continues to manage names, SteamIDs, and custom avatar presentation. `fake_ping.enabled` controls ping generation, and `min`/`max` are inclusive bounds for the final displayed value. The configuration is read when the Metamod plugin loads.
 
 ------------------------------------------------------------------------
 
 ## Exposed Interface (C#)
 
 ```csharp
+public enum BotIdentityMode
+{
+    Player = 0,
+    Bot = 1
+}
+
 public interface IBotHiderApi
 {
     // --- read ---
@@ -126,7 +137,7 @@ public interface IBotHiderApi
     bool     SetScoreboardFlair(int slot, uint itemDefIndex);
 
     // --- global toggles ---
-    bool     SetDisguise(bool enabled);     // off lets the bot manager spawn bots again
+    bool     SetIdentityMode(BotIdentityMode mode);
     bool     SetNameSource(bool useBotInfo); // true=bot_info name, false=botprofile name
 }
 ```

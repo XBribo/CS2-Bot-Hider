@@ -64,7 +64,7 @@ void HiderPlugin::Hook_DispatchConCommand_Pre(ConCommandRef command, const CComm
 
     if (IsBotAddCommand(commandName))
     {
-        identity_hooks::BeginPopulationTransaction(m_bDisguiseEnabled);
+        identity_hooks::BeginPopulationTransaction(IsDisguiseEnabled());
         ++m_PopulationCommandDepth;
         RETURN_META(MRES_IGNORED);
     }
@@ -87,7 +87,7 @@ void HiderPlugin::Hook_DispatchConCommand_Pre(ConCommandRef command, const CComm
 
     if (!IsKickCommand(commandName)) RETURN_META(MRES_IGNORED);
 
-    identity_hooks::BeginPopulationTransaction(m_bDisguiseEnabled);
+    identity_hooks::BeginPopulationTransaction(IsDisguiseEnabled());
     ++m_PopulationCommandDepth;
     RETURN_META(MRES_IGNORED);
 }
@@ -103,7 +103,7 @@ void HiderPlugin::Hook_DispatchConCommand_Post(ConCommandRef command, const CCom
         if (m_PopulationCommandDepth != 0)
         {
             --m_PopulationCommandDepth;
-            identity_hooks::EndPopulationTransaction(m_bDisguiseEnabled);
+            identity_hooks::EndPopulationTransaction(IsDisguiseEnabled());
         }
         RETURN_META(MRES_IGNORED);
     }
@@ -112,23 +112,18 @@ void HiderPlugin::Hook_DispatchConCommand_Post(ConCommandRef command, const CCom
     if (m_PopulationCommandDepth != 0)
     {
         --m_PopulationCommandDepth;
-        identity_hooks::EndPopulationTransaction(m_bDisguiseEnabled);
+        identity_hooks::EndPopulationTransaction(IsDisguiseEnabled());
     }
     RETURN_META(MRES_IGNORED);
 }
 
-// Toggles the global disguise state
-void HiderPlugin::SetDisguiseEnabled(bool enabled)
+// Changes the global managed-bot identity mode
+void HiderPlugin::SetIdentityMode(IdentityMode mode)
 {
-    if (m_bNativeBotMode)
-    {
-        META_CONPRINTF("[BOTHIDER] disguise request ignored: identity mode is native_bot\n");
-        return;
-    }
-    if (m_bDisguiseEnabled == enabled) return;
-    m_bDisguiseEnabled = enabled;
-    identity_runtime::ApplyManagedDisguise(enabled);
-    META_CONPRINTF("[BOTHIDER] disguise %s\n", enabled ? "ON" : "OFF");
+    if (m_IdentityMode == mode) return;
+    m_IdentityMode = mode;
+    identity_runtime::ApplyManagedDisguise(mode == IdentityMode::Player);
+    META_CONPRINTF("[BOTHIDER] identity mode=%s\n", mode == IdentityMode::Bot ? "bot" : "player");
 }
 
 // Restores native bot identity and clears managed state before a level transition
@@ -181,7 +176,7 @@ void HiderPlugin::Hook_GameFrame_Post(bool simulating, bool /*bFirst*/, bool /*b
         void* client = entity_access::ResolveClientBySlot(slot);
         if (!client) return;
         const uint64_t uniqueSteamId = identity_runtime::MakeUniqueSteamId(slot, steamId);
-        if (m_bDisguiseEnabled)
+        if (IsDisguiseEnabled())
         {
             ssc::ClearFakePlayer(client);
             identity_runtime::SetControllerFakeClientFlag(slot, false);
@@ -203,9 +198,9 @@ void HiderPlugin::Hook_GameFrame_Post(bool simulating, bool /*bFirst*/, bool /*b
         Personas().MarkSlotManaged(slot, name);
         Publisher().UpdatePersonaName(slot, name);
     },
-        // Toggles the global disguise state
-        [this](bool enabled) {
-        SetDisguiseEnabled(enabled);
+        // Changes the global identity mode
+        [this](bool botMode) {
+        SetIdentityMode(botMode ? IdentityMode::Bot : IdentityMode::Player);
     },
         // Changes the display-name source
         [this](bool useBotInfo) {

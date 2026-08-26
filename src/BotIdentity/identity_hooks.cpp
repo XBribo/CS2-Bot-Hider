@@ -7,14 +7,11 @@
 #include "serversideclient_ref.h"
 #include "version_targets.h"
 
-#include <atomic>
 #include <cstring>
-#include <functional>
 #include <limits>
 #include <memory>
 #include <mutex>
 #include <string>
-#include <thread>
 #include <vector>
 
 #include <entity2/entityinstance.h>
@@ -50,7 +47,6 @@ static void* g_pPackEntitiesHookTarget = nullptr;
 static SameMapClientCollectorFn g_pfnSameMapCollectorTramp = nullptr;
 static void* g_pSameMapTeardownHookTarget = nullptr;
 static void* g_pSameMapTeardownReturnAddress = nullptr;
-static std::atomic_bool g_PackEntitiesFirstCallLogged = false;
 static std::recursive_mutex g_PackEntitiesMutex;
 static thread_local uint32_t g_PackEntitiesDepth = 0;
 static std::array<bool, 64> g_QuotaResolveWarned{};
@@ -177,6 +173,7 @@ class ScopedNativeBotIdentityRestore
         for (const auto& snapshot : m_Snapshots)
         {
             if (!snapshot.Modified || !snapshot.Client) continue;
+            if (!Manager().IsManaged(snapshot.Slot)) continue;
 
             void* currentClient = entity_access::ResolveClientBySlot(snapshot.Slot);
             if (currentClient != snapshot.Client)
@@ -288,12 +285,6 @@ class ScopedBotFlagOverride
 // Passes entity packing through with a scoped FL_BOT override
 static void CS2BH_FASTCALL Detour_PackEntities(void* serverObject, void* packContext, int clientCount, void* clients, void* snapshotContext)
 {
-    if (!g_PackEntitiesFirstCallLogged.exchange(true, std::memory_order_relaxed))
-    {
-        size_t threadId = std::hash<std::thread::id>{}(std::this_thread::get_id());
-        META_CONPRINTF("[BOTHIDER] CNetworkGameServer::PackEntities first entered on thread %zu\n", threadId);
-    }
-
     std::lock_guard<std::recursive_mutex> lock(g_PackEntitiesMutex);
     if (g_PackEntitiesDepth != 0)
     {
@@ -390,8 +381,6 @@ static int64_t CS2BH_FASTCALL Detour_HandleCommandJoinTeam(void* controller, uns
     if (trace.Managed && !trace.Hltv)
     {
         populationScope = std::make_unique<PopulationTransactionScope>(g_Plugin.IsDisguiseEnabled());
-        META_CONPRINTF("[BOTHIDER] HandleCommand_JoinTeam bot scope ctrl=%p slot=%d current=%u requested=%u\n", controller, trace.Slot,
-                       trace.CurrentTeam, requestedTeam);
     }
 
     return g_pfnHandleJoinTeamTramp ? g_pfnHandleJoinTeamTramp(controller, requestedTeam, unknownFlag) : 0;
@@ -435,7 +424,6 @@ static void PrepareHandleJoinTeamHook(const nlohmann::json& gamedata, const sig:
     }
 
     std::vector<void*> matches = sig::FindPatternMatchesIn(serverModule, bytes, wildcards);
-    META_CONPRINTF("[BOTHIDER] CCSPlayerController::HandleCommand_JoinTeam signature matches=%zu\n", matches.size());
     if (matches.size() != 1)
     {
         META_CONPRINTF("[BOTHIDER] warning: HandleCommand_JoinTeam hook requires exactly one match\n");
@@ -464,7 +452,6 @@ static void PrepareHumanTeamRestrictionHook(const nlohmann::json& gamedata, cons
     }
 
     std::vector<void*> matches = sig::FindPatternMatchesIn(serverModule, bytes, wildcards);
-    META_CONPRINTF("[BOTHIDER] MpHumanTeam_ApplyRestriction signature matches=%zu\n", matches.size());
     if (matches.size() != 1)
     {
         META_CONPRINTF("[BOTHIDER] warning: MpHumanTeam_ApplyRestriction hook requires exactly one match\n");
@@ -499,7 +486,6 @@ static void PreparePackEntitiesHook(const nlohmann::json& gamedata)
     }
 
     std::vector<void*> matches = sig::FindPatternMatchesIn(codeModule, bytes, wildcards);
-    META_CONPRINTF("[BOTHIDER] CNetworkGameServer::PackEntities signature matches=%zu\n", matches.size());
     if (matches.size() != 1)
     {
         META_CONPRINTF("[BOTHIDER] warning: PackEntities hook requires exactly one match\n");
@@ -507,7 +493,6 @@ static void PreparePackEntitiesHook(const nlohmann::json& gamedata)
     }
 
     void* target = matches.front();
-    g_PackEntitiesFirstCallLogged.store(false, std::memory_order_relaxed);
     if (PrepareFunchook(g_pfnPackEntitiesTramp, target, reinterpret_cast<void*>(&Detour_PackEntities), "CNetworkGameServer::PackEntities"))
     {
         g_pPackEntitiesHookTarget = target;
@@ -529,7 +514,6 @@ static void PrepareSameMapTeardownHook(const nlohmann::json& gamedata, const sig
     }
 
     std::vector<void*> matches = sig::FindPatternMatchesIn(serverModule, bytes, wildcards);
-    META_CONPRINTF("[BOTHIDER] CCSGameRules same-map teardown signature matches=%zu\n", matches.size());
     if (matches.size() != 1)
     {
         META_CONPRINTF("[BOTHIDER] warning: same-map teardown hook requires exactly one match\n");
@@ -604,16 +588,6 @@ void InstallPrepared()
     }
 
     g_FunchooksInstalled = true;
-    if (g_pQuotaHookTarget) META_CONPRINTF("[BOTHIDER] bot-quota fix installed at %p\n", g_pQuotaHookTarget);
-    if (g_pPackEntitiesHookTarget)
-        META_CONPRINTF("[BOTHIDER] CNetworkGameServer::PackEntities hook installed at %p\n", g_pPackEntitiesHookTarget);
-    if (g_pHandleJoinTeamHookTarget)
-        META_CONPRINTF("[BOTHIDER] CCSPlayerController::HandleCommand_JoinTeam hook installed at %p\n", g_pHandleJoinTeamHookTarget);
-    if (g_pApplyHumanTeamRestrictionHookTarget)
-        META_CONPRINTF("[BOTHIDER] MpHumanTeam_ApplyRestriction hook installed at %p\n", g_pApplyHumanTeamRestrictionHookTarget);
-    if (g_pSameMapTeardownHookTarget)
-        META_CONPRINTF("[BOTHIDER] CCSGameRules same-map teardown hook installed at %p caller=%p\n", g_pSameMapTeardownHookTarget,
-                       g_pSameMapTeardownReturnAddress);
 }
 
 // Uninstalls all identity detours and releases their shared handle

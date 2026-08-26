@@ -87,15 +87,13 @@ void HiderPlugin::Hook_OnClientConnected_Post(
         Publisher().UpdateBaseSyntheticSid(index, steamId);
     }
 
-    if (m_bDisguiseEnabled)
+    if (IsDisguiseEnabled())
     {
         ssc::ClearFakePlayer(client);
         identity_runtime::SetControllerFakeClientFlag(index, false);
         entity_access::RefreshClientUserInfo(index);
     }
 
-    META_CONPRINTF("[BOTHIDER] slot=%d adopted name='%s' steamid64=%llu\n", index, displayName.c_str(),
-                   static_cast<unsigned long long>(steamId));
     RETURN_META(MRES_IGNORED);
 }
 
@@ -153,7 +151,6 @@ void HiderPlugin::Hook_ClientDisconnect_Pre(
         RETURN_META(MRES_IGNORED);
     }
 
-    const std::string persona = Personas().GetSlotName(index);
     void* client = entity_access::ResolveClientBySlot(index);
     if (client)
     {
@@ -170,9 +167,6 @@ void HiderPlugin::Hook_ClientDisconnect_Pre(
     identity_state::ClearSlot(index);
     Manager().ReleaseSlot(index);
 
-    META_CONPRINTF("[BOTHIDER] ClientDisconnect slot=%d name='%s' "
-                   "slot released\n",
-                   index, persona.empty() ? "<null>" : persona.c_str());
     RETURN_META(MRES_IGNORED);
 }
 

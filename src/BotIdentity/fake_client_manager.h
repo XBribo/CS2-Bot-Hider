@@ -28,6 +28,9 @@ class FakeClientManager
   public:
     FakeClientManager();
 
+    // Configures fake-ping generation before slots are adopted
+    void ConfigureFakePing(bool enabled, int minimumMs, int maximumMs);
+
     void Init();
 
     bool AdoptSlot(int slot, const char* pszName, uint64_t steamId64, const char* crosshairCode, uint32_t scoreboardFlair);
@@ -52,6 +55,9 @@ class FakeClientManager
     mutable std::mutex m_Mutex;
     std::array<ManagedSlot, PersonaPool::kMaxSlots> m_Slots;
     std::unique_ptr<SteamIdProvider> m_pSteamIds;
+    bool m_FakePingEnabled = true;
+    int m_FakePingMinimum = 20;
+    int m_FakePingMaximum = 90;
 };
 
 FakeClientManager& Manager();

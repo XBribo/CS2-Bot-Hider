@@ -255,17 +255,10 @@ void ApplyManagedDisguise(bool disguised)
         {
             ssc::SetFakePlayer(client);
             SetControllerFakeClientFlag(slot, true);
-            // Native-bot mode keeps Valve's bot flags but retains the managed
+            // Bot mode keeps Valve's bot flags but retains the managed
             // SteamID used by BotHider's presentation and avatar override.
-            if (g_Plugin.IsNativeBotMode())
-            {
-                const uint64_t steamId = Manager().GetSyntheticSid(slot);
-                if (steamId != 0) ssc::WriteSteamId(client, steamId);
-            }
-            else
-            {
-                ssc::WriteSteamId(client, 0);
-            }
+            const uint64_t steamId = Manager().GetSyntheticSid(slot);
+            if (steamId != 0) ssc::WriteSteamId(client, steamId);
         }
         entity_access::RefreshClientUserInfo(slot);
     }

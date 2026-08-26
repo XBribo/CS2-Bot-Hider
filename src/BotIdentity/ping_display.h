@@ -35,11 +35,13 @@ class PingDisplay
 class PingJitter
 {
   public:
-    explicit PingJitter(int baselineMs);
+    explicit PingJitter(int baselineMs, int minimumMs = 1, int maximumMs = 999);
     int NextSample();
 
   private:
     int m_Baseline;
+    int m_Minimum;
+    int m_Maximum;
     uint64_t m_State;
 };
 
