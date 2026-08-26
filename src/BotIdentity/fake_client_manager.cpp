@@ -28,6 +28,15 @@ FakeClientManager& Manager() { return g_Manager; }
 
 FakeClientManager::FakeClientManager() = default;
 
+// Configures the displayed fake-ping bounds
+void FakeClientManager::ConfigureFakePing(bool enabled, int minimumMs, int maximumMs)
+{
+    std::lock_guard<std::mutex> g(m_Mutex);
+    m_FakePingEnabled = enabled;
+    m_FakePingMinimum = minimumMs;
+    m_FakePingMaximum = maximumMs;
+}
+
 void FakeClientManager::Init()
 {
     if (m_pSteamIds) return;
@@ -47,21 +56,22 @@ bool FakeClientManager::AdoptSlot(int slot, const char* pszName, uint64_t steamI
     std::lock_guard<std::mutex> g(m_Mutex);
     auto& s = m_Slots[slot];
 
-    // Per-bot baseline ping: 20 + (rand % 70) → [20, 90) ms
+    // Selects one per-bot baseline inside the configured display range
     uint64_t state = static_cast<uint64_t>(slot) ^ m_pSteamIds->Generate(slot);
-    int baseline = 20 + static_cast<int>(SimpleRand(state) % 70);
+    const int range = m_FakePingMaximum - m_FakePingMinimum + 1;
+    const int baseline = m_FakePingMinimum + static_cast<int>(SimpleRand(state) % static_cast<uint64_t>(range));
 
     s.Active = true;
     // Uses the already validated SteamID selected for this slot
     s.SyntheticSid = steamId64;
     s.ScoreboardFlair = scoreboardFlair;
-    s.Jitter = PingJitter(baseline);
+    s.Jitter = PingJitter(baseline, m_FakePingMinimum, m_FakePingMaximum);
     s.Display = PingDisplay{};
     s.SteamIdWritten = false;
 
     Personas().MarkSlotManaged(slot, pszName);
     Publisher().PublishAdopt(slot, s.SyntheticSid, pszName, crosshairCode, s.ScoreboardFlair);
-    Publisher().UpdatePing(slot, baseline);
+    Publisher().UpdatePing(slot, m_FakePingEnabled ? baseline : 0);
     return true;
 }
 
@@ -105,7 +115,7 @@ void FakeClientManager::OnTick()
         for (int i = 0; i < PersonaPool::kMaxSlots; ++i)
         {
             auto& s = m_Slots[i];
-            if (!s.Active) continue;
+            if (!s.Active || !m_FakePingEnabled) continue;
             s.Display.RecordSample(s.Jitter.NextSample());
             int produced = s.Display.MaybeProduce();
             if (produced >= 0) pending[n++] = { i, produced };

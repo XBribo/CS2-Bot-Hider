@@ -79,14 +79,6 @@ void HiderPlugin::Hook_OnClientConnected_Post(
     }
 
     identity_state::BindSlot(index, entry, pszName);
-    if (m_bDisguiseEnabled)
-    {
-        ssc::ClearFakePlayer(client);
-        if (!m_bBotAddInProgress)
-        {
-            identity_runtime::SetControllerFakeClientFlag(index, false);
-        }
-    }
 
     if (steamId != 0)
     {
@@ -95,8 +87,13 @@ void HiderPlugin::Hook_OnClientConnected_Post(
         Publisher().UpdateBaseSyntheticSid(index, steamId);
     }
 
-    META_CONPRINTF("[BOTHIDER] slot=%d adopted name='%s' steamid64=%llu\n", index, displayName.c_str(),
-                   static_cast<unsigned long long>(steamId));
+    if (IsDisguiseEnabled())
+    {
+        ssc::ClearFakePlayer(client);
+        identity_runtime::SetControllerFakeClientFlag(index, false);
+        entity_access::RefreshClientUserInfo(index);
+    }
+
     RETURN_META(MRES_IGNORED);
 }
 
@@ -117,12 +114,6 @@ void HiderPlugin::Hook_ClientPutInServer_Post(CPlayerSlot slot, char const* pszN
     if (identity_runtime::ReleaseManagedHltvSlot(index, client))
     {
         RETURN_META(MRES_IGNORED);
-    }
-
-    if (m_bDisguiseEnabled)
-    {
-        ssc::ClearFakePlayer(client);
-        identity_runtime::SetControllerFakeClientFlag(index, m_bBotAddInProgress);
     }
 
     const uint64_t desiredSteamId = Manager().GetSyntheticSid(index);
@@ -160,7 +151,6 @@ void HiderPlugin::Hook_ClientDisconnect_Pre(
         RETURN_META(MRES_IGNORED);
     }
 
-    const std::string persona = Personas().GetSlotName(index);
     void* client = entity_access::ResolveClientBySlot(index);
     if (client)
     {
@@ -177,9 +167,6 @@ void HiderPlugin::Hook_ClientDisconnect_Pre(
     identity_state::ClearSlot(index);
     Manager().ReleaseSlot(index);
 
-    META_CONPRINTF("[BOTHIDER] ClientDisconnect slot=%d name='%s' "
-                   "slot released\n",
-                   index, persona.empty() ? "<null>" : persona.c_str());
     RETURN_META(MRES_IGNORED);
 }
 

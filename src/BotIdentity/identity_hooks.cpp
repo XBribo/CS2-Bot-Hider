@@ -1,17 +1,20 @@
 #include "identity_hooks.h"
 
+#include "entity_access.h"
+#include "fake_client_manager.h"
 #include "identity_runtime.h"
+#include "personas.h"
+#include "serversideclient_ref.h"
 #include "version_targets.h"
 
-#include <atomic>
 #include <cstring>
-#include <functional>
 #include <limits>
+#include <memory>
 #include <mutex>
 #include <string>
-#include <thread>
 #include <vector>
 
+#include <entity2/entityinstance.h>
 #include <funchook.h>
 
 #if defined(_WIN32)
@@ -44,9 +47,217 @@ static void* g_pPackEntitiesHookTarget = nullptr;
 static SameMapClientCollectorFn g_pfnSameMapCollectorTramp = nullptr;
 static void* g_pSameMapTeardownHookTarget = nullptr;
 static void* g_pSameMapTeardownReturnAddress = nullptr;
-static std::atomic_bool g_PackEntitiesFirstCallLogged = false;
 static std::recursive_mutex g_PackEntitiesMutex;
 static thread_local uint32_t g_PackEntitiesDepth = 0;
+static std::array<bool, 64> g_QuotaResolveWarned{};
+static bool g_QuotaInvalidOffsetWarned = false;
+
+struct NativeBotIdentitySnapshot
+{
+    int Slot = -1;
+    void* Client = nullptr;
+    void* Controller = nullptr;
+    uint32_t Handle = 0xFFFFFFFF;
+    uint16_t UserId = 0;
+    uint8_t ConnectionFlags = 0;
+    uint8_t FakePlayer = 0;
+    uint32_t ControllerFlags = 0;
+    bool HasController = false;
+    bool Modified = false;
+};
+
+static bool IsValidController(void* controller, const char* className, uint32_t handle)
+{
+    return controller && className && std::strcmp(className, "cs_player_controller") == 0 &&
+           !entity_access::IsEntityBeingDeleted(controller) &&
+           static_cast<uint32_t>(reinterpret_cast<CEntityInstance*>(controller)->GetRefEHandle().ToInt()) == handle;
+}
+
+class ScopedNativeBotIdentityRestore
+{
+  public:
+    ScopedNativeBotIdentityRestore() { Capture(); }
+    ~ScopedNativeBotIdentityRestore() { Restore(); }
+
+    int ModifiedCount() const { return m_ModifiedCount; }
+
+  private:
+    std::array<NativeBotIdentitySnapshot, 64> m_Snapshots{};
+    int m_ModifiedCount = 0;
+
+    void Capture()
+    {
+        if (ssc::OFFSET_m_UserID < 0 || ssc::OFFSET_m_nEntityIndex < 0 || ssc::OFFSET_m_NetChannel < 0 ||
+            ssc::OFFSET_m_nConnectionTypeFlags < 0 || ssc::OFFSET_m_bFakePlayer < 0 ||
+            targets::kController_FakeClientFlagsOffset < 0)
+        {
+            if (!g_QuotaInvalidOffsetWarned)
+            {
+                META_CONPRINTF("[BOTHIDER] warning: quota identity restore disabled: invalid client/controller offsets\n");
+                g_QuotaInvalidOffsetWarned = true;
+            }
+            return;
+        }
+
+        for (int slot = 0; slot < PersonaPool::kMaxSlots; ++slot)
+        {
+            if (!Manager().IsManaged(slot)) continue;
+
+            auto& snapshot = m_Snapshots[slot];
+            snapshot.Slot = slot;
+            snapshot.Client = entity_access::ResolveClientBySlot(slot);
+            if (!snapshot.Client)
+            {
+                if (!g_QuotaResolveWarned[slot])
+                {
+                    META_CONPRINTF("[BOTHIDER] warning: quota identity restore client resolve failed slot=%d\n", slot);
+                    g_QuotaResolveWarned[slot] = true;
+                }
+                continue;
+            }
+
+            auto* raw = reinterpret_cast<unsigned char*>(snapshot.Client);
+            snapshot.UserId = *reinterpret_cast<uint16_t*>(raw + ssc::OFFSET_m_UserID);
+            snapshot.ConnectionFlags = raw[ssc::OFFSET_m_nConnectionTypeFlags];
+            snapshot.FakePlayer = raw[ssc::OFFSET_m_bFakePlayer];
+            snapshot.Modified = true;
+            ssc::SetFakePlayer(snapshot.Client);
+            ++m_ModifiedCount;
+
+            const int entityIndex = *reinterpret_cast<int*>(raw + ssc::OFFSET_m_nEntityIndex);
+            char className[64];
+            snapshot.Controller = entity_access::ResolveEntityInstance(entityIndex, className, sizeof(className));
+            if (!snapshot.Controller)
+            {
+                if (!g_QuotaResolveWarned[slot])
+                {
+                    META_CONPRINTF("[BOTHIDER] warning: quota identity restore controller resolve failed slot=%d userid=%u entIdx=%d "
+                                   "clientFake=%u conn=0x%02x net=%p\n",
+                                   slot, static_cast<unsigned int>(snapshot.UserId), entityIndex,
+                                   static_cast<unsigned int>(snapshot.FakePlayer), static_cast<unsigned int>(snapshot.ConnectionFlags),
+                                   *reinterpret_cast<void**>(raw + ssc::OFFSET_m_NetChannel));
+                    g_QuotaResolveWarned[slot] = true;
+                }
+                continue;
+            }
+            if (std::strcmp(className, "cs_player_controller") != 0 || entity_access::IsEntityBeingDeleted(snapshot.Controller))
+            {
+                META_CONPRINTF("[BOTHIDER] warning: quota identity restore invalid controller slot=%d userid=%u entIdx=%d cls='%s'\n",
+                               slot, static_cast<unsigned int>(snapshot.UserId), entityIndex, className);
+                g_QuotaResolveWarned[slot] = true;
+                snapshot.Controller = nullptr;
+                continue;
+            }
+
+            g_QuotaResolveWarned[slot] = false;
+
+            auto* entity = reinterpret_cast<CEntityInstance*>(snapshot.Controller);
+            snapshot.Handle = static_cast<uint32_t>(entity->GetRefEHandle().ToInt());
+            auto* flags = reinterpret_cast<uint32_t*>(reinterpret_cast<unsigned char*>(snapshot.Controller) +
+                                                      targets::kController_FakeClientFlagsOffset);
+            snapshot.ControllerFlags = *flags;
+            snapshot.HasController = true;
+            const uint32_t before = *flags;
+            *flags |= 0x100u;
+            if (*flags != before)
+            {
+                entity_access::MarkEntityFieldChanged(snapshot.Controller,
+                                                       static_cast<uint32_t>(targets::kController_FakeClientFlagsOffset));
+            }
+
+        }
+    }
+
+    void Restore()
+    {
+        for (const auto& snapshot : m_Snapshots)
+        {
+            if (!snapshot.Modified || !snapshot.Client) continue;
+            if (!Manager().IsManaged(snapshot.Slot)) continue;
+
+            void* currentClient = entity_access::ResolveClientBySlot(snapshot.Slot);
+            if (currentClient != snapshot.Client)
+            {
+                META_CONPRINTF("[BOTHIDER] warning: quota identity restore skipped slot=%d: client rebound\n", snapshot.Slot);
+                continue;
+            }
+
+            auto* raw = reinterpret_cast<unsigned char*>(currentClient);
+            const uint16_t currentUserId = *reinterpret_cast<uint16_t*>(raw + ssc::OFFSET_m_UserID);
+            if (currentUserId != snapshot.UserId)
+            {
+                META_CONPRINTF("[BOTHIDER] warning: quota identity restore skipped slot=%d: userid changed %u->%u\n", snapshot.Slot,
+                               static_cast<unsigned int>(snapshot.UserId), static_cast<unsigned int>(currentUserId));
+                continue;
+            }
+            raw[ssc::OFFSET_m_nConnectionTypeFlags] = snapshot.ConnectionFlags;
+            raw[ssc::OFFSET_m_bFakePlayer] = snapshot.FakePlayer;
+
+            if (!snapshot.HasController) continue;
+            const int entityIndex = *reinterpret_cast<int*>(raw + ssc::OFFSET_m_nEntityIndex);
+            char className[64];
+            void* controller = entity_access::ResolveEntityInstance(entityIndex, className, sizeof(className));
+            if (!IsValidController(controller, className, snapshot.Handle) || controller != snapshot.Controller)
+            {
+                META_CONPRINTF("[BOTHIDER] warning: quota identity restore skipped slot=%d userid=%u: controller rebound\n",
+                               snapshot.Slot, static_cast<unsigned int>(snapshot.UserId));
+                continue;
+            }
+
+            auto* flags = reinterpret_cast<uint32_t*>(reinterpret_cast<unsigned char*>(controller) +
+                                                      targets::kController_FakeClientFlagsOffset);
+            if (*flags != snapshot.ControllerFlags)
+            {
+                *flags = snapshot.ControllerFlags;
+                entity_access::MarkEntityFieldChanged(controller,
+                                                       static_cast<uint32_t>(targets::kController_FakeClientFlagsOffset));
+            }
+        }
+    }
+};
+
+static unsigned int g_PopulationTransactionDepth = 0;
+static bool g_PopulationTransactionRedisguise = false;
+static std::unique_ptr<ScopedNativeBotIdentityRestore> g_PopulationIdentity;
+
+void BeginPopulationTransaction(bool redisguise)
+{
+    if (g_PopulationTransactionDepth++ == 0)
+    {
+        g_PopulationTransactionRedisguise = redisguise;
+        g_PopulationIdentity = std::make_unique<ScopedNativeBotIdentityRestore>();
+    }
+    else
+    {
+        g_PopulationTransactionRedisguise = g_PopulationTransactionRedisguise || redisguise;
+    }
+}
+
+void EndPopulationTransaction(bool redisguise)
+{
+    if (g_PopulationTransactionDepth == 0)
+    {
+        META_CONPRINTF("[BOTHIDER] warning: population transaction end without begin\n");
+        return;
+    }
+
+    g_PopulationTransactionRedisguise = g_PopulationTransactionRedisguise || redisguise;
+    if (--g_PopulationTransactionDepth != 0) return;
+
+    const bool applyDisguise = g_PopulationTransactionRedisguise;
+    g_PopulationTransactionRedisguise = false;
+    g_PopulationIdentity.reset();
+    if (applyDisguise) identity_runtime::ApplyManagedDisguise(g_Plugin.IsDisguiseEnabled());
+}
+
+bool PopulationTransactionActive() { return g_PopulationTransactionDepth != 0; }
+
+PopulationTransactionScope::PopulationTransactionScope(bool redisguise) : m_Redisguise(redisguise)
+{
+    BeginPopulationTransaction(redisguise);
+}
+
+PopulationTransactionScope::~PopulationTransactionScope() { EndPopulationTransaction(m_Redisguise); }
 
 class PackEntitiesDepthGuard
 {
@@ -71,42 +282,9 @@ class ScopedBotFlagOverride
     std::vector<BotPawnRef> m_ModifiedPawns;
 };
 
-class ScopedJoinTeamFakeClientFlag
-{
-  public:
-    // Restores the controller bot bit only during team validation
-    ScopedJoinTeamFakeClientFlag(void* controller, uint32_t handle, bool enable)
-        : m_Controller(controller), m_Handle(handle), m_Applied(enable && SetJoinTeamFakeClientFlag(controller, handle, true))
-    {
-    }
-
-    // Clears only the bit added by this scope
-    ~ScopedJoinTeamFakeClientFlag()
-    {
-        if (m_Applied && !SetJoinTeamFakeClientFlag(m_Controller, m_Handle, false))
-        {
-            META_CONPRINTF("[BOTHIDER] warning: failed to restore JoinTeam fake-client scope\n");
-        }
-    }
-
-    // Reports whether the temporary flag was applied
-    bool Applied() const { return m_Applied; }
-
-  private:
-    void* m_Controller = nullptr;
-    uint32_t m_Handle = 0xFFFFFFFF;
-    bool m_Applied = false;
-};
-
 // Passes entity packing through with a scoped FL_BOT override
 static void CS2BH_FASTCALL Detour_PackEntities(void* serverObject, void* packContext, int clientCount, void* clients, void* snapshotContext)
 {
-    if (!g_PackEntitiesFirstCallLogged.exchange(true, std::memory_order_relaxed))
-    {
-        size_t threadId = std::hash<std::thread::id>{}(std::this_thread::get_id());
-        META_CONPRINTF("[BOTHIDER] CNetworkGameServer::PackEntities first entered on thread %zu\n", threadId);
-    }
-
     std::lock_guard<std::recursive_mutex> lock(g_PackEntitiesMutex);
     if (g_PackEntitiesDepth != 0)
     {
@@ -184,34 +362,25 @@ static void ClearBindings()
 // Restores Bot identity while the engine counts bot quota
 static int64_t CS2BH_FASTCALL Detour_MaintainBotQuota(void* manager)
 {
-    std::array<ManagedControllerFlagSnapshot, 64> flipped{};
-    FlipManagedController904(false, &flipped);
-    int64_t result = g_pfnQuotaTramp ? g_pfnQuotaTramp(manager) : 0;
-    FlipManagedController904(true, &flipped);
-    return result;
+    PopulationTransactionScope scope(g_Plugin.IsDisguiseEnabled());
+    return g_pfnQuotaTramp ? g_pfnQuotaTramp(manager) : 0;
 }
 
 // Restores Bot identity while the engine applies mp_humanteam
 static int64_t CS2BH_FASTCALL Detour_ApplyHumanTeamRestriction()
 {
-    std::array<ManagedControllerFlagSnapshot, 64> flipped{};
-    int scoped = FlipManagedController904(false, &flipped);
-    int64_t result = g_pfnApplyHumanTeamRestrictionTramp ? g_pfnApplyHumanTeamRestrictionTramp() : 0;
-    FlipManagedController904(true, &flipped);
-    if (scoped > 0) META_CONPRINTF("[BOTHIDER] MpHumanTeam_ApplyRestriction bot scope=%d\n", scoped);
-    return result;
+    PopulationTransactionScope scope(g_Plugin.IsDisguiseEnabled());
+    return g_pfnApplyHumanTeamRestrictionTramp ? g_pfnApplyHumanTeamRestrictionTramp() : 0;
 }
 
 // Restores Bot identity only while the engine validates an initial team join
 static int64_t CS2BH_FASTCALL Detour_HandleCommandJoinTeam(void* controller, unsigned int requestedTeam, bool unknownFlag)
 {
     ManagedControllerTrace trace = TraceManagedController(controller);
-    const bool needsFakeClientScope = trace.Managed && !trace.Hltv && (trace.Flags & 0x100u) == 0;
-    ScopedJoinTeamFakeClientFlag fakeClientScope(controller, trace.Handle, needsFakeClientScope);
-    if (fakeClientScope.Applied())
+    std::unique_ptr<PopulationTransactionScope> populationScope;
+    if (trace.Managed && !trace.Hltv)
     {
-        META_CONPRINTF("[BOTHIDER] HandleCommand_JoinTeam bot scope ctrl=%p slot=%d current=%u requested=%u\n", controller, trace.Slot,
-                       trace.CurrentTeam, requestedTeam);
+        populationScope = std::make_unique<PopulationTransactionScope>(g_Plugin.IsDisguiseEnabled());
     }
 
     return g_pfnHandleJoinTeamTramp ? g_pfnHandleJoinTeamTramp(controller, requestedTeam, unknownFlag) : 0;
@@ -255,7 +424,6 @@ static void PrepareHandleJoinTeamHook(const nlohmann::json& gamedata, const sig:
     }
 
     std::vector<void*> matches = sig::FindPatternMatchesIn(serverModule, bytes, wildcards);
-    META_CONPRINTF("[BOTHIDER] CCSPlayerController::HandleCommand_JoinTeam signature matches=%zu\n", matches.size());
     if (matches.size() != 1)
     {
         META_CONPRINTF("[BOTHIDER] warning: HandleCommand_JoinTeam hook requires exactly one match\n");
@@ -284,7 +452,6 @@ static void PrepareHumanTeamRestrictionHook(const nlohmann::json& gamedata, cons
     }
 
     std::vector<void*> matches = sig::FindPatternMatchesIn(serverModule, bytes, wildcards);
-    META_CONPRINTF("[BOTHIDER] MpHumanTeam_ApplyRestriction signature matches=%zu\n", matches.size());
     if (matches.size() != 1)
     {
         META_CONPRINTF("[BOTHIDER] warning: MpHumanTeam_ApplyRestriction hook requires exactly one match\n");
@@ -319,7 +486,6 @@ static void PreparePackEntitiesHook(const nlohmann::json& gamedata)
     }
 
     std::vector<void*> matches = sig::FindPatternMatchesIn(codeModule, bytes, wildcards);
-    META_CONPRINTF("[BOTHIDER] CNetworkGameServer::PackEntities signature matches=%zu\n", matches.size());
     if (matches.size() != 1)
     {
         META_CONPRINTF("[BOTHIDER] warning: PackEntities hook requires exactly one match\n");
@@ -327,7 +493,6 @@ static void PreparePackEntitiesHook(const nlohmann::json& gamedata)
     }
 
     void* target = matches.front();
-    g_PackEntitiesFirstCallLogged.store(false, std::memory_order_relaxed);
     if (PrepareFunchook(g_pfnPackEntitiesTramp, target, reinterpret_cast<void*>(&Detour_PackEntities), "CNetworkGameServer::PackEntities"))
     {
         g_pPackEntitiesHookTarget = target;
@@ -349,7 +514,6 @@ static void PrepareSameMapTeardownHook(const nlohmann::json& gamedata, const sig
     }
 
     std::vector<void*> matches = sig::FindPatternMatchesIn(serverModule, bytes, wildcards);
-    META_CONPRINTF("[BOTHIDER] CCSGameRules same-map teardown signature matches=%zu\n", matches.size());
     if (matches.size() != 1)
     {
         META_CONPRINTF("[BOTHIDER] warning: same-map teardown hook requires exactly one match\n");
@@ -424,16 +588,6 @@ void InstallPrepared()
     }
 
     g_FunchooksInstalled = true;
-    if (g_pQuotaHookTarget) META_CONPRINTF("[BOTHIDER] bot-quota fix installed at %p\n", g_pQuotaHookTarget);
-    if (g_pPackEntitiesHookTarget)
-        META_CONPRINTF("[BOTHIDER] CNetworkGameServer::PackEntities hook installed at %p\n", g_pPackEntitiesHookTarget);
-    if (g_pHandleJoinTeamHookTarget)
-        META_CONPRINTF("[BOTHIDER] CCSPlayerController::HandleCommand_JoinTeam hook installed at %p\n", g_pHandleJoinTeamHookTarget);
-    if (g_pApplyHumanTeamRestrictionHookTarget)
-        META_CONPRINTF("[BOTHIDER] MpHumanTeam_ApplyRestriction hook installed at %p\n", g_pApplyHumanTeamRestrictionHookTarget);
-    if (g_pSameMapTeardownHookTarget)
-        META_CONPRINTF("[BOTHIDER] CCSGameRules same-map teardown hook installed at %p caller=%p\n", g_pSameMapTeardownHookTarget,
-                       g_pSameMapTeardownReturnAddress);
 }
 
 // Uninstalls all identity detours and releases their shared handle

@@ -46,8 +46,14 @@ void PingDisplay::Reset()
 
 // ─────────────────────────────────────────────────────────────────────
 
-PingJitter::PingJitter(int baselineMs) : m_Baseline(baselineMs < 5 ? 5 : (baselineMs > 250 ? 250 : baselineMs))
+PingJitter::PingJitter(int baselineMs, int minimumMs, int maximumMs)
+    : m_Baseline(baselineMs), m_Minimum(minimumMs), m_Maximum(maximumMs)
 {
+    if (m_Minimum < 1) m_Minimum = 1;
+    if (m_Maximum > 999) m_Maximum = 999;
+    if (m_Maximum < m_Minimum) m_Maximum = m_Minimum;
+    if (m_Baseline < m_Minimum) m_Baseline = m_Minimum;
+    if (m_Baseline > m_Maximum) m_Baseline = m_Maximum;
     m_State = static_cast<uint64_t>(std::chrono::steady_clock::now().time_since_epoch().count()) ^
               (static_cast<uint64_t>(baselineMs) * 0x9E3779B97F4A7C15ULL) ^ 0xA0761D6478BD642FULL;
     if (m_State == 0) m_State = 0xDEADBEEFCAFEBABEULL;
@@ -67,8 +73,8 @@ int PingJitter::NextSample()
     int span = (m_Baseline + 9) / 10;
     int delta = static_cast<int>(r % (2 * span + 1)) - span;
     int v = m_Baseline + delta;
-    if (v < 1) v = 1;
-    if (v > 999) v = 999;
+    if (v < m_Minimum) v = m_Minimum;
+    if (v > m_Maximum) v = m_Maximum;
     return v;
 }
 
