@@ -38,7 +38,7 @@ The packaged `addons/BotHider/config.json` selects the identity mode and fake-pi
 | `bh_setsid <slot> <SteamID64>` | Change a bot's SteamID |
 | `bh_setflair <slot> <item_def_index>` | Change a bot's scoreboard flair (`0` clears it) |
 | `bh_setavatar <slot> <png_path/0>` | Apply a server-local PNG avatar, or use `0` to clear it (`@css/root` or server console/RCON) |
-| `bh_identity_mode <player|bot>` | Change the managed-bot identity mode |
+| `bh_identity_mode <player/bot>` | Change the managed-bot identity mode |
 | `bh_namesource <0/1>` | **0** = use name from `botprofile.db` (default)<br>**1** = use name from `bot_info.json` (only affects new bots) |
 
 ------------------------------------------------------------------------
