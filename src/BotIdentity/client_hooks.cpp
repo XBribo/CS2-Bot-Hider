@@ -3,6 +3,7 @@
 #include "bot_info.h"
 #include "entity_access.h"
 #include "fake_client_manager.h"
+#include "identity_hooks.h"
 #include "identity_runtime.h"
 #include "identity_state.h"
 #include "personas.h"
@@ -90,8 +91,7 @@ void HiderPlugin::Hook_OnClientConnected_Post(
     if (IsDisguiseEnabled())
     {
         ssc::ClearFakePlayer(client);
-        identity_runtime::SetControllerFakeClientFlag(index, false);
-        entity_access::RefreshClientUserInfo(index);
+        identity_runtime::SetControllerFakeClientFlag(index, identity_hooks::PopulationTransactionActive());
     }
 
     RETURN_META(MRES_IGNORED);
@@ -114,6 +114,12 @@ void HiderPlugin::Hook_ClientPutInServer_Post(CPlayerSlot slot, char const* pszN
     if (identity_runtime::ReleaseManagedHltvSlot(index, client))
     {
         RETURN_META(MRES_IGNORED);
+    }
+
+    if (IsDisguiseEnabled())
+    {
+        ssc::ClearFakePlayer(client);
+        identity_runtime::SetControllerFakeClientFlag(index, identity_hooks::PopulationTransactionActive());
     }
 
     const uint64_t desiredSteamId = Manager().GetSyntheticSid(index);
