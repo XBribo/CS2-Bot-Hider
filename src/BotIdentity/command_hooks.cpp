@@ -64,8 +64,14 @@ void HiderPlugin::Hook_DispatchConCommand_Pre(ConCommandRef command, const CComm
 
     if (IsBotAddCommand(commandName))
     {
-        identity_hooks::BeginPopulationTransaction(IsDisguiseEnabled());
-        ++m_PopulationCommandDepth;
+        // Native Bot mode leaves Valve's population state authoritative. The
+        // transaction is only needed while player mode temporarily restores
+        // fake-client identity around the command.
+        if (IsDisguiseEnabled())
+        {
+            identity_hooks::BeginPopulationTransaction(true);
+            ++m_PopulationCommandDepth;
+        }
         RETURN_META(MRES_IGNORED);
     }
 
@@ -87,8 +93,11 @@ void HiderPlugin::Hook_DispatchConCommand_Pre(ConCommandRef command, const CComm
 
     if (!IsKickCommand(commandName)) RETURN_META(MRES_IGNORED);
 
-    identity_hooks::BeginPopulationTransaction(IsDisguiseEnabled());
-    ++m_PopulationCommandDepth;
+    if (IsDisguiseEnabled())
+    {
+        identity_hooks::BeginPopulationTransaction(true);
+        ++m_PopulationCommandDepth;
+    }
     RETURN_META(MRES_IGNORED);
 }
 
