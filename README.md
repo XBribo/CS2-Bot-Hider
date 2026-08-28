@@ -25,7 +25,7 @@
 2. Extract the archive and copy the `/addons/` folder into your server's `/game/csgo/` directory.
 3. Restart the server.
 
-The packaged `addons/BotHider/config.json` selects the identity mode and fake-ping behavior. Use `"player"` to keep BotHider's synthetic-player presentation, or use `"bot"` to retain Valve's native bot flags. Fake-ping values are constrained to the configured inclusive range. Missing settings use the packaged defaults.
+The packaged `addons/BotHider/config.json` selects the identity mode and fake-ping behavior. Use `"player"` to keep BotHider's synthetic-player presentation, or use `"native_bot"` to retain Valve's native bot flags. The previously published `"bot"` value remains accepted as a compatibility alias for `"native_bot"`. Fake-ping values are constrained to the configured inclusive range. Missing settings use the packaged defaults.
 
 ------------------------------------------------------------------------
 
@@ -38,7 +38,7 @@ The packaged `addons/BotHider/config.json` selects the identity mode and fake-pi
 | `bh_setsid <slot> <SteamID64>` | Change a bot's SteamID |
 | `bh_setflair <slot> <item_def_index>` | Change a bot's scoreboard flair (`0` clears it) |
 | `bh_setavatar <slot> <png_path/0>` | Apply a server-local PNG avatar, or use `0` to clear it (`@css/root` or server console/RCON) |
-| `bh_identity_mode <player/bot>` | Change the managed-bot identity mode |
+| `bh_identity_mode <player/native_bot>` | Change the managed-bot identity mode (`bot` is accepted as a compatibility alias) |
 | `bh_namesource <0/1>` | **0** = use name from `botprofile.db` (default)<br>**1** = use name from `bot_info.json` (only affects new bots) |
 
 ------------------------------------------------------------------------

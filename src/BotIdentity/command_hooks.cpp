@@ -123,7 +123,7 @@ void HiderPlugin::SetIdentityMode(IdentityMode mode)
     if (m_IdentityMode == mode) return;
     m_IdentityMode = mode;
     identity_runtime::ApplyManagedDisguise(mode == IdentityMode::Player);
-    META_CONPRINTF("[BOTHIDER] identity mode=%s\n", mode == IdentityMode::Bot ? "bot" : "player");
+    META_CONPRINTF("[BOTHIDER] identity mode=%s\n", mode == IdentityMode::Bot ? "native_bot" : "player");
 }
 
 // Restores native bot identity and clears managed state before a level transition

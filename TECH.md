@@ -103,7 +103,7 @@ Located in `/game/csgo/addons/BotHider/config.json`:
 }
 ```
 
-`player` is the default and enables the synthetic-player presentation. `bot` leaves the client/controller fake flags under Valve's native BotManager while BotHider continues to manage names, SteamIDs, and custom avatar presentation. `fake_ping.enabled` controls ping generation, and `min`/`max` are inclusive bounds for the final displayed value. The configuration is read when the Metamod plugin loads.
+`player` is the default and enables the synthetic-player presentation. `native_bot` leaves the client/controller fake flags under Valve's native BotManager while BotHider continues to manage names, SteamIDs, and custom avatar presentation. The `bot` value introduced by PR #26 remains accepted as a compatibility alias and has identical behavior. This alias exists because PR #26 changed the parser value without updating the published configuration contract; existing `native_bot` configurations must continue to work. `fake_ping.enabled` controls ping generation, and `min`/`max` are inclusive bounds for the final displayed value. The configuration is read when the Metamod plugin loads.
 
 ------------------------------------------------------------------------
 
@@ -137,7 +137,7 @@ public interface IBotHiderApi
     bool     SetScoreboardFlair(int slot, uint itemDefIndex);
 
     // --- global toggles ---
-    bool     SetIdentityMode(BotIdentityMode mode);
+    bool     SetIdentityMode(BotIdentityMode mode); // Bot corresponds to config value native_bot
     bool     SetNameSource(bool useBotInfo); // true=bot_info name, false=botprofile name
 }
 ```

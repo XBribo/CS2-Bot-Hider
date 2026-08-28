@@ -137,7 +137,14 @@ bool HiderPlugin::Load(PluginId id, ISmmAPI* ismm, char* error, size_t maxlen, b
                 if (config.contains("identity_mode") && config["identity_mode"].is_string())
                 {
                     const std::string mode = config["identity_mode"].get<std::string>();
-                    if (mode == "bot") m_IdentityMode = IdentityMode::Bot;
+                    if (mode == "native_bot" || mode == "bot")
+                    {
+                        m_IdentityMode = IdentityMode::Bot;
+                        if (mode == "bot")
+                        {
+                            META_CONPRINTF("[BOTHIDER] identity_mode='bot' is a compatibility alias for 'native_bot'\n");
+                        }
+                    }
                     else if (mode != "player")
                         META_CONPRINTF("[BOTHIDER] warning: unsupported identity_mode='%s'; using player\n", mode.c_str());
                 }

@@ -574,31 +574,32 @@ public class BotHiderImplPlugin : BasePlugin
             : $"[BotHider] avatar rejected slot={slot}: {error}");
     }
 
-    // bh_identity_mode <player|bot> - changes the managed-bot identity mode
-    [ConsoleCommand("bh_identity_mode", "Set identity mode: bh_identity_mode <player|bot>")]
+    // bh_identity_mode <player|native_bot> - changes the managed-bot identity mode
+    [ConsoleCommand("bh_identity_mode", "Set identity mode: bh_identity_mode <player|native_bot>")]
     public void OnIdentityMode(CCSPlayerController? player, CommandInfo cmd)
     {
         if (_client == null) { cmd.ReplyToCommand("[BotHider] not initialized"); return; }
         BotIdentityMode mode;
         if (cmd.ArgCount < 2)
         {
-            cmd.ReplyToCommand("usage: bh_identity_mode <player|bot>");
+            cmd.ReplyToCommand("usage: bh_identity_mode <player|native_bot>");
             return;
         }
 
         string value = cmd.GetArg(1);
         if (value.Equals("player", StringComparison.OrdinalIgnoreCase))
             mode = BotIdentityMode.Player;
-        else if (value.Equals("bot", StringComparison.OrdinalIgnoreCase))
+        else if (value.Equals("native_bot", StringComparison.OrdinalIgnoreCase) ||
+                 value.Equals("bot", StringComparison.OrdinalIgnoreCase))
             mode = BotIdentityMode.Bot;
         else
         {
-            cmd.ReplyToCommand("usage: bh_identity_mode <player|bot>");
+            cmd.ReplyToCommand("usage: bh_identity_mode <player|native_bot>");
             return;
         }
 
         bool ok = _client.SetIdentityMode(mode);
-        cmd.ReplyToCommand($"[BotHider] identity mode -> {mode.ToString().ToLowerInvariant()} ({ok})");
+        cmd.ReplyToCommand($"[BotHider] identity mode -> {(mode == BotIdentityMode.Bot ? "native_bot" : "player")} ({ok})");
     }
 
     // bh_namesource <0|1> — 0=botprofile name (default), 1=bot_info.json name
