@@ -15,7 +15,7 @@ namespace cs2bh {
 
 namespace {
 
-FakeClientManager g_manager;
+FakeClientManager g_manager; // NOLINT(bugprone-throwing-static-initialization)
 
 // Rand
 uint64_t SimpleRand(uint64_t& state)

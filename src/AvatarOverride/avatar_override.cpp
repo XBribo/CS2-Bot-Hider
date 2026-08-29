@@ -3,7 +3,7 @@
 #include "ISmmPlugin.h"
 #include "fake_client_manager.h"
 #include "personas.h"
-#include "plugin.h"
+#include "plugin.h" // NOLINT(misc-include-cleaner)
 #include "slot_publisher.h"
 
 #include <array>

@@ -3,17 +3,17 @@
 // See slot_shm.h
 
 #include "slot_publisher.h"
-#include "slot_shm.h"
+#include "slot_shm.h" // NOLINT(readability-duplicate-include)
 
 #ifdef _WIN32
 #ifdef _M_AMD64
 #ifndef _AMD64_
-#define _AMD64_
+#define _AMD64_ // NOLINT(bugprone-reserved-identifier)
 #endif
 #endif
 #include <handleapi.h>
 #include <memoryapi.h>
-#include <windef.h>
+#include <windef.h> // NOLINT(misc-include-cleaner)
 #include <winbase.h>
 #include <winnt.h>
 #else
@@ -23,12 +23,12 @@
 #include <unistd.h>
 #endif
 
-#include <chrono>
+#include <chrono> // NOLINT(misc-include-cleaner)
 #include <atomic>
 #include <cstdint>
 #include <cstring>
 #include <utility>
-#include <vector>
+#include <vector> // NOLINT(misc-include-cleaner)
 
 namespace cs2bh {
 

@@ -11,7 +11,7 @@
 #ifdef _WIN32
 #ifdef _M_AMD64
 #ifndef _AMD64_
-#define _AMD64_
+#define _AMD64_ // NOLINT(bugprone-reserved-identifier)
 #endif
 #endif
 #include <libloaderapi.h>
@@ -26,7 +26,7 @@
 #include <strings.h>
 #endif
 
-#include <algorithm>
+#include <algorithm> // NOLINT(misc-include-cleaner)
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>

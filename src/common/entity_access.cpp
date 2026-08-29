@@ -4,7 +4,7 @@
 #include "nlohmann/json.hpp"
 #include "ISmmPlugin.h"
 #include "entityidentity.h"
-#include "plugin.h"
+#include "plugin.h" // NOLINT(misc-include-cleaner)
 #include "schema_resolver.h"
 #include "serversideclient_ref.h"
 #include "sig_scan.h"

@@ -43,13 +43,13 @@
 #include <tier1/utlvector.h>
 #include <tier1/convar.h>
 
-SH_DECL_HOOK6_void(IServerGameClients, OnClientConnected, SH_NOATTRIB, 0, CPlayerSlot, const char*, uint64, const char*, const char*, bool);
-SH_DECL_HOOK4_void(IServerGameClients, ClientPutInServer, SH_NOATTRIB, 0, CPlayerSlot, char const*, int, uint64);
-SH_DECL_HOOK5_void(
+SH_DECL_HOOK6_void(IServerGameClients, OnClientConnected, SH_NOATTRIB, 0, CPlayerSlot, const char*, uint64, const char*, const char*, bool); // NOLINT(google-build-using-namespace,google-explicit-constructor,misc-use-internal-linkage,performance-unnecessary-value-param,bugprone-multi-level-implicit-pointer-conversion)
+SH_DECL_HOOK4_void(IServerGameClients, ClientPutInServer, SH_NOATTRIB, 0, CPlayerSlot, char const*, int, uint64); // NOLINT(google-build-using-namespace,google-explicit-constructor,misc-use-internal-linkage,performance-unnecessary-value-param,bugprone-multi-level-implicit-pointer-conversion)
+SH_DECL_HOOK5_void( // NOLINT(google-build-using-namespace,google-explicit-constructor,misc-use-internal-linkage,performance-unnecessary-value-param,bugprone-multi-level-implicit-pointer-conversion)
     IServerGameClients, ClientDisconnect, SH_NOATTRIB, 0, CPlayerSlot, ENetworkDisconnectionReason, const char*, uint64, const char*);
-SH_DECL_HOOK3(INetworkGameServer, StartChangeLevel, SH_NOATTRIB, 0, CUtlVector<INetworkGameClient*>*, const char*, const char*, void*);
-SH_DECL_HOOK3_void(IServerGameDLL, GameFrame, SH_NOATTRIB, 0, bool, bool, bool);
-SH_DECL_HOOK3_void(ICvar, DispatchConCommand, SH_NOATTRIB, 0, ConCommandRef, const CCommandContext&, const CCommand&);
+SH_DECL_HOOK3(INetworkGameServer, StartChangeLevel, SH_NOATTRIB, 0, CUtlVector<INetworkGameClient*>*, const char*, const char*, void*); // NOLINT(google-build-using-namespace,google-explicit-constructor,misc-use-internal-linkage,performance-unnecessary-value-param,bugprone-multi-level-implicit-pointer-conversion)
+SH_DECL_HOOK3_void(IServerGameDLL, GameFrame, SH_NOATTRIB, 0, bool, bool, bool); // NOLINT(google-build-using-namespace,google-explicit-constructor,misc-use-internal-linkage,performance-unnecessary-value-param,bugprone-multi-level-implicit-pointer-conversion)
+SH_DECL_HOOK3_void(ICvar, DispatchConCommand, SH_NOATTRIB, 0, ConCommandRef, const CCommandContext&, const CCommand&); // NOLINT(google-build-using-namespace,google-explicit-constructor,misc-use-internal-linkage,performance-unnecessary-value-param,bugprone-multi-level-implicit-pointer-conversion)
 
 namespace cs2bh {
 
@@ -57,14 +57,14 @@ HiderPlugin g_plugin;
 
 } // namespace cs2bh
 
-PLUGIN_EXPOSE(cs2bh::HiderPlugin, cs2bh::g_plugin);
+PLUGIN_EXPOSE(cs2bh::HiderPlugin, cs2bh::g_plugin); // NOLINT(misc-use-anonymous-namespace,bugprone-throwing-static-initialization)
 
 // Interface globals
 
-IVEngineServer* g_engine = nullptr;
-ICvar* g_icvar = nullptr;
-IServerGameClients* g_gameclients = nullptr;
-IServerGameDLL* g_server = nullptr;
+IVEngineServer* g_engine = nullptr; // NOLINT(misc-use-internal-linkage)
+ICvar* g_icvar = nullptr; // NOLINT(misc-use-internal-linkage)
+IServerGameClients* g_gameclients = nullptr; // NOLINT(misc-use-internal-linkage)
+IServerGameDLL* g_server = nullptr; // NOLINT(misc-use-internal-linkage)
 extern INetworkServerService* g_pNetworkServerService;
 
 namespace cs2bh {

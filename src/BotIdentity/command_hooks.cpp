@@ -140,7 +140,7 @@ void HiderPlugin::SetIdentityMode(IdentityMode mode)
 }
 
 // Restores native bot identity and clears managed state before a level transition
-CUtlVector<INetworkGameClient*>* HiderPlugin::HookStartChangeLevelPre(const char* mapName, const char* landmark, void* /*changelevelState*/)
+CUtlVector<INetworkGameClient*>* HiderPlugin::HookStartChangeLevelPre(const char* mapName, const char* landmark, void* /*changelevelState*/) // NOLINT(readability-make-member-function-const)
 {
     if (m_selfDisabled) RETURN_META_VALUE(MRES_IGNORED, nullptr);
 

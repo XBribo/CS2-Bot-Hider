@@ -15,7 +15,7 @@ namespace cs2bh {
 
 namespace {
 
-PersonaPool g_personaPool;
+PersonaPool g_personaPool; // NOLINT(bugprone-throwing-static-initialization)
 
 } // namespace
 

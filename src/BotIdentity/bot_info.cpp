@@ -17,7 +17,7 @@
 namespace cs2bh {
 
 namespace {
-BotInfoStore g_botInfo;
+BotInfoStore g_botInfo; // NOLINT(bugprone-throwing-static-initialization)
 
 // xorshift64* — local RNG.
 uint64_t NextRand(uint64_t& s)

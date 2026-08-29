@@ -26,7 +26,7 @@ using CreateIfaceFn = void* (*)(const char*, int*);
 
 namespace {
 ISchemaSystem* g_schema = nullptr;
-std::unordered_map<std::string, int> g_offsetCache;
+std::unordered_map<std::string, int> g_offsetCache; // NOLINT(bugprone-throwing-static-initialization)
 
 #ifndef _WIN32
 const char* BaseName(const char* path)
