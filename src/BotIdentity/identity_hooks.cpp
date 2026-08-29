@@ -362,25 +362,32 @@ static void ClearBindings()
 // Restores Bot identity while the engine counts bot quota
 static int64_t CS2BH_FASTCALL Detour_MaintainBotQuota(void* manager)
 {
-    PopulationTransactionScope scope(g_Plugin.IsDisguiseEnabled());
+    if (!g_Plugin.IsDisguiseEnabled())
+        return g_pfnQuotaTramp ? g_pfnQuotaTramp(manager) : 0;
+    PopulationTransactionScope scope(true);
     return g_pfnQuotaTramp ? g_pfnQuotaTramp(manager) : 0;
 }
 
 // Restores Bot identity while the engine applies mp_humanteam
 static int64_t CS2BH_FASTCALL Detour_ApplyHumanTeamRestriction()
 {
-    PopulationTransactionScope scope(g_Plugin.IsDisguiseEnabled());
+    if (!g_Plugin.IsDisguiseEnabled())
+        return g_pfnApplyHumanTeamRestrictionTramp ? g_pfnApplyHumanTeamRestrictionTramp() : 0;
+    PopulationTransactionScope scope(true);
     return g_pfnApplyHumanTeamRestrictionTramp ? g_pfnApplyHumanTeamRestrictionTramp() : 0;
 }
 
 // Restores Bot identity only while the engine validates an initial team join
 static int64_t CS2BH_FASTCALL Detour_HandleCommandJoinTeam(void* controller, unsigned int requestedTeam, bool unknownFlag)
 {
+    if (!g_Plugin.IsDisguiseEnabled())
+        return g_pfnHandleJoinTeamTramp ? g_pfnHandleJoinTeamTramp(controller, requestedTeam, unknownFlag) : 0;
+
     ManagedControllerTrace trace = TraceManagedController(controller);
     std::unique_ptr<PopulationTransactionScope> populationScope;
     if (trace.Managed && !trace.Hltv)
     {
-        populationScope = std::make_unique<PopulationTransactionScope>(g_Plugin.IsDisguiseEnabled());
+        populationScope = std::make_unique<PopulationTransactionScope>(true);
     }
 
     return g_pfnHandleJoinTeamTramp ? g_pfnHandleJoinTeamTramp(controller, requestedTeam, unknownFlag) : 0;
