@@ -43,7 +43,12 @@ bool IsTargetedClientRemovalReason(ENetworkDisconnectionReason reason)
 
 // Adopts fake clients from the authoritative connected slot
 void HiderPlugin::HookOnClientConnectedPost( // NOLINT(readability-make-member-function-const)
-    CPlayerSlot slot, const char* name, uint64 /*xuid*/, const char* networkId, const char* /*address*/, bool fakePlayer)
+    CPlayerSlot slot,
+    const char* name,
+    uint64 /*xuid*/,
+    const char* networkId,
+    const char* /*address*/,
+    bool fakePlayer)
 {
     if (m_selfDisabled || !fakePlayer || identity_runtime::IsHltvConnection(name, networkId))
     {
@@ -61,8 +66,7 @@ void HiderPlugin::HookOnClientConnectedPost( // NOLINT(readability-make-member-f
 
     const BotEntry* entry = BotInfo().PickForBot(name);
     std::string displayName;
-    if (entry && (m_useBotInfoName || !name || !name[0]))
-        displayName = entry->name;
+    if (entry && (m_useBotInfoName || !name || !name[0])) displayName = entry->name;
     else if (name && name[0])
         displayName = name;
     else
@@ -103,7 +107,10 @@ void HiderPlugin::HookOnClientConnectedPost( // NOLINT(readability-make-member-f
 }
 
 // Reapplies managed identity after a client enters the server
-void HiderPlugin::HookClientPutInServerPost(CPlayerSlot slot, char const* name, int type, uint64 /*xuid*/) // NOLINT(readability-make-member-function-const)
+void HiderPlugin::HookClientPutInServerPost(CPlayerSlot slot,
+                                            char const* name,
+                                            int type,
+                                            uint64 /*xuid*/) // NOLINT(readability-make-member-function-const)
 {
     if (m_selfDisabled) RETURN_META(MRES_IGNORED);
 
@@ -152,7 +159,11 @@ void HiderPlugin::HookClientPutInServerPost(CPlayerSlot slot, char const* name, 
 
 // Restores and releases managed identity before disconnect teardown
 void HiderPlugin::HookClientDisconnectPre( // NOLINT(readability-make-member-function-const)
-    CPlayerSlot slot, ENetworkDisconnectionReason reason, const char* /*name*/, uint64 /*xuid*/, const char* /*networkId*/)
+    CPlayerSlot slot,
+    ENetworkDisconnectionReason reason,
+    const char* /*name*/,
+    uint64 /*xuid*/,
+    const char* /*networkId*/)
 {
     if (m_selfDisabled) RETURN_META(MRES_IGNORED);
 

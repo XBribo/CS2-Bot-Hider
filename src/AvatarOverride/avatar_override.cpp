@@ -217,16 +217,14 @@ void ProcessOverrides()
         char avatarError[128] = { 0 };
         if (!SetAvatarOverride(table, steamId, request.data, index, avatarError, sizeof(avatarError)))
         {
-            META_CONPRINTF("[BOTHIDER] avatar rejected slot=%d sid=%llu: %s\n", slot, steamId,
-                           avatarError);
+            META_CONPRINTF("[BOTHIDER] avatar rejected slot=%d sid=%llu: %s\n", slot, steamId, avatarError);
             continue;
         }
 
         state.appliedSteamId = steamId;
         state.applied = true;
         Publisher().PublishAvatarState(slot, true, steamId);
-        META_CONPRINTF("[BOTHIDER] avatar applied slot=%d sid=%llu bytes=%u index=%d\n", slot, steamId,
-                       request.length, index);
+        META_CONPRINTF("[BOTHIDER] avatar applied slot=%d sid=%llu bytes=%u index=%d\n", slot, steamId, request.length, index);
     }
 }
 
