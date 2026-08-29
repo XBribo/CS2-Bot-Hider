@@ -3,10 +3,23 @@
 // Signature scanning + gamedata.json loader.
 
 #include "sig_scan.h"
+#include "nlohmann/json.hpp"
+#include <ios>
+#include <vector>
+#include <cstdint>
 
-#if defined(_WIN32)
-#include <Windows.h>
+#ifdef _WIN32
+#ifdef _M_AMD64
+#ifndef _AMD64_
+#define _AMD64_
+#endif
+#endif
+#include <libloaderapi.h>
+#include <memoryapi.h>
+#include <minwindef.h>
+#include <processthreadsapi.h>
 #include <psapi.h>
+#include <winnt.h>
 #else
 #include <dlfcn.h>
 #include <link.h>
@@ -27,7 +40,8 @@ const char* BaseName(const char* path)
     if (!path) return "";
     const char* slash = std::strrchr(path, '/');
     const char* backslash = std::strrchr(path, '\\');
-    const char* base = slash && backslash ? std::max(slash, backslash) : (slash ? slash : backslash);
+    const char* base = slash ? slash : backslash;
+    if (backslash && (!base || backslash > base)) base = backslash;
     return base ? base + 1 : path;
 }
 
@@ -39,7 +53,7 @@ void SetError(char* out, size_t outLen, const char* fmt, const char* a, const ch
         std::snprintf(out, outLen, fmt, a);
 }
 
-#if defined(_WIN32)
+#ifdef _WIN32
 ModuleInfo ModuleFromHandle(HMODULE handle)
 {
     ModuleInfo out;
@@ -50,7 +64,7 @@ ModuleInfo ModuleFromHandle(HMODULE handle)
 
     out.base = static_cast<unsigned char*>(mi.lpBaseOfDll);
     out.size = static_cast<size_t>(mi.SizeOfImage);
-    out.segments.push_back({ out.base, out.size });
+    out.segments.push_back({ .base = out.base, .size = out.size });
     return out;
 }
 
@@ -79,13 +93,13 @@ ModuleInfo ModuleSectionFromHandle(HMODULE handle, const char* sectionName)
         std::memcpy(name, section->Name, IMAGE_SIZEOF_SHORT_NAME);
         if (std::strcmp(name, sectionName) != 0) continue;
 
-        size_t sectionSize = static_cast<size_t>(section->Misc.VirtualSize);
-        size_t sectionOffset = static_cast<size_t>(section->VirtualAddress);
+        auto sectionSize = static_cast<size_t>(section->Misc.VirtualSize);
+        auto sectionOffset = static_cast<size_t>(section->VirtualAddress);
         if (sectionSize == 0 || sectionOffset >= image.size || sectionSize > image.size - sectionOffset) return out;
 
         out.base = image.base;
         out.size = image.size;
-        out.segments.push_back({ image.base + sectionOffset, sectionSize });
+        out.segments.push_back({ .base = image.base + sectionOffset, .size = sectionSize });
         return out;
     }
     return out;
@@ -212,7 +226,7 @@ bool LoadGamedata(const char* path, nlohmann::json& out)
 
 const char* PlatformName()
 {
-#if defined(_WIN32)
+#ifdef _WIN32
     return "windows";
 #else
     return "linux";
@@ -263,7 +277,7 @@ bool ParseSigString(const std::string& sigStr, std::vector<uint8_t>& outBytes, s
             continue;
         }
         char* end = nullptr;
-        unsigned long v = std::strtoul(p, &end, 16);
+        const uint64_t v = std::strtoull(p, &end, 16);
         if (end == p || end - p > 2 || v > 0xFF) return false;
         outBytes.push_back(static_cast<uint8_t>(v));
         outWild.push_back(false);
@@ -328,7 +342,7 @@ std::vector<void*> FindPatternMatchesIn(const ModuleInfo& module, const std::vec
 
 ModuleInfo ModuleFromName(const char* moduleName)
 {
-#if defined(_WIN32)
+#ifdef _WIN32
     return ModuleFromHandle(GetModuleHandleA(moduleName));
 #else
     FindByNameCtx ctx{};
@@ -341,7 +355,7 @@ ModuleInfo ModuleFromName(const char* moduleName)
 // Resolves executable code ranges from a loaded module
 ModuleInfo ModuleCodeFromName(const char* moduleName)
 {
-#if defined(_WIN32)
+#ifdef _WIN32
     return ModuleSectionFromHandle(GetModuleHandleA(moduleName), ".text");
 #else
     FindByNameCtx ctx{};
@@ -357,7 +371,7 @@ ModuleInfo ModuleFromInterfacePtr(void* interfacePtr)
     void* vtable = *reinterpret_cast<void**>(interfacePtr);
     if (!vtable) return {};
 
-#if defined(_WIN32)
+#ifdef _WIN32
     MEMORY_BASIC_INFORMATION mbi{};
     if (!VirtualQuery(vtable, &mbi, sizeof(mbi))) return {};
     if (mbi.Type != MEM_IMAGE) return {};

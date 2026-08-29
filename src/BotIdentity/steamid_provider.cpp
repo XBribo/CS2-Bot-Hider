@@ -3,6 +3,8 @@
 // SteamID pool sourced from bot_info.json
 
 #include "steamid_provider.h"
+#include <cstddef>
+#include <cstdint>
 
 #include "bot_info.h"
 

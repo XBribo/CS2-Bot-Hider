@@ -9,7 +9,7 @@
 namespace cs2bh::shm {
 
 // Windows named mapping / POSIX shm name.
-#if defined(_WIN32)
+#ifdef _WIN32
 inline constexpr const char* kMappingName = "Local\\CS2BotHider_Slots";
 #else
 inline constexpr const char* kMappingName = "/CS2BotHider_Slots";
@@ -69,9 +69,9 @@ inline constexpr int kOffAvatarApplied = 14752; // byte[64]
 inline constexpr int kOffAvatarAppliedSid = 14816; // uint64[64]
 inline constexpr int kOffAvatarData = 16384; // byte[64][16 KiB]
 
-inline constexpr int kTotalSize = kOffAvatarData + kMaxSlots * kAvatarMaxBytes;
-static_assert(kOffAvatarAppliedSid + kMaxSlots * sizeof(uint64_t) <= kOffAvatarData, "Avatar metadata overlaps avatar data");
-static_assert(kOffAvatarData + kMaxSlots * kAvatarMaxBytes <= kTotalSize, "Shared-memory data exceeds the mapping size");
+inline constexpr int kTotalSize = kOffAvatarData + (kMaxSlots * kAvatarMaxBytes);
+static_assert(kOffAvatarAppliedSid + (kMaxSlots * sizeof(uint64_t)) <= kOffAvatarData, "Avatar metadata overlaps avatar data");
+static_assert(kOffAvatarData + (kMaxSlots * kAvatarMaxBytes) <= kTotalSize, "Shared-memory data exceeds the mapping size");
 
 // Command opcodes.
 enum CmdType : uint8_t

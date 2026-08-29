@@ -1,8 +1,13 @@
 #include "entity_access.h"
 
+#include "playerslot.h"
+#include "nlohmann/json.hpp"
+#include "ISmmPlugin.h"
+#include "entityidentity.h"
 #include "plugin.h"
 #include "schema_resolver.h"
 #include "serversideclient_ref.h"
+#include "sig_scan.h"
 #include "version_targets.h"
 
 #include <cstdint>
@@ -10,13 +15,12 @@
 #include <string>
 #include <vector>
 
-#include <eiface.h>
 #include <entity2/entityinstance.h>
 #include <iserver.h>
 #include <tier1/utlvector.h>
 
-#if defined(_WIN32)
-#include <Windows.h>
+#ifdef _WIN32
+#include <excpt.h>
 #define CS2BH_FASTCALL __fastcall
 #else
 #define CS2BH_FASTCALL
@@ -26,13 +30,17 @@ extern INetworkServerService* g_pNetworkServerService;
 
 namespace cs2bh::entity_access {
 
+namespace {
+
 using UtilRemoveFn = void(CS2BH_FASTCALL*)(void*);
 using ClientSetNameFn = void(CS2BH_FASTCALL*)(void*, const char*);
 
-static void* g_gameResourceService = nullptr;
-static UtilRemoveFn g_utilRemove = nullptr;
-static void** g_entitySystemGlobal = nullptr;
-static int g_botPawnHandleOffset = -1;
+void* g_gameResourceService = nullptr;
+UtilRemoveFn g_utilRemove = nullptr;
+void** g_entitySystemGlobal = nullptr;
+int g_botPawnHandleOffset = -1;
+
+} // namespace
 
 // Stores the GameResourceService interface used for entity resolution
 void SetGameResourceService(void* gameResourceService) { g_gameResourceService = gameResourceService; }
@@ -141,10 +149,12 @@ void LoadMemberOffsets(const nlohmann::json& gamedata)
         FindPlatformOffset(gamedata, "CEntityIdentity::m_designerName", targets::g_entityIdentityClassNameOffset);
 }
 
+namespace {
+
 // Reads one pointer while isolating invalid memory access on Windows
-static bool SafeReadPointer(const void* address, void** output)
+bool SafeReadPointer(const void* address, void** output)
 {
-#if defined(_WIN32)
+#ifdef _WIN32
     __try
     {
         *output = *reinterpret_cast<void* const*>(address);
@@ -167,9 +177,9 @@ static bool SafeReadPointer(const void* address, void** output)
 }
 
 // Copies one indirectly referenced string with guarded reads on Windows
-static bool SafeReadString(const void* address, char* output, size_t capacity)
+bool SafeReadString(const void* address, char* output, size_t capacity)
 {
-#if defined(_WIN32)
+#ifdef _WIN32
     __try
     {
         const char* source = *reinterpret_cast<const char* const*>(address);
@@ -209,6 +219,8 @@ static bool SafeReadString(const void* address, char* output, size_t capacity)
 #endif
 }
 
+} // namespace
+
 // Resolves one entity instance and optionally copies its class name
 void* ResolveEntityInstance(int entityIndex, char* classnameOut, size_t classnameCap)
 {
@@ -230,11 +242,11 @@ void* ResolveEntityInstance(int entityIndex, char* classnameOut, size_t classnam
 
     void* chunk = nullptr;
     const void* chunkSlot = reinterpret_cast<unsigned char*>(entitySystem) + targets::g_entitySystemIdentityChunksOffset +
-                            (entityIndex / targets::kEntListChunkSize) * sizeof(void*);
+                            ((entityIndex / targets::kEntListChunkSize) * sizeof(void*));
     if (!SafeReadPointer(chunkSlot, &chunk) || !chunk) return nullptr;
 
     unsigned char* identity =
-        reinterpret_cast<unsigned char*>(chunk) + (entityIndex % targets::kEntListChunkSize) * targets::g_entityIdentitySize;
+        reinterpret_cast<unsigned char*>(chunk) + ((entityIndex % targets::kEntListChunkSize) * targets::g_entityIdentitySize);
     if (classnameOut && classnameCap)
     {
         SafeReadString(identity + targets::g_entityIdentityClassNameOffset, classnameOut, classnameCap);
@@ -254,7 +266,7 @@ bool IsEntityBeingDeleted(void* instance)
     if (!instance) return true;
     auto* entity = reinterpret_cast<CEntityInstance*>(instance);
     if (!entity->m_pEntity) return true;
-    const uint32_t flags = static_cast<uint32_t>(entity->m_pEntity->m_flags);
+    const auto flags = static_cast<uint32_t>(entity->m_pEntity->m_flags);
     return (flags & (EF_DELETE_IN_PROGRESS | EF_MARKED_FOR_DELETE)) != 0;
 }
 
@@ -309,7 +321,7 @@ void ResetIdleTimerForClient(void* client)
     void* pawn = ResolveEntityInstance(pawnIndex, nullptr, 0);
     if (!pawn) return;
 
-    *reinterpret_cast<float*>(reinterpret_cast<unsigned char*>(pawn) + idleOffset) = 0.0f;
+    *reinterpret_cast<float*>(reinterpret_cast<unsigned char*>(pawn) + idleOffset) = 0.0F;
 }
 
 // Updates the engine-side name for one client
@@ -319,7 +331,7 @@ const char* SetEngineName(void* client, const char* newName)
     {
         return nullptr;
     }
-#if defined(_WIN32)
+#ifdef _WIN32
     __try
     {
         auto** vtable = *reinterpret_cast<void***>(client);

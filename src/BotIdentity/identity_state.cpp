@@ -3,13 +3,19 @@
 #include "personas.h"
 
 #include <array>
+#include <string>
+#include <vector>
 
 namespace cs2bh::identity_state {
 
-static std::array<const BotEntry*, PersonaPool::kMaxSlots> g_slotEntries{};
-static std::array<std::string, PersonaPool::kMaxSlots> g_originalSlotNames{};
-static std::vector<PendingControllerRemoval> g_pendingControllerRemovals;
-static const std::string kGEmptyName;
+namespace {
+
+std::array<const BotEntry*, PersonaPool::kMaxSlots> g_slotEntries{};
+std::array<std::string, PersonaPool::kMaxSlots> g_originalSlotNames{};
+std::vector<PendingControllerRemoval> g_pendingControllerRemovals;
+const std::string kGEmptyName;
+
+} // namespace
 
 // Binds bot identity data and the original engine name to one slot
 void BindSlot(int slot, const BotEntry* entry, const char* originalName)

@@ -3,9 +3,19 @@
 // See slot_shm.h
 
 #include "slot_publisher.h"
+#include "slot_shm.h"
 
-#if defined(_WIN32)
-#include <Windows.h>
+#ifdef _WIN32
+#ifdef _M_AMD64
+#ifndef _AMD64_
+#define _AMD64_
+#endif
+#endif
+#include <handleapi.h>
+#include <memoryapi.h>
+#include <windef.h>
+#include <winbase.h>
+#include <winnt.h>
 #else
 #include <fcntl.h>
 #include <sys/mman.h>
@@ -15,8 +25,10 @@
 
 #include <chrono>
 #include <atomic>
+#include <cstdint>
 #include <cstring>
 #include <utility>
+#include <vector>
 
 namespace cs2bh {
 
@@ -33,7 +45,7 @@ bool SlotPublisher::Init()
 {
     if (m_view) return true;
 
-#if defined(_WIN32)
+#ifdef _WIN32
     HANDLE h = CreateFileMappingA(INVALID_HANDLE_VALUE, nullptr, PAGE_READWRITE, 0, shm::kTotalSize, shm::kMappingName);
     if (!h) return false;
 
@@ -78,7 +90,7 @@ void SlotPublisher::Shutdown()
 {
     if (m_view)
     {
-#if defined(_WIN32)
+#ifdef _WIN32
         UnmapViewOfFile(m_view);
 #else
         munmap(m_view, shm::kTotalSize);
@@ -88,7 +100,7 @@ void SlotPublisher::Shutdown()
     }
     if (m_mappingHandle)
     {
-#if defined(_WIN32)
+#ifdef _WIN32
         CloseHandle(m_mappingHandle);
 #endif
         m_mappingHandle = nullptr;
@@ -101,39 +113,39 @@ unsigned char* SlotPublisher::SlotStatePtr() const { return m_view + shm::kOffSl
 
 uint64_t* SlotPublisher::SidPtr(int slot) const
 {
-    return reinterpret_cast<uint64_t*>(m_view + shm::kOffSyntheticSid + slot * sizeof(uint64_t));
+    return reinterpret_cast<uint64_t*>(m_view + shm::kOffSyntheticSid + (slot * sizeof(uint64_t)));
 }
 
-char* SlotPublisher::NamePtr(int slot) const { return reinterpret_cast<char*>(m_view + shm::kOffPersonaName + slot * shm::kNameLen); }
+char* SlotPublisher::NamePtr(int slot) const { return reinterpret_cast<char*>(m_view + shm::kOffPersonaName + (slot * shm::kNameLen)); }
 
 // Returns the base SteamID field for one slot
 uint64_t* SlotPublisher::BaseSidPtr(int slot) const
 {
-    return reinterpret_cast<uint64_t*>(m_view + shm::kOffBaseSyntheticSid + slot * sizeof(uint64_t));
+    return reinterpret_cast<uint64_t*>(m_view + shm::kOffBaseSyntheticSid + (slot * sizeof(uint64_t)));
 }
 
 // Returns the base persona name field for one slot
 char* SlotPublisher::BaseNamePtr(int slot) const
 {
-    return reinterpret_cast<char*>(m_view + shm::kOffBasePersonaName + slot * shm::kNameLen);
+    return reinterpret_cast<char*>(m_view + shm::kOffBasePersonaName + (slot * shm::kNameLen));
 }
 
 // Returns the native incarnation field for one slot
 uint64_t* SlotPublisher::IncarnationPtr(int slot) const
 {
-    return reinterpret_cast<uint64_t*>(m_view + shm::kOffIncarnation + slot * sizeof(uint64_t));
+    return reinterpret_cast<uint64_t*>(m_view + shm::kOffIncarnation + (slot * sizeof(uint64_t)));
 }
 
-int* SlotPublisher::PingPtr(int slot) const { return reinterpret_cast<int*>(m_view + shm::kOffCurrentPing + slot * sizeof(int)); }
+int* SlotPublisher::PingPtr(int slot) const { return reinterpret_cast<int*>(m_view + shm::kOffCurrentPing + (slot * sizeof(int))); }
 
 char* SlotPublisher::CrosshairPtr(int slot) const
 {
-    return reinterpret_cast<char*>(m_view + shm::kOffCrosshair + slot * shm::kCrosshairLen);
+    return reinterpret_cast<char*>(m_view + shm::kOffCrosshair + (slot * shm::kCrosshairLen));
 }
 
 uint32_t* SlotPublisher::ScoreboardFlairPtr(int slot) const
 {
-    return reinterpret_cast<uint32_t*>(m_view + shm::kOffScoreboardFlair + slot * sizeof(uint32_t));
+    return reinterpret_cast<uint32_t*>(m_view + shm::kOffScoreboardFlair + (slot * sizeof(uint32_t)));
 }
 
 // Returns the native avatar application flag for one slot
@@ -142,7 +154,7 @@ unsigned char* SlotPublisher::AvatarAppliedPtr(int slot) const { return m_view +
 // Returns the applied avatar SteamID field for one slot
 uint64_t* SlotPublisher::AvatarAppliedSidPtr(int slot) const
 {
-    return reinterpret_cast<uint64_t*>(m_view + shm::kOffAvatarAppliedSid + slot * sizeof(uint64_t));
+    return reinterpret_cast<uint64_t*>(m_view + shm::kOffAvatarAppliedSid + (slot * sizeof(uint64_t)));
 }
 
 // Returns a non-zero identity for one native managed-slot lifetime
@@ -252,16 +264,16 @@ bool SlotPublisher::ReadAvatarMetadata(int slot, uint32_t& sequence, uint32_t& l
 {
     if (!m_view || slot < 0 || slot >= shm::kMaxSlots) return false;
 
-    auto* sequencePtr = reinterpret_cast<volatile uint32_t*>(m_view + shm::kOffAvatarSequence + slot * sizeof(uint32_t));
+    auto* sequencePtr = reinterpret_cast<volatile uint32_t*>(m_view + shm::kOffAvatarSequence + (slot * sizeof(uint32_t)));
     uint32_t before = *sequencePtr;
-    if ((before & 1u) != 0) return false;
+    if ((before & 1U) != 0) return false;
     std::atomic_thread_fence(std::memory_order_acquire);
 
-    uint32_t candidateLength = *reinterpret_cast<uint32_t*>(m_view + shm::kOffAvatarLength + slot * sizeof(uint32_t));
-    uint64_t candidateIncarnation = *reinterpret_cast<uint64_t*>(m_view + shm::kOffAvatarIncarnation + slot * sizeof(uint64_t));
+    uint32_t candidateLength = *reinterpret_cast<uint32_t*>(m_view + shm::kOffAvatarLength + (slot * sizeof(uint32_t)));
+    uint64_t candidateIncarnation = *reinterpret_cast<uint64_t*>(m_view + shm::kOffAvatarIncarnation + (slot * sizeof(uint64_t)));
     std::atomic_thread_fence(std::memory_order_acquire);
     uint32_t after = *sequencePtr;
-    if (before != after || (after & 1u) != 0 || candidateLength > static_cast<uint32_t>(shm::kAvatarMaxBytes))
+    if (before != after || (after & 1U) != 0 || candidateLength > static_cast<uint32_t>(shm::kAvatarMaxBytes))
     {
         return false;
     }
@@ -277,23 +289,23 @@ bool SlotPublisher::ReadAvatarRequest(int slot, AvatarRequest& request) const
 {
     if (!m_view || slot < 0 || slot >= shm::kMaxSlots) return false;
 
-    auto* sequence = reinterpret_cast<volatile uint32_t*>(m_view + shm::kOffAvatarSequence + slot * sizeof(uint32_t));
+    auto* sequence = reinterpret_cast<volatile uint32_t*>(m_view + shm::kOffAvatarSequence + (slot * sizeof(uint32_t)));
     uint32_t before = *sequence;
-    if ((before & 1u) != 0) return false;
+    if ((before & 1U) != 0) return false;
 
     std::atomic_thread_fence(std::memory_order_acquire);
-    uint32_t length = *reinterpret_cast<uint32_t*>(m_view + shm::kOffAvatarLength + slot * sizeof(uint32_t));
-    uint64_t incarnation = *reinterpret_cast<uint64_t*>(m_view + shm::kOffAvatarIncarnation + slot * sizeof(uint64_t));
+    uint32_t length = *reinterpret_cast<uint32_t*>(m_view + shm::kOffAvatarLength + (slot * sizeof(uint32_t)));
+    uint64_t incarnation = *reinterpret_cast<uint64_t*>(m_view + shm::kOffAvatarIncarnation + (slot * sizeof(uint64_t)));
     if (length > static_cast<uint32_t>(shm::kAvatarMaxBytes)) return false;
 
     std::vector<unsigned char> data(length);
     if (length > 0)
     {
-        std::memcpy(data.data(), m_view + shm::kOffAvatarData + slot * shm::kAvatarMaxBytes, length);
+        std::memcpy(data.data(), m_view + shm::kOffAvatarData + (slot * shm::kAvatarMaxBytes), length);
     }
     std::atomic_thread_fence(std::memory_order_acquire);
     uint32_t after = *sequence;
-    if (before != after || (after & 1u) != 0) return false;
+    if (before != after || (after & 1U) != 0) return false;
 
     request.sequence = after;
     request.length = length;
@@ -317,7 +329,7 @@ void SlotPublisher::PublishSignature(const char* name, const void* addr)
     if (!m_view || !name) return;
     auto* count = reinterpret_cast<uint32_t*>(m_view + shm::kOffSigCount);
     if (*count >= static_cast<uint32_t>(shm::kMaxSigs)) return;
-    auto* entry = reinterpret_cast<shm::SigEntry*>(m_view + shm::kOffSigEntries + (*count) * shm::kSigEntrySize);
+    auto* entry = reinterpret_cast<shm::SigEntry*>(m_view + shm::kOffSigEntries + ((*count) * shm::kSigEntrySize));
     std::memset(entry->name, 0, shm::kSigNameLen);
     std::strncpy(entry->name, name, shm::kSigNameLen - 1);
     entry->addr = reinterpret_cast<uint64_t>(addr);

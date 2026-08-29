@@ -5,6 +5,10 @@
 #include "bot_info.h"
 
 #include <chrono>
+#include <cstdint>
+#include <mutex>
+#include <string>
+#include <cstddef>
 #include <utility>
 
 namespace cs2bh {

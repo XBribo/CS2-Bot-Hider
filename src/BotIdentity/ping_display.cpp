@@ -2,15 +2,17 @@
 
 #include "ping_display.h"
 
+#include <algorithm>
 #include <chrono>
+#include <cstdint>
 
 namespace cs2bh {
 
 void PingDisplay::RecordSample(int latencyMs)
 {
     int clamped = latencyMs;
-    if (clamped < 0) clamped = 0;
-    if (clamped > 999) clamped = 999;
+    clamped = std::max(clamped, 0);
+    clamped = std::min(clamped, 999);
 
     int oldest = m_samples[m_idx];
     m_samples[m_idx] = clamped;
@@ -48,11 +50,11 @@ void PingDisplay::Reset()
 
 PingJitter::PingJitter(int baselineMs, int minimumMs, int maximumMs) : m_baseline(baselineMs), m_minimum(minimumMs), m_maximum(maximumMs)
 {
-    if (m_minimum < 1) m_minimum = 1;
-    if (m_maximum > 999) m_maximum = 999;
-    if (m_maximum < m_minimum) m_maximum = m_minimum;
-    if (m_baseline < m_minimum) m_baseline = m_minimum;
-    if (m_baseline > m_maximum) m_baseline = m_maximum;
+    m_minimum = std::max(m_minimum, 1);
+    m_maximum = std::min(m_maximum, 999);
+    m_maximum = std::max(m_maximum, m_minimum);
+    m_baseline = std::max(m_baseline, m_minimum);
+    m_baseline = std::min(m_baseline, m_maximum);
     m_state = static_cast<uint64_t>(std::chrono::steady_clock::now().time_since_epoch().count()) ^
               (static_cast<uint64_t>(baselineMs) * 0x9E3779B97F4A7C15ULL) ^ 0xA0761D6478BD642FULL;
     if (m_state == 0) m_state = 0xDEADBEEFCAFEBABEULL;
@@ -72,8 +74,8 @@ int PingJitter::NextSample()
     int span = (m_baseline + 9) / 10;
     int delta = static_cast<int>(r % (2 * span + 1)) - span;
     int v = m_baseline + delta;
-    if (v < m_minimum) v = m_minimum;
-    if (v > m_maximum) v = m_maximum;
+    v = std::max(v, m_minimum);
+    v = std::min(v, m_maximum);
     return v;
 }
 

@@ -1,3 +1,4 @@
+#include "ISmmPlugin.h"
 #include "plugin.h"
 
 #include "avatar_override.h"
@@ -10,10 +11,12 @@
 #include "personas.h"
 #include "serversideclient_ref.h"
 #include "slot_publisher.h"
+#include "sourcehook.h"
+#include "utlvector.h"
 
+#include <cstdint>
 #include <cstdio>
 #include <cstring>
-#include <string>
 
 #include <eiface.h>
 #include <iserver.h>
@@ -23,29 +26,31 @@ extern IVEngineServer* g_engine;
 
 namespace cs2bh {
 
+namespace {
+
 // Returns whether a console command disconnects a client
-static bool IsKickCommand(const char* name)
+bool IsKickCommand(const char* name)
 {
     if (!name || !name[0]) return false;
     return !std::strcmp(name, "kickid") || !std::strcmp(name, "kick") || !std::strcmp(name, "bot_kick") || !std::strcmp(name, "banid");
 }
 
 // Returns whether a command adds a bot
-static bool IsBotAddCommand(const char* name)
+bool IsBotAddCommand(const char* name)
 {
     if (!name || !name[0]) return false;
     return !std::strcmp(name, "bot_add") || !std::strcmp(name, "bot_add_t") || !std::strcmp(name, "bot_add_ct");
 }
 
 // Returns whether a bot_kick target is a built-in group
-static bool IsBotKickGroupTarget(const char* target)
+bool IsBotKickGroupTarget(const char* target)
 {
     if (!target || !target[0]) return false;
     return !std::strcmp(target, "all") || !std::strcmp(target, "t") || !std::strcmp(target, "ct");
 }
 
 // Finds a managed slot from its current persona name
-static int FindManagedSlotByPersonaName(const char* name)
+int FindManagedSlotByPersonaName(const char* name)
 {
     if (!name || !name[0]) return -1;
     for (int slot = 0; slot < PersonaPool::kMaxSlots; ++slot)
@@ -55,6 +60,8 @@ static int FindManagedSlotByPersonaName(const char* name)
     }
     return -1;
 }
+
+} // namespace
 
 // Opens one identity transaction for the complete engine population command.
 void HiderPlugin::HookDispatchConCommandPre(ConCommandRef command, const CCommandContext&, const CCommand& arguments)
@@ -164,7 +171,7 @@ void HiderPlugin::HookGameFramePost(bool simulating, bool /*firstTick*/, bool /*
     }
     Manager().OnTick();
 
-    if ((++m_tickCounter & 63u) == 0u)
+    if ((++m_tickCounter & 63U) == 0U)
     {
         for (int slot = 0; slot < PersonaPool::kMaxSlots; ++slot)
         {

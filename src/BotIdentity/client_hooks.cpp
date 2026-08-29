@@ -1,3 +1,5 @@
+#include "network_connection.pb.h"
+#include "playerslot.h"
 #include "plugin.h"
 
 #include "bot_info.h"
@@ -9,16 +11,18 @@
 #include "personas.h"
 #include "serversideclient_ref.h"
 #include "slot_publisher.h"
+#include "steam/steamtypes.h"
+#include "sourcehook.h"
 
 #include <cstdint>
 #include <string>
 
-#include <iserver.h>
-
 namespace cs2bh {
 
+namespace {
+
 // Checks whether a disconnect may leave its controller behind
-static bool IsTargetedClientRemovalReason(ENetworkDisconnectionReason reason)
+bool IsTargetedClientRemovalReason(ENetworkDisconnectionReason reason)
 {
     switch (reason)
     {
@@ -34,6 +38,8 @@ static bool IsTargetedClientRemovalReason(ENetworkDisconnectionReason reason)
     return value >= static_cast<int>(NETWORK_DISCONNECT_KICKED_TEAMKILLING) &&
            value <= static_cast<int>(NETWORK_DISCONNECT_KICKED_INSECURECLIENT);
 }
+
+} // namespace
 
 // Adopts fake clients from the authoritative connected slot
 void HiderPlugin::HookOnClientConnectedPost(
@@ -55,13 +61,12 @@ void HiderPlugin::HookOnClientConnectedPost(
 
     const BotEntry* entry = BotInfo().PickForBot(name);
     std::string displayName;
-    if (m_useBotInfoName && entry) displayName = entry->name;
+    if (entry && (m_useBotInfoName || !name || !name[0]))
+        displayName = entry->name;
     else if (name && name[0])
         displayName = name;
-    else if (entry)
-        displayName = entry->name;
     else
-        displayName = Personas().PickFromRoster();
+        displayName = entry ? entry->name : Personas().PickFromRoster();
 
     if (displayName.empty())
     {

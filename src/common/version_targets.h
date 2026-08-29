@@ -49,7 +49,7 @@ inline int g_controllerTeamOffset = 836;
 inline constexpr int kBaseEntityFlagsOffset = 0x388;
 inline constexpr uint32_t kEntityFlagBot = 0x10;
 
-#if defined(_WIN32)
+#ifdef _WIN32
 inline constexpr const char* kServerModuleName = "server.dll";
 inline constexpr const char* kEngineModuleName = "engine2.dll";
 inline constexpr const char* kSchemaSystemModuleName = "schemasystem.dll";

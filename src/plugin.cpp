@@ -2,36 +2,36 @@
 // All constants (offsets, vtable slots, schema candidates) live in version_targets.h
 
 #include "plugin.h"
+#include "ISmmPlugin.h"
+#include "ISmmPluginExt.h"
+#include "ISmmAPI.h"
 #include "entity_access.h"
+#include "icvar.h"
 #include "identity_runtime.h"
 #include "identity_state.h"
 #include "avatar_override.h"
 #include "bot_info.h"
-#include "personas.h"
+#include "interfaces/interfaces.h"
 #include "fake_client_manager.h"
 #include "identity_hooks.h"
-#include "ping_display.h"
-#include "serversideclient_ref.h"
+#include "playerslot.h"
 #include "slot_publisher.h"
+#include "sourcehook.h"
+#include "steam/steamtypes.h"
 #include "version_targets.h"
 #include "sig_scan.h"
 #include "schema_resolver.h"
 
-#include <algorithm>
 #include <cstdio>
-#include <cstdint>
 #include <cstring>
-#include <array>
 #include <fstream>
+#include <ios>
 #include <iterator>
 #include <string>
-#include <vector>
 
 #include <nlohmann/json.hpp>
-#include <entity2/entityinstance.h>
 
-#if defined(_WIN32)
-#include <Windows.h>
+#ifdef _WIN32
 #define CS2BH_FASTCALL __fastcall
 #else
 #define CS2BH_FASTCALL

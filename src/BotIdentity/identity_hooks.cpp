@@ -1,24 +1,30 @@
 #include "identity_hooks.h"
 
+#include "ISmmPlugin.h"
 #include "entity_access.h"
 #include "fake_client_manager.h"
 #include "identity_runtime.h"
+#include "nlohmann/json.hpp"
 #include "personas.h"
+#include "plugin.h"
 #include "serversideclient_ref.h"
+#include "sig_scan.h"
 #include "version_targets.h"
 
+#include <cstdint>
+#include <array>
 #include <cstring>
 #include <limits>
 #include <memory>
 #include <mutex>
+#include <utility>
 #include <string>
 #include <vector>
 
 #include <entity2/entityinstance.h>
 #include <funchook.h>
 
-#if defined(_WIN32)
-#include <intrin.h>
+#ifdef _WIN32
 #define CS2BH_FASTCALL __fastcall
 #else
 #define CS2BH_FASTCALL
@@ -26,31 +32,33 @@
 
 namespace cs2bh::identity_hooks {
 
+namespace {
+
 using MaintainQuotaFn = int64_t(CS2BH_FASTCALL*)(void*);
 using HandleJoinTeamFn = int64_t(CS2BH_FASTCALL*)(void*, unsigned int, bool);
 using ApplyHumanTeamRestrictionFn = int64_t(CS2BH_FASTCALL*)();
 using PackEntitiesFn = void(CS2BH_FASTCALL*)(void*, void*, int, void*, void*);
 using SameMapClientCollectorFn = void*(CS2BH_FASTCALL*)(void*, uintptr_t);
 
-static funchook_t* g_funchook = nullptr;
-static size_t g_preparedFunchookCount = 0;
-static bool g_funchooksInstalled = false;
+funchook_t* g_funchook = nullptr;
+size_t g_preparedFunchookCount = 0;
+bool g_funchooksInstalled = false;
 
-static MaintainQuotaFn g_quotaTrampoline = nullptr;
-static void* g_quotaHookTarget = nullptr;
-static HandleJoinTeamFn g_handleJoinTeamTrampoline = nullptr;
-static void* g_handleJoinTeamHookTarget = nullptr;
-static ApplyHumanTeamRestrictionFn g_applyHumanTeamRestrictionTrampoline = nullptr;
-static void* g_applyHumanTeamRestrictionHookTarget = nullptr;
-static PackEntitiesFn g_packEntitiesTrampoline = nullptr;
-static void* g_packEntitiesHookTarget = nullptr;
-static SameMapClientCollectorFn g_sameMapCollectorTrampoline = nullptr;
-static void* g_sameMapTeardownHookTarget = nullptr;
-static void* g_sameMapTeardownReturnAddress = nullptr;
-static std::recursive_mutex g_packEntitiesMutex;
-static thread_local uint32_t g_packEntitiesDepth = 0;
-static std::array<bool, 64> g_quotaResolveWarned{};
-static bool g_quotaInvalidOffsetWarned = false;
+MaintainQuotaFn g_quotaTrampoline = nullptr;
+void* g_quotaHookTarget = nullptr;
+HandleJoinTeamFn g_handleJoinTeamTrampoline = nullptr;
+void* g_handleJoinTeamHookTarget = nullptr;
+ApplyHumanTeamRestrictionFn g_applyHumanTeamRestrictionTrampoline = nullptr;
+void* g_applyHumanTeamRestrictionHookTarget = nullptr;
+PackEntitiesFn g_packEntitiesTrampoline = nullptr;
+void* g_packEntitiesHookTarget = nullptr;
+SameMapClientCollectorFn g_sameMapCollectorTrampoline = nullptr;
+void* g_sameMapTeardownHookTarget = nullptr;
+void* g_sameMapTeardownReturnAddress = nullptr;
+std::recursive_mutex g_packEntitiesMutex;
+thread_local uint32_t g_packEntitiesDepth = 0;
+std::array<bool, 64> g_quotaResolveWarned{};
+bool g_quotaInvalidOffsetWarned = false;
 
 struct NativeBotIdentitySnapshot
 {
@@ -66,11 +74,11 @@ struct NativeBotIdentitySnapshot
     bool modified = false;
 };
 
-static bool IsValidController(void* controller, const char* className, uint32_t handle)
+bool IsValidController(void* controller, const char* className, uint32_t handle)
 {
     return controller && className && std::strcmp(className, "cs_player_controller") == 0 &&
            !entity_access::IsEntityBeingDeleted(controller) &&
-           static_cast<uint32_t>(reinterpret_cast<CEntityInstance*>(controller)->GetRefEHandle().ToInt()) == handle;
+           std::cmp_equal(static_cast<uint32_t>(reinterpret_cast<CEntityInstance*>(controller)->GetRefEHandle().ToInt()), handle);
 }
 
 class ScopedNativeBotIdentityRestore
@@ -157,7 +165,7 @@ class ScopedNativeBotIdentityRestore
             snapshot.controllerFlags = *flags;
             snapshot.hasController = true;
             const uint32_t before = *flags;
-            *flags |= 0x100u;
+            *flags |= 0x100U;
             if (*flags != before)
             {
                 entity_access::MarkEntityFieldChanged(snapshot.controller,
@@ -213,9 +221,11 @@ class ScopedNativeBotIdentityRestore
     }
 };
 
-static unsigned int g_populationTransactionDepth = 0;
-static bool g_populationTransactionRedisguise = false;
-static std::unique_ptr<ScopedNativeBotIdentityRestore> g_populationIdentity;
+unsigned int g_populationTransactionDepth = 0;
+bool g_populationTransactionRedisguise = false;
+std::unique_ptr<ScopedNativeBotIdentityRestore> g_populationIdentity;
+
+} // namespace
 
 void BeginPopulationTransaction(bool redisguise)
 {
@@ -256,6 +266,8 @@ PopulationTransactionScope::PopulationTransactionScope(bool redisguise) : m_redi
 
 PopulationTransactionScope::~PopulationTransactionScope() { EndPopulationTransaction(m_redisguise); }
 
+namespace {
+
 class PackEntitiesDepthGuard
 {
   public:
@@ -280,7 +292,7 @@ class ScopedBotFlagOverride
 };
 
 // Passes entity packing through with a scoped FL_BOT override
-static void CS2BH_FASTCALL DetourPackEntities(void* serverObject, void* packContext, int clientCount, void* clients, void* snapshotContext)
+void CS2BH_FASTCALL DetourPackEntities(void* serverObject, void* packContext, int clientCount, void* clients, void* snapshotContext)
 {
     std::lock_guard<std::recursive_mutex> lock(g_packEntitiesMutex);
     if (g_packEntitiesDepth != 0)
@@ -295,9 +307,9 @@ static void CS2BH_FASTCALL DetourPackEntities(void* serverObject, void* packCont
 }
 
 // Restores managed clients only at the same-map teardown call site
-static void* CS2BH_FASTCALL DetourSameMapClientCollector(void* collection, uintptr_t source)
+void* CS2BH_FASTCALL DetourSameMapClientCollector(void* collection, uintptr_t source)
 {
-#if defined(_MSC_VER)
+#ifdef _MSC_VER
     void* returnAddress = _ReturnAddress();
 #else
     void* returnAddress = __builtin_extract_return_addr(__builtin_return_address(0));
@@ -312,7 +324,7 @@ static void* CS2BH_FASTCALL DetourSameMapClientCollector(void* collection, uintp
 }
 
 // Prepares one target and replaces its original pointer with the trampoline
-template <typename Function> static bool PrepareFunchook(Function& original, void* target, void* detour, const char* name)
+template <typename Function> bool PrepareFunchook(Function& original, void* target, void* detour, const char* name)
 {
     if (!g_funchook)
     {
@@ -339,7 +351,7 @@ template <typename Function> static bool PrepareFunchook(Function& original, voi
 }
 
 // Clears all published hook targets and trampoline pointers
-static void ClearBindings()
+void ClearBindings()
 {
     g_quotaTrampoline = nullptr;
     g_packEntitiesTrampoline = nullptr;
@@ -357,7 +369,7 @@ static void ClearBindings()
 }
 
 // Restores Bot identity while the engine counts bot quota
-static int64_t CS2BH_FASTCALL DetourMaintainBotQuota(void* manager)
+int64_t CS2BH_FASTCALL DetourMaintainBotQuota(void* manager)
 {
     if (!g_plugin.IsDisguiseEnabled()) return g_quotaTrampoline ? g_quotaTrampoline(manager) : 0;
     PopulationTransactionScope scope(true);
@@ -365,7 +377,7 @@ static int64_t CS2BH_FASTCALL DetourMaintainBotQuota(void* manager)
 }
 
 // Restores Bot identity while the engine applies mp_humanteam
-static int64_t CS2BH_FASTCALL DetourApplyHumanTeamRestriction()
+int64_t CS2BH_FASTCALL DetourApplyHumanTeamRestriction()
 {
     if (!g_plugin.IsDisguiseEnabled()) return g_applyHumanTeamRestrictionTrampoline ? g_applyHumanTeamRestrictionTrampoline() : 0;
     PopulationTransactionScope scope(true);
@@ -373,7 +385,7 @@ static int64_t CS2BH_FASTCALL DetourApplyHumanTeamRestriction()
 }
 
 // Restores Bot identity only while the engine validates an initial team join
-static int64_t CS2BH_FASTCALL DetourHandleCommandJoinTeam(void* controller, unsigned int requestedTeam, bool unknownFlag)
+int64_t CS2BH_FASTCALL DetourHandleCommandJoinTeam(void* controller, unsigned int requestedTeam, bool unknownFlag)
 {
     if (!g_plugin.IsDisguiseEnabled())
         return g_handleJoinTeamTrampoline ? g_handleJoinTeamTrampoline(controller, requestedTeam, unknownFlag) : 0;
@@ -389,7 +401,7 @@ static int64_t CS2BH_FASTCALL DetourHandleCommandJoinTeam(void* controller, unsi
 }
 
 // Resolves and prepares the bot quota detour
-static void PrepareQuotaHook(const nlohmann::json& gamedata, const sig::ModuleInfo& serverModule)
+void PrepareQuotaHook(const nlohmann::json& gamedata, const sig::ModuleInfo& serverModule)
 {
     if (!serverModule) return;
     std::string signature = sig::FindPlatformSig(gamedata, "CCSBotManager::MaintainBotQuota");
@@ -413,7 +425,7 @@ static void PrepareQuotaHook(const nlohmann::json& gamedata, const sig::ModuleIn
 }
 
 // Resolves and prepares the team-join identity detour
-static void PrepareHandleJoinTeamHook(const nlohmann::json& gamedata, const sig::ModuleInfo& serverModule)
+void PrepareHandleJoinTeamHook(const nlohmann::json& gamedata, const sig::ModuleInfo& serverModule)
 {
     if (!serverModule) return;
     std::string signature = sig::FindPlatformSig(gamedata, "CCSPlayerController::HandleCommand_JoinTeam");
@@ -441,7 +453,7 @@ static void PrepareHandleJoinTeamHook(const nlohmann::json& gamedata, const sig:
 }
 
 // Resolves and prepares the human-team restriction detour
-static void PrepareHumanTeamRestrictionHook(const nlohmann::json& gamedata, const sig::ModuleInfo& serverModule)
+void PrepareHumanTeamRestrictionHook(const nlohmann::json& gamedata, const sig::ModuleInfo& serverModule)
 {
     if (!serverModule) return;
     std::string signature = sig::FindPlatformSig(gamedata, "MpHumanTeam_ApplyRestriction");
@@ -469,7 +481,7 @@ static void PrepareHumanTeamRestrictionHook(const nlohmann::json& gamedata, cons
 }
 
 // Resolves and prepares the entity-packing detour
-static void PreparePackEntitiesHook(const nlohmann::json& gamedata)
+void PreparePackEntitiesHook(const nlohmann::json& gamedata)
 {
     std::string signature = sig::FindPlatformSig(gamedata, "CNetworkGameServer::PackEntities");
     std::vector<uint8_t> bytes;
@@ -502,7 +514,7 @@ static void PreparePackEntitiesHook(const nlohmann::json& gamedata)
 }
 
 // Resolves the helper called immediately before the same-map client teardown loop
-static void PrepareSameMapTeardownHook(const nlohmann::json& gamedata, const sig::ModuleInfo& serverModule)
+void PrepareSameMapTeardownHook(const nlohmann::json& gamedata, const sig::ModuleInfo& serverModule)
 {
     if (!serverModule) return;
     constexpr const char* kTargetName = "CCSGameRules::SameMapTeardown";
@@ -531,9 +543,9 @@ static void PrepareSameMapTeardownHook(const nlohmann::json& gamedata, const sig
     }
 
     auto* callSite = static_cast<unsigned char*>(matches.front()) + callOffset;
-    const uintptr_t moduleBegin = reinterpret_cast<uintptr_t>(serverModule.base);
+    const auto moduleBegin = reinterpret_cast<uintptr_t>(serverModule.base);
     const uintptr_t moduleEnd = moduleBegin + serverModule.size;
-    const uintptr_t callAddress = reinterpret_cast<uintptr_t>(callSite);
+    const auto callAddress = reinterpret_cast<uintptr_t>(callSite);
     if (callAddress < moduleBegin || callAddress > moduleEnd - 5 || callSite[0] != 0xE8)
     {
         META_CONPRINTF("[BOTHIDER] warning: same-map teardown helper call is invalid\n");
@@ -543,7 +555,7 @@ static void PrepareSameMapTeardownHook(const nlohmann::json& gamedata, const sig
     int32_t displacement = 0;
     std::memcpy(&displacement, callSite + 1, sizeof(displacement));
     auto* target = callSite + 5 + displacement;
-    const uintptr_t targetAddress = reinterpret_cast<uintptr_t>(target);
+    const auto targetAddress = reinterpret_cast<uintptr_t>(target);
     if (targetAddress < moduleBegin || targetAddress >= moduleEnd)
     {
         META_CONPRINTF("[BOTHIDER] warning: same-map teardown helper target is outside server module\n");
@@ -557,6 +569,8 @@ static void PrepareSameMapTeardownHook(const nlohmann::json& gamedata, const sig
         g_sameMapTeardownReturnAddress = callSite + 5;
     }
 }
+
+} // namespace
 
 // Resolves and prepares every optional identity detour
 void PrepareAll(const nlohmann::json& gamedata, const sig::ModuleInfo& serverModule)

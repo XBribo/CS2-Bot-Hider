@@ -56,8 +56,8 @@ class HiderPlugin : public ISmmPlugin, public IMetamodListener
     void HookGameFramePost(bool simulating, bool firstTick, bool lastTick);
 
     // ICvar::DispatchConCommand — wrap Valve population commands in one identity transaction
-    void HookDispatchConCommandPre(ConCommandRef cmd, const CCommandContext& ctx, const CCommand& args);
-    void HookDispatchConCommandPost(ConCommandRef cmd, const CCommandContext& ctx, const CCommand& args);
+    void HookDispatchConCommandPre(ConCommandRef command, const CCommandContext&, const CCommand& arguments);
+    void HookDispatchConCommandPost(ConCommandRef command, const CCommandContext&, const CCommand& arguments);
 
     // Changes the global managed-bot identity mode
     void SetIdentityMode(IdentityMode mode);

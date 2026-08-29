@@ -1,9 +1,15 @@
 // fake_client_manager.cpp
 
 #include "fake_client_manager.h"
+#include "personas.h"
 #include "slot_publisher.h"
+#include "steamid_provider.h"
 
 #include <chrono>
+#include <cstdint>
+#include <mutex>
+#include <cstdio>
+#include <memory>
 
 namespace cs2bh {
 
@@ -118,7 +124,7 @@ void FakeClientManager::OnTick()
             if (!s.active || !m_fakePingEnabled) continue;
             s.display.RecordSample(s.jitter.NextSample());
             int produced = s.display.MaybeProduce();
-            if (produced >= 0) pending[n++] = { i, produced };
+            if (produced >= 0) pending[n++] = { .slot = i, .ping = produced };
         }
     }
     for (int i = 0; i < n; ++i)

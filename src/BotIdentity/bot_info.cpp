@@ -4,8 +4,13 @@
 
 #include <charconv>
 #include <chrono>
+#include <cstdint>
 #include <cstdio>
 #include <fstream>
+#include <string>
+#include <system_error>
+#include <utility>
+#include <vector>
 
 #include <nlohmann/json.hpp>
 
@@ -32,7 +37,7 @@ bool ParseAccountId(const std::string& text, uint32_t& accountId)
     const char* begin = text.data();
     const char* end = begin + text.size();
     auto [position, error] = std::from_chars(begin, end, accountId);
-    return error == std::errc{} && position == end && accountId != 0;
+    return error == static_cast<std::errc>(0) && position == end && accountId != 0;
 }
 } // namespace
 
@@ -65,7 +70,7 @@ bool BotInfoStore::Load(const char* path)
         return false;
     }
 
-    for (auto& [key, val] : root["players"].items())
+    for (const auto& [key, val] : root["players"].items())
     {
         if (!val.is_object()) continue;
         BotEntry e;
@@ -80,7 +85,7 @@ bool BotInfoStore::Load(const char* path)
         if (val.contains("scoreboard_flair") && val["scoreboard_flair"].is_number_unsigned())
         {
             uint64_t flair = val["scoreboard_flair"].get<uint64_t>();
-            e.scoreboardFlair = flair <= 0xFFFFu ? static_cast<uint32_t>(flair) : 0;
+            e.scoreboardFlair = flair <= 0xFFFFU ? static_cast<uint32_t>(flair) : 0;
         }
         else if (val.contains("scoreboard_flair") && val["scoreboard_flair"].is_number_integer())
         {

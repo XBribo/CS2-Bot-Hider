@@ -1,11 +1,13 @@
 #include "avatar_override.h"
 
+#include "ISmmPlugin.h"
 #include "fake_client_manager.h"
 #include "personas.h"
 #include "plugin.h"
 #include "slot_publisher.h"
 
 #include <array>
+#include <cstdint>
 #include <cstdio>
 #include <cstring>
 #include <vector>
@@ -15,26 +17,28 @@
 
 namespace cs2bh::avatar {
 
+namespace {
+
 struct AvatarRuntimeState
 {
-    uint32_t processedSequence = 0xFFFFFFFFu;
+    uint32_t processedSequence = 0xFFFFFFFFU;
     uint64_t processedSteamId = 0;
     uint64_t appliedSteamId = 0;
     bool applied = false;
 };
 
-static INetworkStringTableContainer* g_networkStringTables = nullptr;
-static std::array<AvatarRuntimeState, PersonaPool::kMaxSlots> g_avatarStates{};
-static INetworkStringTable* g_lastAvatarTable = nullptr;
+INetworkStringTableContainer* g_networkStringTables = nullptr;
+std::array<AvatarRuntimeState, PersonaPool::kMaxSlots> g_avatarStates{};
+INetworkStringTable* g_lastAvatarTable = nullptr;
 
 // Formats a SteamID64 key for ServerAvatarOverrides
-static void FormatAvatarSteamId(uint64_t steamId, char* buffer, size_t length)
+void FormatAvatarSteamId(uint64_t steamId, char* buffer, size_t length)
 {
     std::snprintf(buffer, length, "%llu", static_cast<unsigned long long>(steamId));
 }
 
 // Clears one SteamID entry from ServerAvatarOverrides
-static void ClearAvatarOverride(INetworkStringTable* table, uint64_t steamId)
+void ClearAvatarOverride(INetworkStringTable* table, uint64_t steamId)
 {
     if (!table || steamId == 0) return;
     char key[32];
@@ -50,7 +54,7 @@ static void ClearAvatarOverride(INetworkStringTable* table, uint64_t steamId)
 }
 
 // Writes one validated PNG to ServerAvatarOverrides
-static bool SetAvatarOverride(
+bool SetAvatarOverride(
     INetworkStringTable* table, uint64_t steamId, const std::vector<unsigned char>& bytes, int& index, char* error, size_t errorLength)
 {
     if (!table || steamId == 0 || bytes.empty())
@@ -107,7 +111,7 @@ static bool SetAvatarOverride(
 }
 
 // Enables reliable server avatar data before writing overrides
-static bool EnsureReliableAvatarData()
+bool EnsureReliableAvatarData()
 {
     ConVarRefAbstract reliableAvatarData("sv_reliableavatardata");
     if (!reliableAvatarData.IsValidRef() || !reliableAvatarData.IsConVarDataAvailable())
@@ -126,6 +130,8 @@ static bool EnsureReliableAvatarData()
     }
     return true;
 }
+
+} // namespace
 
 // Sets the network string-table interface used for avatar overrides
 void SetStringTableContainer(INetworkStringTableContainer* container) { g_networkStringTables = container; }
@@ -211,7 +217,7 @@ void ProcessOverrides()
         char avatarError[128] = { 0 };
         if (!SetAvatarOverride(table, steamId, request.data, index, avatarError, sizeof(avatarError)))
         {
-            META_CONPRINTF("[BOTHIDER] avatar rejected slot=%d sid=%llu: %s\n", slot, static_cast<unsigned long long>(steamId),
+            META_CONPRINTF("[BOTHIDER] avatar rejected slot=%d sid=%llu: %s\n", slot, steamId,
                            avatarError);
             continue;
         }
@@ -219,7 +225,7 @@ void ProcessOverrides()
         state.appliedSteamId = steamId;
         state.applied = true;
         Publisher().PublishAvatarState(slot, true, steamId);
-        META_CONPRINTF("[BOTHIDER] avatar applied slot=%d sid=%llu bytes=%u index=%d\n", slot, static_cast<unsigned long long>(steamId),
+        META_CONPRINTF("[BOTHIDER] avatar applied slot=%d sid=%llu bytes=%u index=%d\n", slot, steamId,
                        request.length, index);
     }
 }

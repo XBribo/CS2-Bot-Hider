@@ -75,6 +75,7 @@ Checks: >
   -modernize-use-nodiscard,
   -modernize-avoid-c-arrays,
   -performance-move-const-arg,
+  -portability-avoid-pragma-once,
   -readability-braces-around-statements,
   -readability-identifier-length,
   -readability-magic-numbers,

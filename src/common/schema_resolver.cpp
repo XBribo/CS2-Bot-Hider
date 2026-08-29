@@ -3,12 +3,15 @@
 // Resolves networked field offsets from the live ISchemaSystem at runtime.
 
 #include "schema_resolver.h"
+#include "schemasystem/schematypes.h"
+#include "platform.h"
 #include "version_targets.h"
 
 #include <schemasystem/schemasystem.h>
 
-#if defined(_WIN32)
-#include <Windows.h>
+#ifdef _WIN32
+#include <libloaderapi.h>
+#include <minwindef.h>
 #else
 #include <dlfcn.h>
 #include <link.h>
@@ -25,7 +28,7 @@ namespace {
 ISchemaSystem* g_schema = nullptr;
 std::unordered_map<std::string, int> g_offsetCache;
 
-#if !defined(_WIN32)
+#ifndef _WIN32
 const char* BaseName(const char* path)
 {
     if (!path) return "";
@@ -68,7 +71,7 @@ bool Init()
 {
     if (g_schema) return true;
 
-#if defined(_WIN32)
+#ifdef _WIN32
     HMODULE mod = GetModuleHandleA(targets::kSchemaSystemModuleName);
     if (!mod) return false;
     auto createIface = reinterpret_cast<CreateIfaceFn>(GetProcAddress(mod, "CreateInterface"));
@@ -83,7 +86,9 @@ bool Init()
     return g_schema != nullptr;
 }
 
-static CSchemaClassInfo* FindClass(const char* className)
+namespace {
+
+CSchemaClassInfo* FindClass(const char* className)
 {
     static const char* kScopes[] = {
         targets::kSchemaServerTypeScope,
@@ -105,6 +110,8 @@ static CSchemaClassInfo* FindClass(const char* className)
     }
     return nullptr;
 }
+
+} // namespace
 
 int GetFieldOffset(const char* className, const char* fieldName)
 {

@@ -27,7 +27,7 @@ inline int g_isHltvOffset = 322; // bool
 inline const char* ReadName(const void* client)
 {
     if (!client) return nullptr;
-    auto* utl = reinterpret_cast<const char* const*>(reinterpret_cast<const unsigned char*>(client) + g_nameOffset);
+    const auto* utl = reinterpret_cast<const char* const*>(reinterpret_cast<const unsigned char*>(client) + g_nameOffset);
     return *utl;
 }
 
@@ -36,7 +36,7 @@ inline void ClearFakePlayer(void* client)
 {
     auto* raw = reinterpret_cast<unsigned char*>(client);
     auto& connectionFlags = raw[g_connectionTypeFlagsOffset];
-    connectionFlags = static_cast<unsigned char>((connectionFlags & ~0x08u) | 0x01u);
+    connectionFlags = static_cast<unsigned char>((connectionFlags & ~0x08U) | 0x01U);
     raw[g_fakePlayerOffset] = 0;
 }
 
@@ -45,7 +45,7 @@ inline void SetFakePlayer(void* client)
 {
     auto* raw = reinterpret_cast<unsigned char*>(client);
     auto& connectionFlags = raw[g_connectionTypeFlagsOffset];
-    connectionFlags = static_cast<unsigned char>((connectionFlags & ~0x01u) | 0x08u);
+    connectionFlags = static_cast<unsigned char>((connectionFlags & ~0x01U) | 0x08U);
     raw[g_fakePlayerOffset] = 1;
 }
 
@@ -60,7 +60,7 @@ inline void WriteSteamId(void* client, uint64_t steamId)
 // Checks whether the client has the fake-player flag
 inline bool IsFakePlayerSet(const void* client)
 {
-    auto* raw = reinterpret_cast<const unsigned char*>(client);
+    const auto* raw = reinterpret_cast<const unsigned char*>(client);
     return raw[g_fakePlayerOffset] == 0x01;
 }
 
@@ -68,7 +68,7 @@ inline bool IsFakePlayerSet(const void* client)
 inline bool IsHltv(const void* client)
 {
     if (!client) return false;
-    auto* raw = reinterpret_cast<const unsigned char*>(client);
+    const auto* raw = reinterpret_cast<const unsigned char*>(client);
     return raw[g_isHltvOffset] != 0;
 }
 

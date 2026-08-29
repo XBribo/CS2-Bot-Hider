@@ -1,20 +1,21 @@
 #include "identity_runtime.h"
 
+#include "ISmmPlugin.h"
 #include "bot_info.h"
 #include "entity_access.h"
 #include "fake_client_manager.h"
 #include "identity_hooks.h"
 #include "identity_state.h"
 #include "personas.h"
-#include "plugin.h"
 #include "serversideclient_ref.h"
 #include "version_targets.h"
 
 #include <algorithm>
-#include <array>
 #include <chrono>
 #include <cstdint>
 #include <cstring>
+#include <string>
+#include <utility>
 #include <vector>
 
 #include <entity2/entityinstance.h>
@@ -25,8 +26,10 @@ extern INetworkServerService* g_pNetworkServerService;
 
 namespace cs2bh {
 
+namespace {
+
 // Returns whether a SteamID is used by another connected client
-static bool IsSteamIdInUseByOther(uint64_t steamId, int exceptSlot)
+bool IsSteamIdInUseByOther(uint64_t steamId, int exceptSlot)
 {
     if (steamId == 0 || !g_pNetworkServerService) return false;
     auto* gameServer = g_pNetworkServerService->GetIGameServer();
@@ -47,7 +50,7 @@ static bool IsSteamIdInUseByOther(uint64_t steamId, int exceptSlot)
 }
 
 // Generates a random value for SteamID pool selection
-static uint64_t NextSteamIdRandom()
+uint64_t NextSteamIdRandom()
 {
     static uint64_t state = static_cast<uint64_t>(std::chrono::steady_clock::now().time_since_epoch().count()) | 1ULL;
     uint64_t x = state;
@@ -59,7 +62,7 @@ static uint64_t NextSteamIdRandom()
 }
 
 // Resolves the current pawn for one managed bot slot
-static BotPawnRef ResolveManagedBotPawn(int slot)
+BotPawnRef ResolveManagedBotPawn(int slot)
 {
     BotPawnRef result;
     const int pawnHandleOffset = entity_access::BotPawnHandleOffset();
@@ -84,7 +87,7 @@ static BotPawnRef ResolveManagedBotPawn(int slot)
     if (!pawn || entity_access::IsEntityBeingDeleted(pawn)) return result;
 
     auto* pawnEntity = reinterpret_cast<CEntityInstance*>(pawn);
-    if (static_cast<uint32_t>(pawnEntity->GetRefEHandle().ToInt()) != pawnHandle)
+    if (std::cmp_not_equal(static_cast<uint32_t>(pawnEntity->GetRefEHandle().ToInt()), pawnHandle))
     {
         return result;
     }
@@ -95,7 +98,7 @@ static BotPawnRef ResolveManagedBotPawn(int slot)
 }
 
 // Collects every unique pawn currently owned by managed bots
-static std::vector<BotPawnRef> CollectManagedBotPawns()
+std::vector<BotPawnRef> CollectManagedBotPawns()
 {
     std::vector<BotPawnRef> pawns;
     pawns.reserve(PersonaPool::kMaxSlots);
@@ -103,7 +106,7 @@ static std::vector<BotPawnRef> CollectManagedBotPawns()
     {
         BotPawnRef pawn = ResolveManagedBotPawn(slot);
         if (!pawn.instance) continue;
-        auto duplicate = std::find_if(pawns.begin(), pawns.end(), [&pawn](const BotPawnRef& existing) {
+        auto duplicate = std::ranges::find_if(pawns, [&pawn](const BotPawnRef& existing) {
             return existing.instance == pawn.instance;
         });
         if (duplicate == pawns.end()) pawns.push_back(pawn);
@@ -112,7 +115,7 @@ static std::vector<BotPawnRef> CollectManagedBotPawns()
 }
 
 // Checks whether a current client still references one controller
-static bool IsControllerReferencedByClient(void* controller, uint16_t* userIdOut)
+bool IsControllerReferencedByClient(void* controller, uint16_t* userIdOut)
 {
     for (int slot = 0; slot < PersonaPool::kMaxSlots; ++slot)
     {
@@ -134,6 +137,8 @@ static bool IsControllerReferencedByClient(void* controller, uint16_t* userIdOut
     }
     return false;
 }
+
+} // namespace
 
 // Collects controller and client state for a managed team join
 ManagedControllerTrace TraceManagedController(void* controller)
@@ -202,7 +207,7 @@ void RestoreBotFlagOverride(const std::vector<BotPawnRef>& pawns)
         }
 
         auto* currentEntity = reinterpret_cast<CEntityInstance*>(currentPawn);
-        if (static_cast<uint32_t>(currentEntity->GetRefEHandle().ToInt()) != pawn.handle)
+        if (std::cmp_not_equal(static_cast<uint32_t>(currentEntity->GetRefEHandle().ToInt()), pawn.handle))
         {
             continue;
         }
@@ -277,7 +282,7 @@ uint64_t MakeUniqueSteamId(int slot, uint64_t desired)
     for (const BotEntry& entry : BotInfo().All())
     {
         if (entry.steamId64 == 0 || IsSteamIdInUseByOther(entry.steamId64, slot) ||
-            std::find(available.begin(), available.end(), entry.steamId64) != available.end())
+            std::ranges::find(available, entry.steamId64) != available.end())
         {
             continue;
         }
@@ -372,13 +377,13 @@ bool QueueControllerRemovalForClient(void* client, int slot)
 
     const uint32_t handle = static_cast<uint32_t>(reinterpret_cast<CEntityInstance*>(controller)->GetRefEHandle().ToInt());
     auto& pending = identity_state::PendingControllerRemovals();
-    auto duplicate = std::find_if(pending.begin(), pending.end(), [handle](const identity_state::PendingControllerRemoval& item) {
+    auto duplicate = std::ranges::find_if(pending, [handle](const identity_state::PendingControllerRemoval& item) {
         return item.handle == handle;
     });
     if (duplicate != pending.end()) return true;
 
     const uint16_t userId = *reinterpret_cast<uint16_t*>(reinterpret_cast<unsigned char*>(client) + ssc::g_userIdOffset);
-    pending.push_back({ controller, handle, slot, userId, 0 });
+    pending.push_back({ .controller = controller, .handle = handle, .slot = slot, .userId = userId, .referencedFrames = 0 });
     return true;
 }
 
@@ -399,7 +404,7 @@ void DrainPendingControllerRemovals()
         void* current = entity_access::ResolveEntityInstance(entityIndex, className, sizeof(className));
         if (current != item->controller || std::strcmp(className, "cs_player_controller") != 0 ||
             entity_access::IsEntityBeingDeleted(current) ||
-            static_cast<uint32_t>(reinterpret_cast<CEntityInstance*>(current)->GetRefEHandle().ToInt()) != item->handle)
+            std::cmp_not_equal(static_cast<uint32_t>(reinterpret_cast<CEntityInstance*>(current)->GetRefEHandle().ToInt()), item->handle))
         {
             item = pending.erase(item);
             continue;
