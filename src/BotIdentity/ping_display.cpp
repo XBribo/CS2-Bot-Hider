@@ -46,8 +46,7 @@ void PingDisplay::Reset()
 
 // ─────────────────────────────────────────────────────────────────────
 
-PingJitter::PingJitter(int baselineMs, int minimumMs, int maximumMs)
-    : m_Baseline(baselineMs), m_Minimum(minimumMs), m_Maximum(maximumMs)
+PingJitter::PingJitter(int baselineMs, int minimumMs, int maximumMs) : m_Baseline(baselineMs), m_Minimum(minimumMs), m_Maximum(maximumMs)
 {
     if (m_Minimum < 1) m_Minimum = 1;
     if (m_Maximum > 999) m_Maximum = 999;

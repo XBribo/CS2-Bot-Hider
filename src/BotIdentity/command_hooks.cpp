@@ -64,9 +64,6 @@ void HiderPlugin::Hook_DispatchConCommand_Pre(ConCommandRef command, const CComm
 
     if (IsBotAddCommand(commandName))
     {
-        // Native Bot mode leaves Valve's population state authoritative. The
-        // transaction is only needed while player mode temporarily restores
-        // fake-client identity around the command.
         if (IsDisguiseEnabled())
         {
             identity_hooks::BeginPopulationTransaction(true);
@@ -146,8 +143,8 @@ HiderPlugin::Hook_StartChangeLevel_Pre(const char* mapName, const char* landmark
     Manager().ReleaseAll();
     avatar::ProcessOverrides();
     BotInfo().ResetAssignments();
-    META_CONPRINTF("[BOTHIDER] StartChangeLevel PRE restored=%d map='%s' landmark='%s'\n", restoredClients,
-                   mapName ? mapName : "?", landmark ? landmark : "");
+    META_CONPRINTF("[BOTHIDER] StartChangeLevel PRE restored=%d map='%s' landmark='%s'\n", restoredClients, mapName ? mapName : "?",
+                   landmark ? landmark : "");
     RETURN_META_VALUE(MRES_IGNORED, nullptr);
 }
 

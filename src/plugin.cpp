@@ -304,12 +304,11 @@ bool HiderPlugin::Load(PluginId id, ISmmAPI* ismm, char* error, size_t maxlen, b
     if (identity_hooks::HandleJoinTeamTarget()) ++installedHooks;
     if (identity_hooks::HumanTeamRestrictionTarget()) ++installedHooks;
     if (identity_hooks::SameMapTeardownTarget()) ++installedHooks;
-    META_CONPRINTF("[BOTHIDER] config mode=%s fake_ping=%s range=%d-%d identities=%zu\n",
-                   IsBotMode() ? "bot" : "player", m_bFakePingEnabled ? "on" : "off", m_FakePingMin, m_FakePingMax,
-                   BotInfo().Count());
+    META_CONPRINTF("[BOTHIDER] config mode=%s fake_ping=%s range=%d-%d identities=%zu\n", IsBotMode() ? "bot" : "player",
+                   m_bFakePingEnabled ? "on" : "off", m_FakePingMin, m_FakePingMax, BotInfo().Count());
     META_CONPRINTF("[BOTHIDER] loaded v%s hooks=%d/5 util_remove=%s schema=%s shm=%s avatar=%s\n", GetVersion(), installedHooks,
-                   entity_access::UtilRemoveTarget() ? "ok" : "fail", schemaReady ? "ok" : "fail",
-                   sharedMemoryReady ? "ok" : "fail", networkStringTables ? "ok" : "fail");
+                   entity_access::UtilRemoveTarget() ? "ok" : "fail", schemaReady ? "ok" : "fail", sharedMemoryReady ? "ok" : "fail",
+                   networkStringTables ? "ok" : "fail");
     return true;
 }
 

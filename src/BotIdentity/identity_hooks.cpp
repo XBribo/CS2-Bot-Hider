@@ -88,8 +88,7 @@ class ScopedNativeBotIdentityRestore
     void Capture()
     {
         if (ssc::OFFSET_m_UserID < 0 || ssc::OFFSET_m_nEntityIndex < 0 || ssc::OFFSET_m_NetChannel < 0 ||
-            ssc::OFFSET_m_nConnectionTypeFlags < 0 || ssc::OFFSET_m_bFakePlayer < 0 ||
-            targets::kController_FakeClientFlagsOffset < 0)
+            ssc::OFFSET_m_nConnectionTypeFlags < 0 || ssc::OFFSET_m_bFakePlayer < 0 || targets::kController_FakeClientFlagsOffset < 0)
         {
             if (!g_QuotaInvalidOffsetWarned)
             {
@@ -142,8 +141,8 @@ class ScopedNativeBotIdentityRestore
             }
             if (std::strcmp(className, "cs_player_controller") != 0 || entity_access::IsEntityBeingDeleted(snapshot.Controller))
             {
-                META_CONPRINTF("[BOTHIDER] warning: quota identity restore invalid controller slot=%d userid=%u entIdx=%d cls='%s'\n",
-                               slot, static_cast<unsigned int>(snapshot.UserId), entityIndex, className);
+                META_CONPRINTF("[BOTHIDER] warning: quota identity restore invalid controller slot=%d userid=%u entIdx=%d cls='%s'\n", slot,
+                               static_cast<unsigned int>(snapshot.UserId), entityIndex, className);
                 g_QuotaResolveWarned[slot] = true;
                 snapshot.Controller = nullptr;
                 continue;
@@ -162,9 +161,8 @@ class ScopedNativeBotIdentityRestore
             if (*flags != before)
             {
                 entity_access::MarkEntityFieldChanged(snapshot.Controller,
-                                                       static_cast<uint32_t>(targets::kController_FakeClientFlagsOffset));
+                                                      static_cast<uint32_t>(targets::kController_FakeClientFlagsOffset));
             }
-
         }
     }
 
@@ -199,18 +197,17 @@ class ScopedNativeBotIdentityRestore
             void* controller = entity_access::ResolveEntityInstance(entityIndex, className, sizeof(className));
             if (!IsValidController(controller, className, snapshot.Handle) || controller != snapshot.Controller)
             {
-                META_CONPRINTF("[BOTHIDER] warning: quota identity restore skipped slot=%d userid=%u: controller rebound\n",
-                               snapshot.Slot, static_cast<unsigned int>(snapshot.UserId));
+                META_CONPRINTF("[BOTHIDER] warning: quota identity restore skipped slot=%d userid=%u: controller rebound\n", snapshot.Slot,
+                               static_cast<unsigned int>(snapshot.UserId));
                 continue;
             }
 
-            auto* flags = reinterpret_cast<uint32_t*>(reinterpret_cast<unsigned char*>(controller) +
-                                                      targets::kController_FakeClientFlagsOffset);
+            auto* flags =
+                reinterpret_cast<uint32_t*>(reinterpret_cast<unsigned char*>(controller) + targets::kController_FakeClientFlagsOffset);
             if (*flags != snapshot.ControllerFlags)
             {
                 *flags = snapshot.ControllerFlags;
-                entity_access::MarkEntityFieldChanged(controller,
-                                                       static_cast<uint32_t>(targets::kController_FakeClientFlagsOffset));
+                entity_access::MarkEntityFieldChanged(controller, static_cast<uint32_t>(targets::kController_FakeClientFlagsOffset));
             }
         }
     }
@@ -362,8 +359,7 @@ static void ClearBindings()
 // Restores Bot identity while the engine counts bot quota
 static int64_t CS2BH_FASTCALL Detour_MaintainBotQuota(void* manager)
 {
-    if (!g_Plugin.IsDisguiseEnabled())
-        return g_pfnQuotaTramp ? g_pfnQuotaTramp(manager) : 0;
+    if (!g_Plugin.IsDisguiseEnabled()) return g_pfnQuotaTramp ? g_pfnQuotaTramp(manager) : 0;
     PopulationTransactionScope scope(true);
     return g_pfnQuotaTramp ? g_pfnQuotaTramp(manager) : 0;
 }
@@ -371,8 +367,7 @@ static int64_t CS2BH_FASTCALL Detour_MaintainBotQuota(void* manager)
 // Restores Bot identity while the engine applies mp_humanteam
 static int64_t CS2BH_FASTCALL Detour_ApplyHumanTeamRestriction()
 {
-    if (!g_Plugin.IsDisguiseEnabled())
-        return g_pfnApplyHumanTeamRestrictionTramp ? g_pfnApplyHumanTeamRestrictionTramp() : 0;
+    if (!g_Plugin.IsDisguiseEnabled()) return g_pfnApplyHumanTeamRestrictionTramp ? g_pfnApplyHumanTeamRestrictionTramp() : 0;
     PopulationTransactionScope scope(true);
     return g_pfnApplyHumanTeamRestrictionTramp ? g_pfnApplyHumanTeamRestrictionTramp() : 0;
 }

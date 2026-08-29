@@ -10,7 +10,6 @@ int CountHumanClients();
 // Applies the requested native or disguised identity to all managed clients
 void ApplyManagedDisguise(bool disguised);
 
-
 // Selects a non-colliding SteamID for one managed slot
 uint64_t MakeUniqueSteamId(int slot, uint64_t desired);
 
