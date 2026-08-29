@@ -29,24 +29,24 @@ namespace cs2bh::entity_access {
 using UtilRemoveFn = void(CS2BH_FASTCALL*)(void*);
 using ClientSetNameFn = void(CS2BH_FASTCALL*)(void*, const char*);
 
-static void* g_pGameResourceService = nullptr;
-static UtilRemoveFn g_pfnUtilRemove = nullptr;
-static void** g_ppEntSysGlobal = nullptr;
-static int g_BotPawnHandleOffset = -1;
+static void* g_gameResourceService = nullptr;
+static UtilRemoveFn g_utilRemove = nullptr;
+static void** g_entitySystemGlobal = nullptr;
+static int g_botPawnHandleOffset = -1;
 
 // Stores the GameResourceService interface used for entity resolution
-void SetGameResourceService(void* gameResourceService) { g_pGameResourceService = gameResourceService; }
+void SetGameResourceService(void* gameResourceService) { g_gameResourceService = gameResourceService; }
 
 // Returns the current GameResourceService interface
-void* GameResourceService() { return g_pGameResourceService; }
+void* GameResourceService() { return g_gameResourceService; }
 
 // Resolves one server-side client from its slot
 void* ResolveClientBySlot(int slot)
 {
-    if (!g_pNetworkServerService || targets::kClientListOffset < 0) return nullptr;
+    if (!g_pNetworkServerService || targets::g_clientListOffset < 0) return nullptr;
     auto* gameServer = g_pNetworkServerService->GetIGameServer();
     if (!gameServer) return nullptr;
-    auto* clients = reinterpret_cast<CUtlVector<void*>*>(reinterpret_cast<unsigned char*>(gameServer) + targets::kClientListOffset);
+    auto* clients = reinterpret_cast<CUtlVector<void*>*>(reinterpret_cast<unsigned char*>(gameServer) + targets::g_clientListOffset);
     const int count = clients->Count();
     if (count < 0 || count > 256 || slot < 0 || slot >= count) return nullptr;
     return clients->Element(slot);
@@ -65,8 +65,8 @@ bool RefreshClientUserInfo(int slot)
 // Resolves UTIL_Remove and its entity-system reference
 void ResolveUtilRemoveAndEntSys(const nlohmann::json& gamedata, const sig::ModuleInfo& serverModule)
 {
-    g_pfnUtilRemove = nullptr;
-    g_ppEntSysGlobal = nullptr;
+    g_utilRemove = nullptr;
+    g_entitySystemGlobal = nullptr;
     if (!serverModule)
     {
         META_CONPRINTF("[BOTHIDER] warning: %s module unresolved for signature scan\n", targets::kServerModuleName);
@@ -84,7 +84,7 @@ void ResolveUtilRemoveAndEntSys(const nlohmann::json& gamedata, const sig::Modul
 
     auto* hit = static_cast<unsigned char*>(sig::FindPatternIn(serverModule, bytes, wildcards));
     if (!hit) return;
-    g_pfnUtilRemove = reinterpret_cast<UtilRemoveFn>(hit);
+    g_utilRemove = reinterpret_cast<UtilRemoveFn>(hit);
 
     /*
      * Windows: mov rcx, [rip+disp32]
@@ -99,7 +99,7 @@ void ResolveUtilRemoveAndEntSys(const nlohmann::json& gamedata, const sig::Modul
         unsigned char* displacementAddress = hit + i + 3;
         const int32_t displacement = *reinterpret_cast<int32_t*>(displacementAddress);
         unsigned char* instructionEnd = displacementAddress + 4;
-        g_ppEntSysGlobal = reinterpret_cast<void**>(instructionEnd + displacement);
+        g_entitySystemGlobal = reinterpret_cast<void**>(instructionEnd + displacement);
         break;
     }
 }
@@ -109,36 +109,36 @@ void LoadMemberOffsets(const nlohmann::json& gamedata)
 {
     using sig::FindPlatformOffset;
 
-    ssc::OFFSET_m_UserIDString = FindPlatformOffset(gamedata, "CServerSideClient::m_UserIDString", ssc::OFFSET_m_UserIDString);
-    ssc::OFFSET_m_Name = FindPlatformOffset(gamedata, "CServerSideClient::m_Name", ssc::OFFSET_m_Name);
-    ssc::OFFSET_m_nClientSlot = FindPlatformOffset(gamedata, "CServerSideClient::m_nClientSlot", ssc::OFFSET_m_nClientSlot);
-    ssc::OFFSET_m_nEntityIndex = FindPlatformOffset(gamedata, "CServerSideClient::m_nEntityIndex", ssc::OFFSET_m_nEntityIndex);
-    ssc::OFFSET_m_Server = FindPlatformOffset(gamedata, "CServerSideClient::m_Server", ssc::OFFSET_m_Server);
-    ssc::OFFSET_m_NetChannel = FindPlatformOffset(gamedata, "CServerSideClient::m_NetChannel", ssc::OFFSET_m_NetChannel);
-    ssc::OFFSET_m_nConnectionTypeFlags =
-        FindPlatformOffset(gamedata, "CServerSideClient::m_nConnectionTypeFlags", ssc::OFFSET_m_nConnectionTypeFlags);
-    ssc::OFFSET_m_nSignonState = FindPlatformOffset(gamedata, "CServerSideClient::m_nSignonState", ssc::OFFSET_m_nSignonState);
-    ssc::OFFSET_m_pAttachedTo = FindPlatformOffset(gamedata, "CServerSideClient::m_pAttachedTo", ssc::OFFSET_m_pAttachedTo);
-    ssc::OFFSET_m_bFakePlayer = FindPlatformOffset(gamedata, "CServerSideClient::m_bFakePlayer", ssc::OFFSET_m_bFakePlayer);
-    ssc::OFFSET_m_UserID = FindPlatformOffset(gamedata, "CServerSideClient::m_UserID", ssc::OFFSET_m_UserID);
-    ssc::OFFSET_m_SteamID = FindPlatformOffset(gamedata, "CServerSideClient::m_SteamID", ssc::OFFSET_m_SteamID);
-    ssc::OFFSET_m_SteamIDMirror = FindPlatformOffset(gamedata, "CServerSideClient::m_SteamIDMirror", ssc::OFFSET_m_SteamIDMirror);
-    ssc::OFFSET_m_bIsHLTV = FindPlatformOffset(gamedata, "CServerSideClient::m_bIsHLTV", ssc::OFFSET_m_bIsHLTV);
+    ssc::g_userIdStringOffset = FindPlatformOffset(gamedata, "CServerSideClient::m_UserIDString", ssc::g_userIdStringOffset);
+    ssc::g_nameOffset = FindPlatformOffset(gamedata, "CServerSideClient::m_Name", ssc::g_nameOffset);
+    ssc::g_clientSlotOffset = FindPlatformOffset(gamedata, "CServerSideClient::m_nClientSlot", ssc::g_clientSlotOffset);
+    ssc::g_entityIndexOffset = FindPlatformOffset(gamedata, "CServerSideClient::m_nEntityIndex", ssc::g_entityIndexOffset);
+    ssc::g_serverOffset = FindPlatformOffset(gamedata, "CServerSideClient::m_Server", ssc::g_serverOffset);
+    ssc::g_netChannelOffset = FindPlatformOffset(gamedata, "CServerSideClient::m_NetChannel", ssc::g_netChannelOffset);
+    ssc::g_connectionTypeFlagsOffset =
+        FindPlatformOffset(gamedata, "CServerSideClient::m_nConnectionTypeFlags", ssc::g_connectionTypeFlagsOffset);
+    ssc::g_signonStateOffset = FindPlatformOffset(gamedata, "CServerSideClient::m_nSignonState", ssc::g_signonStateOffset);
+    ssc::g_attachedToOffset = FindPlatformOffset(gamedata, "CServerSideClient::m_pAttachedTo", ssc::g_attachedToOffset);
+    ssc::g_fakePlayerOffset = FindPlatformOffset(gamedata, "CServerSideClient::m_bFakePlayer", ssc::g_fakePlayerOffset);
+    ssc::g_userIdOffset = FindPlatformOffset(gamedata, "CServerSideClient::m_UserID", ssc::g_userIdOffset);
+    ssc::g_steamIdOffset = FindPlatformOffset(gamedata, "CServerSideClient::m_SteamID", ssc::g_steamIdOffset);
+    ssc::g_steamIdMirrorOffset = FindPlatformOffset(gamedata, "CServerSideClient::m_SteamIDMirror", ssc::g_steamIdMirrorOffset);
+    ssc::g_isHltvOffset = FindPlatformOffset(gamedata, "CServerSideClient::m_bIsHLTV", ssc::g_isHltvOffset);
 
-    targets::kClientListOffset = FindPlatformOffset(gamedata, "CNetworkGameServerBase::m_Clients", targets::kClientListOffset);
-    targets::kController_FakeClientFlagsOffset =
-        FindPlatformOffset(gamedata, "CBasePlayerController::FakeClientFlags", targets::kController_FakeClientFlagsOffset);
-    targets::kController_TeamOffset = FindPlatformOffset(gamedata, "CBaseEntity::m_iTeamNum", targets::kController_TeamOffset);
-    targets::kVTSlot_ClientSetName = FindPlatformOffset(gamedata, "CServerSideClient::SetName", targets::kVTSlot_ClientSetName);
-    targets::kEntSys_OffsetInGameResSvc =
-        FindPlatformOffset(gamedata, "GameResourceServiceServer::m_pEntitySystem", targets::kEntSys_OffsetInGameResSvc);
-    targets::kEntSys_IdentityChunksOffset =
-        FindPlatformOffset(gamedata, "CEntitySystem::m_EntityList", targets::kEntSys_IdentityChunksOffset);
-    targets::kEntIdentity_Size = FindPlatformOffset(gamedata, "CEntityIdentity::Size", targets::kEntIdentity_Size);
-    targets::kEntIdentity_InstanceOffset =
-        FindPlatformOffset(gamedata, "CEntityIdentity::m_pInstance", targets::kEntIdentity_InstanceOffset);
-    targets::kEntIdentity_ClassNameOffset =
-        FindPlatformOffset(gamedata, "CEntityIdentity::m_designerName", targets::kEntIdentity_ClassNameOffset);
+    targets::g_clientListOffset = FindPlatformOffset(gamedata, "CNetworkGameServerBase::m_Clients", targets::g_clientListOffset);
+    targets::g_controllerFakeClientFlagsOffset =
+        FindPlatformOffset(gamedata, "CBasePlayerController::FakeClientFlags", targets::g_controllerFakeClientFlagsOffset);
+    targets::g_controllerTeamOffset = FindPlatformOffset(gamedata, "CBaseEntity::m_iTeamNum", targets::g_controllerTeamOffset);
+    targets::g_vtableSlotClientSetName = FindPlatformOffset(gamedata, "CServerSideClient::SetName", targets::g_vtableSlotClientSetName);
+    targets::g_entitySystemOffsetInGameResourceService =
+        FindPlatformOffset(gamedata, "GameResourceServiceServer::m_pEntitySystem", targets::g_entitySystemOffsetInGameResourceService);
+    targets::g_entitySystemIdentityChunksOffset =
+        FindPlatformOffset(gamedata, "CEntitySystem::m_EntityList", targets::g_entitySystemIdentityChunksOffset);
+    targets::g_entityIdentitySize = FindPlatformOffset(gamedata, "CEntityIdentity::Size", targets::g_entityIdentitySize);
+    targets::g_entityIdentityInstanceOffset =
+        FindPlatformOffset(gamedata, "CEntityIdentity::m_pInstance", targets::g_entityIdentityInstanceOffset);
+    targets::g_entityIdentityClassNameOffset =
+        FindPlatformOffset(gamedata, "CEntityIdentity::m_designerName", targets::g_entityIdentityClassNameOffset);
 }
 
 // Reads one pointer while isolating invalid memory access on Windows
@@ -213,34 +213,35 @@ static bool SafeReadString(const void* address, char* output, size_t capacity)
 void* ResolveEntityInstance(int entityIndex, char* classnameOut, size_t classnameCap)
 {
     if (classnameOut && classnameCap) classnameOut[0] = '\0';
-    if (!g_pGameResourceService || entityIndex <= 0 || entityIndex >= 0x8000 || targets::kEntSys_OffsetInGameResSvc < 0 ||
-        targets::kEntSys_IdentityChunksOffset < 0 || targets::kEntIdentity_Size <= 0 || targets::kEntIdentity_InstanceOffset < 0 ||
-        (classnameOut && classnameCap && targets::kEntIdentity_ClassNameOffset < 0))
+    if (!g_gameResourceService || entityIndex <= 0 || entityIndex >= 0x8000 || targets::g_entitySystemOffsetInGameResourceService < 0 ||
+        targets::g_entitySystemIdentityChunksOffset < 0 || targets::g_entityIdentitySize <= 0 ||
+        targets::g_entityIdentityInstanceOffset < 0 || (classnameOut && classnameCap && targets::g_entityIdentityClassNameOffset < 0))
     {
         return nullptr;
     }
 
     void* entitySystem = nullptr;
-    if (!SafeReadPointer(reinterpret_cast<unsigned char*>(g_pGameResourceService) + targets::kEntSys_OffsetInGameResSvc, &entitySystem) ||
+    if (!SafeReadPointer(reinterpret_cast<unsigned char*>(g_gameResourceService) + targets::g_entitySystemOffsetInGameResourceService,
+                         &entitySystem) ||
         !entitySystem)
     {
         return nullptr;
     }
 
     void* chunk = nullptr;
-    const void* chunkSlot = reinterpret_cast<unsigned char*>(entitySystem) + targets::kEntSys_IdentityChunksOffset +
+    const void* chunkSlot = reinterpret_cast<unsigned char*>(entitySystem) + targets::g_entitySystemIdentityChunksOffset +
                             (entityIndex / targets::kEntListChunkSize) * sizeof(void*);
     if (!SafeReadPointer(chunkSlot, &chunk) || !chunk) return nullptr;
 
     unsigned char* identity =
-        reinterpret_cast<unsigned char*>(chunk) + (entityIndex % targets::kEntListChunkSize) * targets::kEntIdentity_Size;
+        reinterpret_cast<unsigned char*>(chunk) + (entityIndex % targets::kEntListChunkSize) * targets::g_entityIdentitySize;
     if (classnameOut && classnameCap)
     {
-        SafeReadString(identity + targets::kEntIdentity_ClassNameOffset, classnameOut, classnameCap);
+        SafeReadString(identity + targets::g_entityIdentityClassNameOffset, classnameOut, classnameCap);
     }
 
     void* instance = nullptr;
-    if (!SafeReadPointer(identity + targets::kEntIdentity_InstanceOffset, &instance) || !instance)
+    if (!SafeReadPointer(identity + targets::g_entityIdentityInstanceOffset, &instance) || !instance)
     {
         return nullptr;
     }
@@ -266,24 +267,24 @@ void MarkEntityFieldChanged(void* instance, unsigned int offset)
 }
 
 // Returns the resolved UTIL_Remove target
-void* UtilRemoveTarget() { return reinterpret_cast<void*>(g_pfnUtilRemove); }
+void* UtilRemoveTarget() { return reinterpret_cast<void*>(g_utilRemove); }
 
 // Returns the resolved entity-system global address
-void* EntitySystemGlobalAddress() { return reinterpret_cast<void*>(g_ppEntSysGlobal); }
+void* EntitySystemGlobalAddress() { return reinterpret_cast<void*>(g_entitySystemGlobal); }
 
 // Removes one entity through the resolved engine function
 bool RemoveEntity(void* instance)
 {
-    if (!g_pfnUtilRemove || !instance) return false;
-    g_pfnUtilRemove(instance);
+    if (!g_utilRemove || !instance) return false;
+    g_utilRemove(instance);
     return true;
 }
 
 // Stores the resolved controller pawn-handle offset
-void SetBotPawnHandleOffset(int offset) { g_BotPawnHandleOffset = offset; }
+void SetBotPawnHandleOffset(int offset) { g_botPawnHandleOffset = offset; }
 
 // Returns the resolved controller pawn-handle offset
-int BotPawnHandleOffset() { return g_BotPawnHandleOffset; }
+int BotPawnHandleOffset() { return g_botPawnHandleOffset; }
 
 // Resets the idle timer for the pawn owned by one client
 void ResetIdleTimerForClient(void* client)
@@ -294,7 +295,7 @@ void ResetIdleTimerForClient(void* client)
     const int idleOffset = schema::GetFieldOffset("CCSPlayerPawnBase", "m_flIdleTimeSinceLastAction");
     if (pawnOffset < 0 || idleOffset < 0) return;
 
-    const int entityIndex = *reinterpret_cast<int*>(reinterpret_cast<unsigned char*>(client) + ssc::OFFSET_m_nEntityIndex);
+    const int entityIndex = *reinterpret_cast<int*>(reinterpret_cast<unsigned char*>(client) + ssc::g_entityIndexOffset);
     char className[64];
     void* controller = ResolveEntityInstance(entityIndex, className, sizeof(className));
     if (!controller || std::strcmp(className, "cs_player_controller") != 0)
@@ -314,7 +315,7 @@ void ResetIdleTimerForClient(void* client)
 // Updates the engine-side name for one client
 const char* SetEngineName(void* client, const char* newName)
 {
-    if (!client || !newName || !newName[0] || targets::kVTSlot_ClientSetName < 0)
+    if (!client || !newName || !newName[0] || targets::g_vtableSlotClientSetName < 0)
     {
         return nullptr;
     }
@@ -323,7 +324,7 @@ const char* SetEngineName(void* client, const char* newName)
     {
         auto** vtable = *reinterpret_cast<void***>(client);
         if (!vtable) return nullptr;
-        auto setName = reinterpret_cast<ClientSetNameFn>(vtable[targets::kVTSlot_ClientSetName]);
+        auto setName = reinterpret_cast<ClientSetNameFn>(vtable[targets::g_vtableSlotClientSetName]);
         if (!setName) return nullptr;
         setName(client, newName);
         return ssc::ReadName(client);
@@ -335,7 +336,7 @@ const char* SetEngineName(void* client, const char* newName)
 #else
     auto** vtable = *reinterpret_cast<void***>(client);
     if (!vtable) return nullptr;
-    auto setName = reinterpret_cast<ClientSetNameFn>(vtable[targets::kVTSlot_ClientSetName]);
+    auto setName = reinterpret_cast<ClientSetNameFn>(vtable[targets::g_vtableSlotClientSetName]);
     if (!setName) return nullptr;
     setName(client, newName);
     return ssc::ReadName(client);
@@ -345,10 +346,10 @@ const char* SetEngineName(void* client, const char* newName)
 // Clears resolved interfaces and runtime targets
 void Reset()
 {
-    g_pGameResourceService = nullptr;
-    g_pfnUtilRemove = nullptr;
-    g_ppEntSysGlobal = nullptr;
-    g_BotPawnHandleOffset = -1;
+    g_gameResourceService = nullptr;
+    g_utilRemove = nullptr;
+    g_entitySystemGlobal = nullptr;
+    g_botPawnHandleOffset = -1;
 }
 
 } // namespace cs2bh::entity_access

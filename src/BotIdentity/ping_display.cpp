@@ -12,68 +12,68 @@ void PingDisplay::RecordSample(int latencyMs)
     if (clamped < 0) clamped = 0;
     if (clamped > 999) clamped = 999;
 
-    int oldest = m_Samples[m_Idx];
-    m_Samples[m_Idx] = clamped;
-    m_Sum += clamped - oldest;
-    m_Idx = (m_Idx + 1) % kWindowTicks;
-    if (m_Filled < kWindowTicks) ++m_Filled;
+    int oldest = m_samples[m_idx];
+    m_samples[m_idx] = clamped;
+    m_sum += clamped - oldest;
+    m_idx = (m_idx + 1) % kWindowTicks;
+    if (m_filled < kWindowTicks) ++m_filled;
 }
 
 int PingDisplay::CurrentAverage() const
 {
-    if (m_Filled == 0) return 0;
-    return m_Sum / m_Filled;
+    if (m_filled == 0) return 0;
+    return m_sum / m_filled;
 }
 
 int PingDisplay::MaybeProduce()
 {
-    ++m_TicksSinceWrite;
-    if (m_TicksSinceWrite < kWriteEveryTicks) return -1;
-    m_TicksSinceWrite = 0;
-    if (m_Filled == 0) return -1;
+    ++m_ticksSinceWrite;
+    if (m_ticksSinceWrite < kWriteEveryTicks) return -1;
+    m_ticksSinceWrite = 0;
+    if (m_filled == 0) return -1;
     int avg = CurrentAverage();
-    if (avg == m_LastWritten) return -1;
-    m_LastWritten = avg;
+    if (avg == m_lastWritten) return -1;
+    m_lastWritten = avg;
     return avg;
 }
 
 void PingDisplay::Reset()
 {
-    m_Samples.fill(0);
-    m_Idx = m_Sum = m_Filled = m_TicksSinceWrite = 0;
-    m_LastWritten = 0;
+    m_samples.fill(0);
+    m_idx = m_sum = m_filled = m_ticksSinceWrite = 0;
+    m_lastWritten = 0;
 }
 
 // ─────────────────────────────────────────────────────────────────────
 
-PingJitter::PingJitter(int baselineMs, int minimumMs, int maximumMs) : m_Baseline(baselineMs), m_Minimum(minimumMs), m_Maximum(maximumMs)
+PingJitter::PingJitter(int baselineMs, int minimumMs, int maximumMs) : m_baseline(baselineMs), m_minimum(minimumMs), m_maximum(maximumMs)
 {
-    if (m_Minimum < 1) m_Minimum = 1;
-    if (m_Maximum > 999) m_Maximum = 999;
-    if (m_Maximum < m_Minimum) m_Maximum = m_Minimum;
-    if (m_Baseline < m_Minimum) m_Baseline = m_Minimum;
-    if (m_Baseline > m_Maximum) m_Baseline = m_Maximum;
-    m_State = static_cast<uint64_t>(std::chrono::steady_clock::now().time_since_epoch().count()) ^
+    if (m_minimum < 1) m_minimum = 1;
+    if (m_maximum > 999) m_maximum = 999;
+    if (m_maximum < m_minimum) m_maximum = m_minimum;
+    if (m_baseline < m_minimum) m_baseline = m_minimum;
+    if (m_baseline > m_maximum) m_baseline = m_maximum;
+    m_state = static_cast<uint64_t>(std::chrono::steady_clock::now().time_since_epoch().count()) ^
               (static_cast<uint64_t>(baselineMs) * 0x9E3779B97F4A7C15ULL) ^ 0xA0761D6478BD642FULL;
-    if (m_State == 0) m_State = 0xDEADBEEFCAFEBABEULL;
+    if (m_state == 0) m_state = 0xDEADBEEFCAFEBABEULL;
 }
 
 int PingJitter::NextSample()
 {
     // xorshift64*
-    uint64_t x = m_State;
+    uint64_t x = m_state;
     x ^= x >> 12;
     x ^= x << 25;
     x ^= x >> 27;
-    m_State = x;
+    m_state = x;
     uint64_t r = x * 0x2545F4914F6CDD1DULL;
 
     // +/- 10%
-    int span = (m_Baseline + 9) / 10;
+    int span = (m_baseline + 9) / 10;
     int delta = static_cast<int>(r % (2 * span + 1)) - span;
-    int v = m_Baseline + delta;
-    if (v < m_Minimum) v = m_Minimum;
-    if (v > m_Maximum) v = m_Maximum;
+    int v = m_baseline + delta;
+    if (v < m_minimum) v = m_minimum;
+    if (v > m_maximum) v = m_maximum;
     return v;
 }
 

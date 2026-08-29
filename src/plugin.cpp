@@ -53,42 +53,42 @@ SH_DECL_HOOK3_void(ICvar, DispatchConCommand, SH_NOATTRIB, 0, ConCommandRef, con
 
 namespace cs2bh {
 
-HiderPlugin g_Plugin;
+HiderPlugin g_plugin;
 
 } // namespace cs2bh
 
-PLUGIN_EXPOSE(cs2bh::HiderPlugin, cs2bh::g_Plugin);
+PLUGIN_EXPOSE(cs2bh::HiderPlugin, cs2bh::g_plugin);
 
 // Interface globals
 
-IVEngineServer* engine = nullptr;
-ICvar* icvar = nullptr;
-IServerGameClients* gameclients = nullptr;
-IServerGameDLL* server = nullptr;
+IVEngineServer* g_engine = nullptr;
+ICvar* g_icvar = nullptr;
+IServerGameClients* g_gameclients = nullptr;
+IServerGameDLL* g_server = nullptr;
 extern INetworkServerService* g_pNetworkServerService;
 
 namespace cs2bh {
 
 // Attaches level-scoped hooks and resets transient runtime state
-void HiderPlugin::OnLevelInit(char const* pMapName, char const*, char const*, char const*, bool, bool)
+void HiderPlugin::OnLevelInit(char const* mapName, char const*, char const*, char const*, bool, bool)
 {
     identity_runtime::ClearPendingControllerRemovals();
     avatar::ResetRuntime();
     auto* gameServer = g_pNetworkServerService ? g_pNetworkServerService->GetIGameServer() : nullptr;
-    if (gameServer && gameServer != m_pHookedGameServer)
+    if (gameServer && gameServer != m_hookedGameServer)
     {
-        if (m_StartChangeLevelHookId != 0)
+        if (m_startChangeLevelHookId != 0)
         {
-            SH_REMOVE_HOOK_ID(m_StartChangeLevelHookId);
-            m_StartChangeLevelHookId = 0;
+            SH_REMOVE_HOOK_ID(m_startChangeLevelHookId);
+            m_startChangeLevelHookId = 0;
         }
-        m_StartChangeLevelHookId = SH_ADD_HOOK_MEMFUNC(INetworkGameServer, StartChangeLevel, gameServer, this,
-                                                       &HiderPlugin::Hook_StartChangeLevel_Pre, false /* PRE */);
-        m_pHookedGameServer = static_cast<void*>(gameServer);
+        m_startChangeLevelHookId = SH_ADD_HOOK_MEMFUNC(INetworkGameServer, StartChangeLevel, gameServer, this,
+                                                       &HiderPlugin::HookStartChangeLevelPre, false /* PRE */);
+        m_hookedGameServer = static_cast<void*>(gameServer);
         META_CONPRINTF("[BOTHIDER] StartChangeLevel hook attached to %p (id %d)\n", static_cast<void*>(gameServer),
-                       m_StartChangeLevelHookId);
+                       m_startChangeLevelHookId);
     }
-    META_CONPRINTF("[BOTHIDER] OnLevelInit map=%s\n", pMapName ? pMapName : "?");
+    META_CONPRINTF("[BOTHIDER] OnLevelInit map=%s\n", mapName ? mapName : "?");
 }
 
 // Releases all state owned by the current level
@@ -108,15 +108,15 @@ bool HiderPlugin::Load(PluginId id, ISmmAPI* ismm, char* error, size_t maxlen, b
     PLUGIN_SAVEVARS();
 
     // Load may run again on the same global plugin object
-    m_IdentityMode = IdentityMode::Player;
-    m_bFakePingEnabled = true;
-    m_FakePingMin = 20;
-    m_FakePingMax = 90;
+    m_identityMode = IdentityMode::Player;
+    m_fakePingEnabled = true;
+    m_fakePingMin = 20;
+    m_fakePingMax = 90;
 
-    GET_V_IFACE_CURRENT(GetEngineFactory, engine, IVEngineServer, INTERFACEVERSION_VENGINESERVER);
-    GET_V_IFACE_CURRENT(GetEngineFactory, icvar, ICvar, CVAR_INTERFACE_VERSION);
-    GET_V_IFACE_ANY(GetServerFactory, gameclients, IServerGameClients, INTERFACEVERSION_SERVERGAMECLIENTS);
-    GET_V_IFACE_ANY(GetServerFactory, server, IServerGameDLL, INTERFACEVERSION_SERVERGAMEDLL);
+    GET_V_IFACE_CURRENT(GetEngineFactory, g_engine, IVEngineServer, INTERFACEVERSION_VENGINESERVER);
+    GET_V_IFACE_CURRENT(GetEngineFactory, g_icvar, ICvar, CVAR_INTERFACE_VERSION);
+    GET_V_IFACE_ANY(GetServerFactory, g_gameclients, IServerGameClients, INTERFACEVERSION_SERVERGAMECLIENTS);
+    GET_V_IFACE_ANY(GetServerFactory, g_server, IServerGameDLL, INTERFACEVERSION_SERVERGAMEDLL);
     GET_V_IFACE_ANY(GetEngineFactory, g_pNetworkServerService, INetworkServerService, NETWORKSERVERSERVICE_INTERFACE_VERSION);
 
     // Reads startup identity and fake-ping settings
@@ -137,7 +137,7 @@ bool HiderPlugin::Load(PluginId id, ISmmAPI* ismm, char* error, size_t maxlen, b
                 if (config.contains("identity_mode") && config["identity_mode"].is_string())
                 {
                     const std::string mode = config["identity_mode"].get<std::string>();
-                    if (mode == "bot") m_IdentityMode = IdentityMode::Bot;
+                    if (mode == "bot") m_identityMode = IdentityMode::Bot;
                     else if (mode != "player")
                         META_CONPRINTF("[BOTHIDER] warning: unsupported identity_mode='%s'; using player\n", mode.c_str());
                 }
@@ -146,16 +146,16 @@ bool HiderPlugin::Load(PluginId id, ISmmAPI* ismm, char* error, size_t maxlen, b
                 {
                     const auto& fakePing = config["fake_ping"];
                     if (fakePing.contains("enabled") && fakePing["enabled"].is_boolean())
-                        m_bFakePingEnabled = fakePing["enabled"].get<bool>();
+                        m_fakePingEnabled = fakePing["enabled"].get<bool>();
 
-                    int minimum = m_FakePingMin;
-                    int maximum = m_FakePingMax;
+                    int minimum = m_fakePingMin;
+                    int maximum = m_fakePingMax;
                     if (fakePing.contains("min") && fakePing["min"].is_number_integer()) minimum = fakePing["min"].get<int>();
                     if (fakePing.contains("max") && fakePing["max"].is_number_integer()) maximum = fakePing["max"].get<int>();
                     if (minimum >= 1 && maximum <= 999 && minimum <= maximum)
                     {
-                        m_FakePingMin = minimum;
-                        m_FakePingMax = maximum;
+                        m_fakePingMin = minimum;
+                        m_fakePingMax = maximum;
                     }
                     else
                     {
@@ -185,7 +185,7 @@ bool HiderPlugin::Load(PluginId id, ISmmAPI* ismm, char* error, size_t maxlen, b
             }
         }
     }
-    Manager().ConfigureFakePing(m_bFakePingEnabled, m_FakePingMin, m_FakePingMax);
+    Manager().ConfigureFakePing(m_fakePingEnabled, m_fakePingMin, m_fakePingMax);
 
     auto* networkStringTables =
         static_cast<INetworkStringTableContainer*>(ismm->GetEngineFactory()(INTERFACENAME_NETWORKSTRINGTABLESERVER, nullptr));
@@ -198,11 +198,11 @@ bool HiderPlugin::Load(PluginId id, ISmmAPI* ismm, char* error, size_t maxlen, b
 
     // GameResourceServiceServer — needed to resolve CCSPlayerController by slot
     // Served by engine2.dll
-    void* gameResourceService = ismm->GetEngineFactory(false)(targets::kIface_GameResourceServiceServer, nullptr);
+    void* gameResourceService = ismm->GetEngineFactory(false)(targets::kIfaceGameResourceServiceServer, nullptr);
     entity_access::SetGameResourceService(gameResourceService);
     if (!gameResourceService)
     {
-        META_CONPRINTF("[BOTHIDER] warning: %s unresolved — controller mgmt disabled\n", targets::kIface_GameResourceServiceServer);
+        META_CONPRINTF("[BOTHIDER] warning: %s unresolved — controller mgmt disabled\n", targets::kIfaceGameResourceServiceServer);
     }
 
     // Resolve UTIL_Remove
@@ -221,13 +221,13 @@ bool HiderPlugin::Load(PluginId id, ISmmAPI* ismm, char* error, size_t maxlen, b
         {
             // Override member offsets from gamedata.json (fallback kept if absent)
             entity_access::LoadMemberOffsets(gamedata);
-            if (targets::kVTSlot_ClientSetName < 0)
+            if (targets::g_vtableSlotClientSetName < 0)
             {
                 META_CONPRINTF("[BOTHIDER] warning: CServerSideClient::SetName vtable slot missing - "
                                "name overwrite disabled\n");
             }
 
-            sig::ModuleInfo serverModule = sig::ModuleFromInterfacePtr(gameclients);
+            sig::ModuleInfo serverModule = sig::ModuleFromInterfacePtr(g_gameclients);
             if (!serverModule) serverModule = sig::ModuleFromName(targets::kServerModuleName);
             entity_access::ResolveUtilRemoveAndEntSys(gamedata, serverModule);
 
@@ -240,7 +240,7 @@ bool HiderPlugin::Load(PluginId id, ISmmAPI* ismm, char* error, size_t maxlen, b
                        "controller cleanup disabled\n");
     }
 
-    g_pCVar = icvar;
+    g_pCVar = g_icvar;
     g_SMAPI->AddListener(this, this);
 
     // Resolve controller pawn and idle-timer schema offsets
@@ -291,12 +291,12 @@ bool HiderPlugin::Load(PluginId id, ISmmAPI* ismm, char* error, size_t maxlen, b
                        jsonPath.c_str());
     }
 
-    SH_ADD_HOOK(IServerGameClients, OnClientConnected, gameclients, SH_MEMBER(this, &HiderPlugin::Hook_OnClientConnected_Post), true);
-    SH_ADD_HOOK(IServerGameClients, ClientPutInServer, gameclients, SH_MEMBER(this, &HiderPlugin::Hook_ClientPutInServer_Post), true);
-    SH_ADD_HOOK(IServerGameClients, ClientDisconnect, gameclients, SH_MEMBER(this, &HiderPlugin::Hook_ClientDisconnect_Pre), false);
-    SH_ADD_HOOK(IServerGameDLL, GameFrame, server, SH_MEMBER(this, &HiderPlugin::Hook_GameFrame_Post), true);
-    SH_ADD_HOOK(ICvar, DispatchConCommand, icvar, SH_MEMBER(this, &HiderPlugin::Hook_DispatchConCommand_Pre), false);
-    SH_ADD_HOOK(ICvar, DispatchConCommand, icvar, SH_MEMBER(this, &HiderPlugin::Hook_DispatchConCommand_Post), true);
+    SH_ADD_HOOK(IServerGameClients, OnClientConnected, g_gameclients, SH_MEMBER(this, &HiderPlugin::HookOnClientConnectedPost), true);
+    SH_ADD_HOOK(IServerGameClients, ClientPutInServer, g_gameclients, SH_MEMBER(this, &HiderPlugin::HookClientPutInServerPost), true);
+    SH_ADD_HOOK(IServerGameClients, ClientDisconnect, g_gameclients, SH_MEMBER(this, &HiderPlugin::HookClientDisconnectPre), false);
+    SH_ADD_HOOK(IServerGameDLL, GameFrame, g_server, SH_MEMBER(this, &HiderPlugin::HookGameFramePost), true);
+    SH_ADD_HOOK(ICvar, DispatchConCommand, g_icvar, SH_MEMBER(this, &HiderPlugin::HookDispatchConCommandPre), false);
+    SH_ADD_HOOK(ICvar, DispatchConCommand, g_icvar, SH_MEMBER(this, &HiderPlugin::HookDispatchConCommandPost), true);
 
     int installedHooks = 0;
     if (identity_hooks::MaintainQuotaTarget()) ++installedHooks;
@@ -305,7 +305,7 @@ bool HiderPlugin::Load(PluginId id, ISmmAPI* ismm, char* error, size_t maxlen, b
     if (identity_hooks::HumanTeamRestrictionTarget()) ++installedHooks;
     if (identity_hooks::SameMapTeardownTarget()) ++installedHooks;
     META_CONPRINTF("[BOTHIDER] config mode=%s fake_ping=%s range=%d-%d identities=%zu\n", IsBotMode() ? "bot" : "player",
-                   m_bFakePingEnabled ? "on" : "off", m_FakePingMin, m_FakePingMax, BotInfo().Count());
+                   m_fakePingEnabled ? "on" : "off", m_fakePingMin, m_fakePingMax, BotInfo().Count());
     META_CONPRINTF("[BOTHIDER] loaded v%s hooks=%d/5 util_remove=%s schema=%s shm=%s avatar=%s\n", GetVersion(), installedHooks,
                    entity_access::UtilRemoveTarget() ? "ok" : "fail", schemaReady ? "ok" : "fail", sharedMemoryReady ? "ok" : "fail",
                    networkStringTables ? "ok" : "fail");
@@ -320,19 +320,19 @@ bool HiderPlugin::Unload(char* error, size_t maxlen)
         std::snprintf(error, maxlen, "failed to uninstall funchook detours");
         return false;
     }
-    SH_REMOVE_HOOK(IServerGameClients, OnClientConnected, gameclients, SH_MEMBER(this, &HiderPlugin::Hook_OnClientConnected_Post), true);
-    SH_REMOVE_HOOK(IServerGameClients, ClientPutInServer, gameclients, SH_MEMBER(this, &HiderPlugin::Hook_ClientPutInServer_Post), true);
-    SH_REMOVE_HOOK(IServerGameClients, ClientDisconnect, gameclients, SH_MEMBER(this, &HiderPlugin::Hook_ClientDisconnect_Pre), false);
-    SH_REMOVE_HOOK(IServerGameDLL, GameFrame, server, SH_MEMBER(this, &HiderPlugin::Hook_GameFrame_Post), true);
-    SH_REMOVE_HOOK(ICvar, DispatchConCommand, icvar, SH_MEMBER(this, &HiderPlugin::Hook_DispatchConCommand_Pre), false);
-    SH_REMOVE_HOOK(ICvar, DispatchConCommand, icvar, SH_MEMBER(this, &HiderPlugin::Hook_DispatchConCommand_Post), true);
+    SH_REMOVE_HOOK(IServerGameClients, OnClientConnected, g_gameclients, SH_MEMBER(this, &HiderPlugin::HookOnClientConnectedPost), true);
+    SH_REMOVE_HOOK(IServerGameClients, ClientPutInServer, g_gameclients, SH_MEMBER(this, &HiderPlugin::HookClientPutInServerPost), true);
+    SH_REMOVE_HOOK(IServerGameClients, ClientDisconnect, g_gameclients, SH_MEMBER(this, &HiderPlugin::HookClientDisconnectPre), false);
+    SH_REMOVE_HOOK(IServerGameDLL, GameFrame, g_server, SH_MEMBER(this, &HiderPlugin::HookGameFramePost), true);
+    SH_REMOVE_HOOK(ICvar, DispatchConCommand, g_icvar, SH_MEMBER(this, &HiderPlugin::HookDispatchConCommandPre), false);
+    SH_REMOVE_HOOK(ICvar, DispatchConCommand, g_icvar, SH_MEMBER(this, &HiderPlugin::HookDispatchConCommandPost), true);
 
-    if (m_StartChangeLevelHookId != 0)
+    if (m_startChangeLevelHookId != 0)
     {
-        SH_REMOVE_HOOK_ID(m_StartChangeLevelHookId);
-        m_StartChangeLevelHookId = 0;
+        SH_REMOVE_HOOK_ID(m_startChangeLevelHookId);
+        m_startChangeLevelHookId = 0;
     }
-    m_pHookedGameServer = nullptr;
+    m_hookedGameServer = nullptr;
     identity_state::ClearAll();
     Manager().ReleaseAll();
     avatar::ProcessOverrides();

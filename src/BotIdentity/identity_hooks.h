@@ -13,18 +13,18 @@ namespace cs2bh {
 
 struct BotPawnRef
 {
-    void* Instance = nullptr;
-    uint32_t Handle = 0xFFFFFFFF;
+    void* instance = nullptr;
+    uint32_t handle = 0xFFFFFFFF;
 };
 
 struct ManagedControllerTrace
 {
-    int Slot = -1;
-    uint32_t Handle = 0xFFFFFFFF;
-    uint32_t Flags = 0;
-    unsigned int CurrentTeam = 0;
-    bool Managed = false;
-    bool Hltv = false;
+    int slot = -1;
+    uint32_t handle = 0xFFFFFFFF;
+    uint32_t flags = 0;
+    unsigned int currentTeam = 0;
+    bool managed = false;
+    bool hltv = false;
 };
 
 // Clears FL_BOT for managed pawns during entity packing
@@ -52,7 +52,7 @@ class PopulationTransactionScope
     PopulationTransactionScope& operator=(const PopulationTransactionScope&) = delete;
 
   private:
-    bool m_Redisguise;
+    bool m_redisguise;
 };
 
 // Resolves and prepares every optional identity detour

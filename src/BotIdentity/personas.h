@@ -33,11 +33,11 @@ class PersonaPool
     static constexpr int kMaxSlots = 64;
 
   private:
-    mutable std::mutex m_Mutex;
-    std::deque<std::string> m_Fifo;
-    std::array<std::string, kMaxSlots> m_SlotNames;
-    std::array<bool, kMaxSlots> m_SlotManaged{};
-    uint64_t m_RosterRngState = 0;
+    mutable std::mutex m_mutex;
+    std::deque<std::string> m_fifo;
+    std::array<std::string, kMaxSlots> m_slotNames;
+    std::array<bool, kMaxSlots> m_slotManaged{};
+    uint64_t m_rosterRngState = 0;
 };
 
 PersonaPool& Personas();

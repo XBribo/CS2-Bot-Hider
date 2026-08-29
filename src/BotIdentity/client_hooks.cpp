@@ -36,10 +36,10 @@ static bool IsTargetedClientRemovalReason(ENetworkDisconnectionReason reason)
 }
 
 // Adopts fake clients from the authoritative connected slot
-void HiderPlugin::Hook_OnClientConnected_Post(
-    CPlayerSlot slot, const char* pszName, uint64 /*xuid*/, const char* pszNetworkID, const char* /*pszAddress*/, bool bFakePlayer)
+void HiderPlugin::HookOnClientConnectedPost(
+    CPlayerSlot slot, const char* name, uint64 /*xuid*/, const char* networkId, const char* /*address*/, bool fakePlayer)
 {
-    if (m_bSelfDisabled || !bFakePlayer || identity_runtime::IsHltvConnection(pszName, pszNetworkID))
+    if (m_selfDisabled || !fakePlayer || identity_runtime::IsHltvConnection(name, networkId))
     {
         RETURN_META(MRES_IGNORED);
     }
@@ -53,13 +53,13 @@ void HiderPlugin::Hook_OnClientConnected_Post(
     void* client = entity_access::ResolveClientBySlot(index);
     if (!client || ssc::IsHltv(client)) RETURN_META(MRES_IGNORED);
 
-    const BotEntry* entry = BotInfo().PickForBot(pszName);
+    const BotEntry* entry = BotInfo().PickForBot(name);
     std::string displayName;
-    if (m_bUseBotInfoName && entry) displayName = entry->Name;
-    else if (pszName && pszName[0])
-        displayName = pszName;
+    if (m_useBotInfoName && entry) displayName = entry->name;
+    else if (name && name[0])
+        displayName = name;
     else if (entry)
-        displayName = entry->Name;
+        displayName = entry->name;
     else
         displayName = Personas().PickFromRoster();
 
@@ -69,9 +69,9 @@ void HiderPlugin::Hook_OnClientConnected_Post(
         RETURN_META(MRES_IGNORED);
     }
 
-    const uint64_t configuredSteamId = entry && entry->SteamId64 != 0 ? entry->SteamId64 : 0;
-    const char* crosshairCode = entry ? entry->CrosshairCode.c_str() : nullptr;
-    const uint32_t scoreboardFlair = entry ? entry->ScoreboardFlair : 0;
+    const uint64_t configuredSteamId = entry && entry->steamId64 != 0 ? entry->steamId64 : 0;
+    const char* crosshairCode = entry ? entry->crosshairCode.c_str() : nullptr;
+    const uint32_t scoreboardFlair = entry ? entry->scoreboardFlair : 0;
     const uint64_t steamId = identity_runtime::MakeUniqueSteamId(index, configuredSteamId);
     if (!Manager().AdoptSlot(index, displayName.c_str(), steamId, crosshairCode, scoreboardFlair))
     {
@@ -79,7 +79,7 @@ void HiderPlugin::Hook_OnClientConnected_Post(
         RETURN_META(MRES_IGNORED);
     }
 
-    identity_state::BindSlot(index, entry, pszName);
+    identity_state::BindSlot(index, entry, name);
 
     if (steamId != 0)
     {
@@ -98,9 +98,9 @@ void HiderPlugin::Hook_OnClientConnected_Post(
 }
 
 // Reapplies managed identity after a client enters the server
-void HiderPlugin::Hook_ClientPutInServer_Post(CPlayerSlot slot, char const* pszName, int type, uint64 /*xuid*/)
+void HiderPlugin::HookClientPutInServerPost(CPlayerSlot slot, char const* name, int type, uint64 /*xuid*/)
 {
-    if (m_bSelfDisabled) RETURN_META(MRES_IGNORED);
+    if (m_selfDisabled) RETURN_META(MRES_IGNORED);
 
     (void)type;
     const int index = slot.Get();
@@ -132,7 +132,7 @@ void HiderPlugin::Hook_ClientPutInServer_Post(CPlayerSlot slot, char const* pszN
     }
 
     std::string visibleName = Personas().GetSlotName(index);
-    if (visibleName.empty() && pszName) visibleName = pszName;
+    if (visibleName.empty() && name) visibleName = name;
     if (!visibleName.empty())
     {
         entity_access::SetEngineName(client, visibleName.c_str());
@@ -146,10 +146,10 @@ void HiderPlugin::Hook_ClientPutInServer_Post(CPlayerSlot slot, char const* pszN
 }
 
 // Restores and releases managed identity before disconnect teardown
-void HiderPlugin::Hook_ClientDisconnect_Pre(
-    CPlayerSlot slot, ENetworkDisconnectionReason reason, const char* /*pszName*/, uint64 /*xuid*/, const char* /*pszNetworkID*/)
+void HiderPlugin::HookClientDisconnectPre(
+    CPlayerSlot slot, ENetworkDisconnectionReason reason, const char* /*name*/, uint64 /*xuid*/, const char* /*networkId*/)
 {
-    if (m_bSelfDisabled) RETURN_META(MRES_IGNORED);
+    if (m_selfDisabled) RETURN_META(MRES_IGNORED);
 
     const int index = slot.Get();
     if (index < 0 || index >= PersonaPool::kMaxSlots || !Personas().IsSlotManaged(index))

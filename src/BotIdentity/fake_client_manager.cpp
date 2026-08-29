@@ -9,7 +9,7 @@ namespace cs2bh {
 
 namespace {
 
-FakeClientManager g_Manager;
+FakeClientManager g_manager;
 
 // Rand
 uint64_t SimpleRand(uint64_t& state)
@@ -24,78 +24,78 @@ uint64_t SimpleRand(uint64_t& state)
 
 } // namespace
 
-FakeClientManager& Manager() { return g_Manager; }
+FakeClientManager& Manager() { return g_manager; }
 
 FakeClientManager::FakeClientManager() = default;
 
 // Configures the displayed fake-ping bounds
 void FakeClientManager::ConfigureFakePing(bool enabled, int minimumMs, int maximumMs)
 {
-    std::lock_guard<std::mutex> g(m_Mutex);
-    m_FakePingEnabled = enabled;
-    m_FakePingMinimum = minimumMs;
-    m_FakePingMaximum = maximumMs;
+    std::lock_guard<std::mutex> g(m_mutex);
+    m_fakePingEnabled = enabled;
+    m_fakePingMinimum = minimumMs;
+    m_fakePingMaximum = maximumMs;
 }
 
 void FakeClientManager::Init()
 {
-    if (m_pSteamIds) return;
+    if (m_steamIds) return;
 
     char sessionId[32];
     auto nowNs = std::chrono::system_clock::now().time_since_epoch().count();
     std::snprintf(sessionId, sizeof(sessionId), "%lld", static_cast<long long>(nowNs));
 
-    m_pSteamIds = std::make_unique<SteamIdProvider>(sessionId);
+    m_steamIds = std::make_unique<SteamIdProvider>(sessionId);
 }
 
-bool FakeClientManager::AdoptSlot(int slot, const char* pszName, uint64_t steamId64, const char* crosshairCode, uint32_t scoreboardFlair)
+bool FakeClientManager::AdoptSlot(int slot, const char* name, uint64_t steamId64, const char* crosshairCode, uint32_t scoreboardFlair)
 {
     if (slot < 0 || slot >= PersonaPool::kMaxSlots) return false;
-    if (!m_pSteamIds) return false;
+    if (!m_steamIds) return false;
 
-    std::lock_guard<std::mutex> g(m_Mutex);
-    auto& s = m_Slots[slot];
+    std::lock_guard<std::mutex> g(m_mutex);
+    auto& s = m_slots[slot];
 
     // Selects one per-bot baseline inside the configured display range
-    uint64_t state = static_cast<uint64_t>(slot) ^ m_pSteamIds->Generate(slot);
-    const int range = m_FakePingMaximum - m_FakePingMinimum + 1;
-    const int baseline = m_FakePingMinimum + static_cast<int>(SimpleRand(state) % static_cast<uint64_t>(range));
+    uint64_t state = static_cast<uint64_t>(slot) ^ m_steamIds->Generate(slot);
+    const int range = m_fakePingMaximum - m_fakePingMinimum + 1;
+    const int baseline = m_fakePingMinimum + static_cast<int>(SimpleRand(state) % static_cast<uint64_t>(range));
 
-    s.Active = true;
+    s.active = true;
     // Uses the already validated SteamID selected for this slot
-    s.SyntheticSid = steamId64;
-    s.ScoreboardFlair = scoreboardFlair;
-    s.Jitter = PingJitter(baseline, m_FakePingMinimum, m_FakePingMaximum);
-    s.Display = PingDisplay{};
-    s.SteamIdWritten = false;
+    s.syntheticSid = steamId64;
+    s.scoreboardFlair = scoreboardFlair;
+    s.jitter = PingJitter(baseline, m_fakePingMinimum, m_fakePingMaximum);
+    s.display = PingDisplay{};
+    s.steamIdWritten = false;
 
-    Personas().MarkSlotManaged(slot, pszName);
-    Publisher().PublishAdopt(slot, s.SyntheticSid, pszName, crosshairCode, s.ScoreboardFlair);
-    Publisher().UpdatePing(slot, m_FakePingEnabled ? baseline : 0);
+    Personas().MarkSlotManaged(slot, name);
+    Publisher().PublishAdopt(slot, s.syntheticSid, name, crosshairCode, s.scoreboardFlair);
+    Publisher().UpdatePing(slot, m_fakePingEnabled ? baseline : 0);
     return true;
 }
 
 void FakeClientManager::ReleaseSlot(int slot)
 {
     if (slot < 0 || slot >= PersonaPool::kMaxSlots) return;
-    std::lock_guard<std::mutex> g(m_Mutex);
-    m_Slots[slot].Active = false;
-    m_Slots[slot].SteamIdWritten = false;
-    m_Slots[slot].ScoreboardFlair = 0;
-    m_Slots[slot].Display.Reset();
+    std::lock_guard<std::mutex> g(m_mutex);
+    m_slots[slot].active = false;
+    m_slots[slot].steamIdWritten = false;
+    m_slots[slot].scoreboardFlair = 0;
+    m_slots[slot].display.Reset();
     Personas().ClearSlot(slot);
     Publisher().PublishRelease(slot);
 }
 
 void FakeClientManager::ReleaseAll()
 {
-    std::lock_guard<std::mutex> g(m_Mutex);
+    std::lock_guard<std::mutex> g(m_mutex);
     for (int i = 0; i < PersonaPool::kMaxSlots; ++i)
     {
-        m_Slots[i].Active = false;
-        m_Slots[i].SteamIdWritten = false;
-        m_Slots[i].ScoreboardFlair = 0;
-        m_Slots[i].Display.Reset();
+        m_slots[i].active = false;
+        m_slots[i].steamIdWritten = false;
+        m_slots[i].scoreboardFlair = 0;
+        m_slots[i].display.Reset();
         Personas().ClearSlot(i);
         Publisher().PublishRelease(i);
     }
@@ -111,13 +111,13 @@ void FakeClientManager::OnTick()
     Pending pending[PersonaPool::kMaxSlots];
     int n = 0;
     {
-        std::lock_guard<std::mutex> g(m_Mutex);
+        std::lock_guard<std::mutex> g(m_mutex);
         for (int i = 0; i < PersonaPool::kMaxSlots; ++i)
         {
-            auto& s = m_Slots[i];
-            if (!s.Active || !m_FakePingEnabled) continue;
-            s.Display.RecordSample(s.Jitter.NextSample());
-            int produced = s.Display.MaybeProduce();
+            auto& s = m_slots[i];
+            if (!s.active || !m_fakePingEnabled) continue;
+            s.display.RecordSample(s.jitter.NextSample());
+            int produced = s.display.MaybeProduce();
             if (produced >= 0) pending[n++] = { i, produced };
         }
     }
@@ -128,22 +128,22 @@ void FakeClientManager::OnTick()
 bool FakeClientManager::IsManaged(int slot) const
 {
     if (slot < 0 || slot >= PersonaPool::kMaxSlots) return false;
-    std::lock_guard<std::mutex> g(m_Mutex);
-    return m_Slots[slot].Active;
+    std::lock_guard<std::mutex> g(m_mutex);
+    return m_slots[slot].active;
 }
 
 uint64_t FakeClientManager::GetSyntheticSid(int slot) const
 {
     if (slot < 0 || slot >= PersonaPool::kMaxSlots) return 0;
-    std::lock_guard<std::mutex> g(m_Mutex);
-    return m_Slots[slot].SyntheticSid;
+    std::lock_guard<std::mutex> g(m_mutex);
+    return m_slots[slot].syntheticSid;
 }
 
 void FakeClientManager::SetSyntheticSid(int slot, uint64_t sid)
 {
     if (slot < 0 || slot >= PersonaPool::kMaxSlots) return;
-    std::lock_guard<std::mutex> g(m_Mutex);
-    m_Slots[slot].SyntheticSid = sid;
+    std::lock_guard<std::mutex> g(m_mutex);
+    m_slots[slot].syntheticSid = sid;
 }
 
 } // namespace cs2bh

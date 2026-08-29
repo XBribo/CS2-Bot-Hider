@@ -13,11 +13,11 @@ namespace cs2bh {
 
 struct BotEntry
 {
-    std::string Name;
-    uint32_t AccountId = 0;
-    uint64_t SteamId64 = 0;
-    std::string CrosshairCode;
-    uint32_t ScoreboardFlair = 0;
+    std::string name;
+    uint32_t accountId = 0;
+    uint64_t steamId64 = 0;
+    std::string crosshairCode;
+    uint32_t scoreboardFlair = 0;
 };
 
 class BotInfoStore
@@ -39,19 +39,19 @@ class BotInfoStore
     void ResetAssignments();
 
     // Returns the number of enabled identity entries
-    size_t Count() const { return m_Entries.size(); }
+    size_t Count() const { return m_entries.size(); }
 
     // Returns every enabled identity entry
-    const std::vector<BotEntry>& All() const { return m_Entries; }
+    const std::vector<BotEntry>& All() const { return m_entries; }
 
     // Converts a 32-bit account ID to SteamID64
     static constexpr uint64_t kSteamId64Base = 76561197960265728ULL;
 
   private:
-    std::vector<BotEntry> m_Entries;
-    std::unordered_map<std::string, std::vector<size_t>> m_ByName;
-    std::vector<uint32_t> m_AssignmentCounts;
-    uint64_t m_RngState = 0;
+    std::vector<BotEntry> m_entries;
+    std::unordered_map<std::string, std::vector<size_t>> m_byName;
+    std::vector<uint32_t> m_assignmentCounts;
+    uint64_t m_rngState = 0;
 };
 
 // Returns the global bot identity store

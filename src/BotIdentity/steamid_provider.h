@@ -22,7 +22,7 @@ class SteamIdProvider
     static size_t PoolSize() noexcept;
 
   private:
-    uint64_t m_SessionSeed = 0;
+    uint64_t m_sessionSeed = 0;
 };
 
 } // namespace cs2bh

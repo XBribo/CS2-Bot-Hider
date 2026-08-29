@@ -43,46 +43,46 @@ class HiderPlugin : public ISmmPlugin, public IMetamodListener
     const char* GetLogTag() override { return "BH"; }
 
     // IMetamodListener
-    void OnLevelInit(char const* pMapName, char const*, char const*, char const*, bool, bool) override;
+    void OnLevelInit(char const* mapName, char const*, char const*, char const*, bool, bool) override;
     void OnLevelShutdown() override;
 
     // Hook entry points
-    void Hook_OnClientConnected_Post(
-        CPlayerSlot slot, const char* pszName, uint64 xuid, const char* pszNetworkID, const char* pszAddress, bool bFakePlayer);
-    void Hook_ClientPutInServer_Post(CPlayerSlot slot, char const* pszName, int type, uint64 xuid);
-    void Hook_ClientDisconnect_Pre(
-        CPlayerSlot slot, ENetworkDisconnectionReason reason, const char* pszName, uint64 xuid, const char* pszNetworkID);
-    CUtlVector<INetworkGameClient*>* Hook_StartChangeLevel_Pre(const char* mapName, const char* landmark, void* changelevelState);
-    void Hook_GameFrame_Post(bool simulating, bool bFirstTick, bool bLastTick);
+    void
+    HookOnClientConnectedPost(CPlayerSlot slot, const char* name, uint64 xuid, const char* networkId, const char* address, bool fakePlayer);
+    void HookClientPutInServerPost(CPlayerSlot slot, char const* name, int type, uint64 xuid);
+    void
+    HookClientDisconnectPre(CPlayerSlot slot, ENetworkDisconnectionReason reason, const char* name, uint64 xuid, const char* networkId);
+    CUtlVector<INetworkGameClient*>* HookStartChangeLevelPre(const char* mapName, const char* landmark, void* changelevelState);
+    void HookGameFramePost(bool simulating, bool firstTick, bool lastTick);
 
     // ICvar::DispatchConCommand — wrap Valve population commands in one identity transaction
-    void Hook_DispatchConCommand_Pre(ConCommandRef cmd, const CCommandContext& ctx, const CCommand& args);
-    void Hook_DispatchConCommand_Post(ConCommandRef cmd, const CCommandContext& ctx, const CCommand& args);
+    void HookDispatchConCommandPre(ConCommandRef cmd, const CCommandContext& ctx, const CCommand& args);
+    void HookDispatchConCommandPost(ConCommandRef cmd, const CCommandContext& ctx, const CCommand& args);
 
     // Changes the global managed-bot identity mode
     void SetIdentityMode(IdentityMode mode);
-    bool IsDisguiseEnabled() const { return m_IdentityMode == IdentityMode::Player; }
-    bool IsBotMode() const { return m_IdentityMode == IdentityMode::Bot; }
+    bool IsDisguiseEnabled() const { return m_identityMode == IdentityMode::Player; }
+    bool IsBotMode() const { return m_identityMode == IdentityMode::Bot; }
 
     // Toggle the display-name source: true=bot_info.json name, false=botprofile name
-    void SetUseBotInfoName(bool useBotInfo) { m_bUseBotInfoName = useBotInfo; }
+    void SetUseBotInfoName(bool useBotInfo) { m_useBotInfoName = useBotInfo; }
 
   private:
-    void* m_pHookedGameServer = nullptr;
-    int m_StartChangeLevelHookId = 0;
-    bool m_bSelfDisabled = false;
-    unsigned int m_TickCounter = 0; // throttles per-tick idle-timer reset
-    IdentityMode m_IdentityMode = IdentityMode::Player;
-    bool m_bFakePingEnabled = true;
-    int m_FakePingMin = 20;
-    int m_FakePingMax = 90;
-    unsigned int m_PopulationCommandDepth = 0;
+    void* m_hookedGameServer = nullptr;
+    int m_startChangeLevelHookId = 0;
+    bool m_selfDisabled = false;
+    unsigned int m_tickCounter = 0; // throttles per-tick idle-timer reset
+    IdentityMode m_identityMode = IdentityMode::Player;
+    bool m_fakePingEnabled = true;
+    int m_fakePingMin = 20;
+    int m_fakePingMax = 90;
+    unsigned int m_populationCommandDepth = 0;
 
     // Display-name source: false=botprofile name, true=bot_info.json name
-    bool m_bUseBotInfoName = false;
+    bool m_useBotInfoName = false;
 };
 
-extern HiderPlugin g_Plugin;
+extern HiderPlugin g_plugin;
 
 } // namespace cs2bh
 

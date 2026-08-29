@@ -19,7 +19,7 @@
 #include <iserver.h>
 #include <tier1/convar.h>
 
-extern IVEngineServer* engine;
+extern IVEngineServer* g_engine;
 
 namespace cs2bh {
 
@@ -57,9 +57,9 @@ static int FindManagedSlotByPersonaName(const char* name)
 }
 
 // Opens one identity transaction for the complete engine population command.
-void HiderPlugin::Hook_DispatchConCommand_Pre(ConCommandRef command, const CCommandContext&, const CCommand& arguments)
+void HiderPlugin::HookDispatchConCommandPre(ConCommandRef command, const CCommandContext&, const CCommand& arguments)
 {
-    if (m_bSelfDisabled || !command.IsValidRef()) RETURN_META(MRES_IGNORED);
+    if (m_selfDisabled || !command.IsValidRef()) RETURN_META(MRES_IGNORED);
     const char* commandName = command.GetName();
 
     if (IsBotAddCommand(commandName))
@@ -67,7 +67,7 @@ void HiderPlugin::Hook_DispatchConCommand_Pre(ConCommandRef command, const CComm
         if (IsDisguiseEnabled())
         {
             identity_hooks::BeginPopulationTransaction(true);
-            ++m_PopulationCommandDepth;
+            ++m_populationCommandDepth;
         }
         RETURN_META(MRES_IGNORED);
     }
@@ -78,11 +78,11 @@ void HiderPlugin::Hook_DispatchConCommand_Pre(ConCommandRef command, const CComm
         if (target[0] && !IsBotKickGroupTarget(target))
         {
             const int slot = FindManagedSlotByPersonaName(target);
-            if (slot >= 0 && engine)
+            if (slot >= 0 && g_engine)
             {
                 char kickCommand[640];
                 std::snprintf(kickCommand, sizeof(kickCommand), "kick \"%s\"\n", target);
-                engine->ServerCommand(kickCommand);
+                g_engine->ServerCommand(kickCommand);
                 RETURN_META(MRES_SUPERCEDE);
             }
         }
@@ -93,31 +93,31 @@ void HiderPlugin::Hook_DispatchConCommand_Pre(ConCommandRef command, const CComm
     if (IsDisguiseEnabled())
     {
         identity_hooks::BeginPopulationTransaction(true);
-        ++m_PopulationCommandDepth;
+        ++m_populationCommandDepth;
     }
     RETURN_META(MRES_IGNORED);
 }
 
 // Closes the transaction after the engine command and any nested quota pass complete.
-void HiderPlugin::Hook_DispatchConCommand_Post(ConCommandRef command, const CCommandContext&, const CCommand& /*arguments*/)
+void HiderPlugin::HookDispatchConCommandPost(ConCommandRef command, const CCommandContext&, const CCommand& /*arguments*/)
 {
-    if (m_bSelfDisabled || !command.IsValidRef()) RETURN_META(MRES_IGNORED);
+    if (m_selfDisabled || !command.IsValidRef()) RETURN_META(MRES_IGNORED);
     const char* commandName = command.GetName();
 
     if (IsBotAddCommand(commandName))
     {
-        if (m_PopulationCommandDepth != 0)
+        if (m_populationCommandDepth != 0)
         {
-            --m_PopulationCommandDepth;
+            --m_populationCommandDepth;
             identity_hooks::EndPopulationTransaction(IsDisguiseEnabled());
         }
         RETURN_META(MRES_IGNORED);
     }
 
     if (!IsKickCommand(commandName)) RETURN_META(MRES_IGNORED);
-    if (m_PopulationCommandDepth != 0)
+    if (m_populationCommandDepth != 0)
     {
-        --m_PopulationCommandDepth;
+        --m_populationCommandDepth;
         identity_hooks::EndPopulationTransaction(IsDisguiseEnabled());
     }
     RETURN_META(MRES_IGNORED);
@@ -126,17 +126,16 @@ void HiderPlugin::Hook_DispatchConCommand_Post(ConCommandRef command, const CCom
 // Changes the global managed-bot identity mode
 void HiderPlugin::SetIdentityMode(IdentityMode mode)
 {
-    if (m_IdentityMode == mode) return;
-    m_IdentityMode = mode;
+    if (m_identityMode == mode) return;
+    m_identityMode = mode;
     identity_runtime::ApplyManagedDisguise(mode == IdentityMode::Player);
     META_CONPRINTF("[BOTHIDER] identity mode=%s\n", mode == IdentityMode::Bot ? "bot" : "player");
 }
 
 // Restores native bot identity and clears managed state before a level transition
-CUtlVector<INetworkGameClient*>*
-HiderPlugin::Hook_StartChangeLevel_Pre(const char* mapName, const char* landmark, void* /*changelevelState*/)
+CUtlVector<INetworkGameClient*>* HiderPlugin::HookStartChangeLevelPre(const char* mapName, const char* landmark, void* /*changelevelState*/)
 {
-    if (m_bSelfDisabled) RETURN_META_VALUE(MRES_IGNORED, nullptr);
+    if (m_selfDisabled) RETURN_META_VALUE(MRES_IGNORED, nullptr);
 
     const int restoredClients = identity_runtime::RestoreManagedClientsForEngineTeardown();
     identity_state::ClearAll();
@@ -149,9 +148,9 @@ HiderPlugin::Hook_StartChangeLevel_Pre(const char* mapName, const char* landmark
 }
 
 // Drives deferred cleanup and shared-memory commands each frame
-void HiderPlugin::Hook_GameFrame_Post(bool simulating, bool /*bFirst*/, bool /*bLast*/)
+void HiderPlugin::HookGameFramePost(bool simulating, bool /*firstTick*/, bool /*lastTick*/)
 {
-    if (m_bSelfDisabled || !simulating) RETURN_META(MRES_IGNORED);
+    if (m_selfDisabled || !simulating) RETURN_META(MRES_IGNORED);
 
     identity_runtime::DrainPendingControllerRemovals();
     for (int slot = 0; slot < PersonaPool::kMaxSlots; ++slot)
@@ -165,7 +164,7 @@ void HiderPlugin::Hook_GameFrame_Post(bool simulating, bool /*bFirst*/, bool /*b
     }
     Manager().OnTick();
 
-    if ((++m_TickCounter & 63u) == 0u)
+    if ((++m_tickCounter & 63u) == 0u)
     {
         for (int slot = 0; slot < PersonaPool::kMaxSlots; ++slot)
         {

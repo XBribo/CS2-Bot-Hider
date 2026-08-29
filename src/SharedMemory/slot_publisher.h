@@ -17,10 +17,10 @@ class SlotPublisher
   public:
     struct AvatarRequest
     {
-        uint32_t Sequence = 0;
-        uint32_t Length = 0;
-        uint64_t Incarnation = 0;
-        std::vector<unsigned char> Data;
+        uint32_t sequence = 0;
+        uint32_t length = 0;
+        uint64_t incarnation = 0;
+        std::vector<unsigned char> data;
     };
 
     using SteamIdSink = std::function<void(int slot, uint64_t sid)>;
@@ -55,7 +55,7 @@ class SlotPublisher
                        const IdentityModeSink& onIdentityMode,
                        const NameSourceSink& onNameSource);
 
-    bool Active() const { return m_pView != nullptr; }
+    bool Active() const { return m_view != nullptr; }
 
   private:
     unsigned char* SlotStatePtr() const;
@@ -72,9 +72,9 @@ class SlotPublisher
     uint64_t NextIncarnation();
     void BumpGen();
 
-    void* m_hMapping = nullptr; // HANDLE
-    unsigned char* m_pView = nullptr;
-    uint64_t m_NextIncarnation = 0;
+    void* m_mappingHandle = nullptr; // HANDLE
+    unsigned char* m_view = nullptr;
+    uint64_t m_nextIncarnation = 0;
 };
 
 SlotPublisher& Publisher();

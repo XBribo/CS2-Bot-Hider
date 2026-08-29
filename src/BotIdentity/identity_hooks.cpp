@@ -32,38 +32,38 @@ using ApplyHumanTeamRestrictionFn = int64_t(CS2BH_FASTCALL*)();
 using PackEntitiesFn = void(CS2BH_FASTCALL*)(void*, void*, int, void*, void*);
 using SameMapClientCollectorFn = void*(CS2BH_FASTCALL*)(void*, uintptr_t);
 
-static funchook_t* g_pFunchook = nullptr;
-static size_t g_PreparedFunchookCount = 0;
-static bool g_FunchooksInstalled = false;
+static funchook_t* g_funchook = nullptr;
+static size_t g_preparedFunchookCount = 0;
+static bool g_funchooksInstalled = false;
 
-static MaintainQuotaFn g_pfnQuotaTramp = nullptr;
-static void* g_pQuotaHookTarget = nullptr;
-static HandleJoinTeamFn g_pfnHandleJoinTeamTramp = nullptr;
-static void* g_pHandleJoinTeamHookTarget = nullptr;
-static ApplyHumanTeamRestrictionFn g_pfnApplyHumanTeamRestrictionTramp = nullptr;
-static void* g_pApplyHumanTeamRestrictionHookTarget = nullptr;
-static PackEntitiesFn g_pfnPackEntitiesTramp = nullptr;
-static void* g_pPackEntitiesHookTarget = nullptr;
-static SameMapClientCollectorFn g_pfnSameMapCollectorTramp = nullptr;
-static void* g_pSameMapTeardownHookTarget = nullptr;
-static void* g_pSameMapTeardownReturnAddress = nullptr;
-static std::recursive_mutex g_PackEntitiesMutex;
-static thread_local uint32_t g_PackEntitiesDepth = 0;
-static std::array<bool, 64> g_QuotaResolveWarned{};
-static bool g_QuotaInvalidOffsetWarned = false;
+static MaintainQuotaFn g_quotaTrampoline = nullptr;
+static void* g_quotaHookTarget = nullptr;
+static HandleJoinTeamFn g_handleJoinTeamTrampoline = nullptr;
+static void* g_handleJoinTeamHookTarget = nullptr;
+static ApplyHumanTeamRestrictionFn g_applyHumanTeamRestrictionTrampoline = nullptr;
+static void* g_applyHumanTeamRestrictionHookTarget = nullptr;
+static PackEntitiesFn g_packEntitiesTrampoline = nullptr;
+static void* g_packEntitiesHookTarget = nullptr;
+static SameMapClientCollectorFn g_sameMapCollectorTrampoline = nullptr;
+static void* g_sameMapTeardownHookTarget = nullptr;
+static void* g_sameMapTeardownReturnAddress = nullptr;
+static std::recursive_mutex g_packEntitiesMutex;
+static thread_local uint32_t g_packEntitiesDepth = 0;
+static std::array<bool, 64> g_quotaResolveWarned{};
+static bool g_quotaInvalidOffsetWarned = false;
 
 struct NativeBotIdentitySnapshot
 {
-    int Slot = -1;
-    void* Client = nullptr;
-    void* Controller = nullptr;
-    uint32_t Handle = 0xFFFFFFFF;
-    uint16_t UserId = 0;
-    uint8_t ConnectionFlags = 0;
-    uint8_t FakePlayer = 0;
-    uint32_t ControllerFlags = 0;
-    bool HasController = false;
-    bool Modified = false;
+    int slot = -1;
+    void* client = nullptr;
+    void* controller = nullptr;
+    uint32_t handle = 0xFFFFFFFF;
+    uint16_t userId = 0;
+    uint8_t connectionFlags = 0;
+    uint8_t fakePlayer = 0;
+    uint32_t controllerFlags = 0;
+    bool hasController = false;
+    bool modified = false;
 };
 
 static bool IsValidController(void* controller, const char* className, uint32_t handle)
@@ -79,21 +79,21 @@ class ScopedNativeBotIdentityRestore
     ScopedNativeBotIdentityRestore() { Capture(); }
     ~ScopedNativeBotIdentityRestore() { Restore(); }
 
-    int ModifiedCount() const { return m_ModifiedCount; }
+    int ModifiedCount() const { return m_modifiedCount; }
 
   private:
-    std::array<NativeBotIdentitySnapshot, 64> m_Snapshots{};
-    int m_ModifiedCount = 0;
+    std::array<NativeBotIdentitySnapshot, 64> m_snapshots{};
+    int m_modifiedCount = 0;
 
     void Capture()
     {
-        if (ssc::OFFSET_m_UserID < 0 || ssc::OFFSET_m_nEntityIndex < 0 || ssc::OFFSET_m_NetChannel < 0 ||
-            ssc::OFFSET_m_nConnectionTypeFlags < 0 || ssc::OFFSET_m_bFakePlayer < 0 || targets::kController_FakeClientFlagsOffset < 0)
+        if (ssc::g_userIdOffset < 0 || ssc::g_entityIndexOffset < 0 || ssc::g_netChannelOffset < 0 ||
+            ssc::g_connectionTypeFlagsOffset < 0 || ssc::g_fakePlayerOffset < 0 || targets::g_controllerFakeClientFlagsOffset < 0)
         {
-            if (!g_QuotaInvalidOffsetWarned)
+            if (!g_quotaInvalidOffsetWarned)
             {
                 META_CONPRINTF("[BOTHIDER] warning: quota identity restore disabled: invalid client/controller offsets\n");
-                g_QuotaInvalidOffsetWarned = true;
+                g_quotaInvalidOffsetWarned = true;
             }
             return;
         }
@@ -102,222 +102,222 @@ class ScopedNativeBotIdentityRestore
         {
             if (!Manager().IsManaged(slot)) continue;
 
-            auto& snapshot = m_Snapshots[slot];
-            snapshot.Slot = slot;
-            snapshot.Client = entity_access::ResolveClientBySlot(slot);
-            if (!snapshot.Client)
+            auto& snapshot = m_snapshots[slot];
+            snapshot.slot = slot;
+            snapshot.client = entity_access::ResolveClientBySlot(slot);
+            if (!snapshot.client)
             {
-                if (!g_QuotaResolveWarned[slot])
+                if (!g_quotaResolveWarned[slot])
                 {
                     META_CONPRINTF("[BOTHIDER] warning: quota identity restore client resolve failed slot=%d\n", slot);
-                    g_QuotaResolveWarned[slot] = true;
+                    g_quotaResolveWarned[slot] = true;
                 }
                 continue;
             }
 
-            auto* raw = reinterpret_cast<unsigned char*>(snapshot.Client);
-            snapshot.UserId = *reinterpret_cast<uint16_t*>(raw + ssc::OFFSET_m_UserID);
-            snapshot.ConnectionFlags = raw[ssc::OFFSET_m_nConnectionTypeFlags];
-            snapshot.FakePlayer = raw[ssc::OFFSET_m_bFakePlayer];
-            snapshot.Modified = true;
-            ssc::SetFakePlayer(snapshot.Client);
-            ++m_ModifiedCount;
+            auto* raw = reinterpret_cast<unsigned char*>(snapshot.client);
+            snapshot.userId = *reinterpret_cast<uint16_t*>(raw + ssc::g_userIdOffset);
+            snapshot.connectionFlags = raw[ssc::g_connectionTypeFlagsOffset];
+            snapshot.fakePlayer = raw[ssc::g_fakePlayerOffset];
+            snapshot.modified = true;
+            ssc::SetFakePlayer(snapshot.client);
+            ++m_modifiedCount;
 
-            const int entityIndex = *reinterpret_cast<int*>(raw + ssc::OFFSET_m_nEntityIndex);
+            const int entityIndex = *reinterpret_cast<int*>(raw + ssc::g_entityIndexOffset);
             char className[64];
-            snapshot.Controller = entity_access::ResolveEntityInstance(entityIndex, className, sizeof(className));
-            if (!snapshot.Controller)
+            snapshot.controller = entity_access::ResolveEntityInstance(entityIndex, className, sizeof(className));
+            if (!snapshot.controller)
             {
-                if (!g_QuotaResolveWarned[slot])
+                if (!g_quotaResolveWarned[slot])
                 {
                     META_CONPRINTF("[BOTHIDER] warning: quota identity restore controller resolve failed slot=%d userid=%u entIdx=%d "
                                    "clientFake=%u conn=0x%02x net=%p\n",
-                                   slot, static_cast<unsigned int>(snapshot.UserId), entityIndex,
-                                   static_cast<unsigned int>(snapshot.FakePlayer), static_cast<unsigned int>(snapshot.ConnectionFlags),
-                                   *reinterpret_cast<void**>(raw + ssc::OFFSET_m_NetChannel));
-                    g_QuotaResolveWarned[slot] = true;
+                                   slot, static_cast<unsigned int>(snapshot.userId), entityIndex,
+                                   static_cast<unsigned int>(snapshot.fakePlayer), static_cast<unsigned int>(snapshot.connectionFlags),
+                                   *reinterpret_cast<void**>(raw + ssc::g_netChannelOffset));
+                    g_quotaResolveWarned[slot] = true;
                 }
                 continue;
             }
-            if (std::strcmp(className, "cs_player_controller") != 0 || entity_access::IsEntityBeingDeleted(snapshot.Controller))
+            if (std::strcmp(className, "cs_player_controller") != 0 || entity_access::IsEntityBeingDeleted(snapshot.controller))
             {
                 META_CONPRINTF("[BOTHIDER] warning: quota identity restore invalid controller slot=%d userid=%u entIdx=%d cls='%s'\n", slot,
-                               static_cast<unsigned int>(snapshot.UserId), entityIndex, className);
-                g_QuotaResolveWarned[slot] = true;
-                snapshot.Controller = nullptr;
+                               static_cast<unsigned int>(snapshot.userId), entityIndex, className);
+                g_quotaResolveWarned[slot] = true;
+                snapshot.controller = nullptr;
                 continue;
             }
 
-            g_QuotaResolveWarned[slot] = false;
+            g_quotaResolveWarned[slot] = false;
 
-            auto* entity = reinterpret_cast<CEntityInstance*>(snapshot.Controller);
-            snapshot.Handle = static_cast<uint32_t>(entity->GetRefEHandle().ToInt());
-            auto* flags = reinterpret_cast<uint32_t*>(reinterpret_cast<unsigned char*>(snapshot.Controller) +
-                                                      targets::kController_FakeClientFlagsOffset);
-            snapshot.ControllerFlags = *flags;
-            snapshot.HasController = true;
+            auto* entity = reinterpret_cast<CEntityInstance*>(snapshot.controller);
+            snapshot.handle = static_cast<uint32_t>(entity->GetRefEHandle().ToInt());
+            auto* flags = reinterpret_cast<uint32_t*>(reinterpret_cast<unsigned char*>(snapshot.controller) +
+                                                      targets::g_controllerFakeClientFlagsOffset);
+            snapshot.controllerFlags = *flags;
+            snapshot.hasController = true;
             const uint32_t before = *flags;
             *flags |= 0x100u;
             if (*flags != before)
             {
-                entity_access::MarkEntityFieldChanged(snapshot.Controller,
-                                                      static_cast<uint32_t>(targets::kController_FakeClientFlagsOffset));
+                entity_access::MarkEntityFieldChanged(snapshot.controller,
+                                                      static_cast<uint32_t>(targets::g_controllerFakeClientFlagsOffset));
             }
         }
     }
 
     void Restore()
     {
-        for (const auto& snapshot : m_Snapshots)
+        for (const auto& snapshot : m_snapshots)
         {
-            if (!snapshot.Modified || !snapshot.Client) continue;
-            if (!Manager().IsManaged(snapshot.Slot)) continue;
+            if (!snapshot.modified || !snapshot.client) continue;
+            if (!Manager().IsManaged(snapshot.slot)) continue;
 
-            void* currentClient = entity_access::ResolveClientBySlot(snapshot.Slot);
-            if (currentClient != snapshot.Client)
+            void* currentClient = entity_access::ResolveClientBySlot(snapshot.slot);
+            if (currentClient != snapshot.client)
             {
-                META_CONPRINTF("[BOTHIDER] warning: quota identity restore skipped slot=%d: client rebound\n", snapshot.Slot);
+                META_CONPRINTF("[BOTHIDER] warning: quota identity restore skipped slot=%d: client rebound\n", snapshot.slot);
                 continue;
             }
 
             auto* raw = reinterpret_cast<unsigned char*>(currentClient);
-            const uint16_t currentUserId = *reinterpret_cast<uint16_t*>(raw + ssc::OFFSET_m_UserID);
-            if (currentUserId != snapshot.UserId)
+            const uint16_t currentUserId = *reinterpret_cast<uint16_t*>(raw + ssc::g_userIdOffset);
+            if (currentUserId != snapshot.userId)
             {
-                META_CONPRINTF("[BOTHIDER] warning: quota identity restore skipped slot=%d: userid changed %u->%u\n", snapshot.Slot,
-                               static_cast<unsigned int>(snapshot.UserId), static_cast<unsigned int>(currentUserId));
+                META_CONPRINTF("[BOTHIDER] warning: quota identity restore skipped slot=%d: userid changed %u->%u\n", snapshot.slot,
+                               static_cast<unsigned int>(snapshot.userId), static_cast<unsigned int>(currentUserId));
                 continue;
             }
-            raw[ssc::OFFSET_m_nConnectionTypeFlags] = snapshot.ConnectionFlags;
-            raw[ssc::OFFSET_m_bFakePlayer] = snapshot.FakePlayer;
+            raw[ssc::g_connectionTypeFlagsOffset] = snapshot.connectionFlags;
+            raw[ssc::g_fakePlayerOffset] = snapshot.fakePlayer;
 
-            if (!snapshot.HasController) continue;
-            const int entityIndex = *reinterpret_cast<int*>(raw + ssc::OFFSET_m_nEntityIndex);
+            if (!snapshot.hasController) continue;
+            const int entityIndex = *reinterpret_cast<int*>(raw + ssc::g_entityIndexOffset);
             char className[64];
             void* controller = entity_access::ResolveEntityInstance(entityIndex, className, sizeof(className));
-            if (!IsValidController(controller, className, snapshot.Handle) || controller != snapshot.Controller)
+            if (!IsValidController(controller, className, snapshot.handle) || controller != snapshot.controller)
             {
-                META_CONPRINTF("[BOTHIDER] warning: quota identity restore skipped slot=%d userid=%u: controller rebound\n", snapshot.Slot,
-                               static_cast<unsigned int>(snapshot.UserId));
+                META_CONPRINTF("[BOTHIDER] warning: quota identity restore skipped slot=%d userid=%u: controller rebound\n", snapshot.slot,
+                               static_cast<unsigned int>(snapshot.userId));
                 continue;
             }
 
             auto* flags =
-                reinterpret_cast<uint32_t*>(reinterpret_cast<unsigned char*>(controller) + targets::kController_FakeClientFlagsOffset);
-            if (*flags != snapshot.ControllerFlags)
+                reinterpret_cast<uint32_t*>(reinterpret_cast<unsigned char*>(controller) + targets::g_controllerFakeClientFlagsOffset);
+            if (*flags != snapshot.controllerFlags)
             {
-                *flags = snapshot.ControllerFlags;
-                entity_access::MarkEntityFieldChanged(controller, static_cast<uint32_t>(targets::kController_FakeClientFlagsOffset));
+                *flags = snapshot.controllerFlags;
+                entity_access::MarkEntityFieldChanged(controller, static_cast<uint32_t>(targets::g_controllerFakeClientFlagsOffset));
             }
         }
     }
 };
 
-static unsigned int g_PopulationTransactionDepth = 0;
-static bool g_PopulationTransactionRedisguise = false;
-static std::unique_ptr<ScopedNativeBotIdentityRestore> g_PopulationIdentity;
+static unsigned int g_populationTransactionDepth = 0;
+static bool g_populationTransactionRedisguise = false;
+static std::unique_ptr<ScopedNativeBotIdentityRestore> g_populationIdentity;
 
 void BeginPopulationTransaction(bool redisguise)
 {
-    if (g_PopulationTransactionDepth++ == 0)
+    if (g_populationTransactionDepth++ == 0)
     {
-        g_PopulationTransactionRedisguise = redisguise;
-        g_PopulationIdentity = std::make_unique<ScopedNativeBotIdentityRestore>();
+        g_populationTransactionRedisguise = redisguise;
+        g_populationIdentity = std::make_unique<ScopedNativeBotIdentityRestore>();
     }
     else
     {
-        g_PopulationTransactionRedisguise = g_PopulationTransactionRedisguise || redisguise;
+        g_populationTransactionRedisguise = g_populationTransactionRedisguise || redisguise;
     }
 }
 
 void EndPopulationTransaction(bool redisguise)
 {
-    if (g_PopulationTransactionDepth == 0)
+    if (g_populationTransactionDepth == 0)
     {
         META_CONPRINTF("[BOTHIDER] warning: population transaction end without begin\n");
         return;
     }
 
-    g_PopulationTransactionRedisguise = g_PopulationTransactionRedisguise || redisguise;
-    if (--g_PopulationTransactionDepth != 0) return;
+    g_populationTransactionRedisguise = g_populationTransactionRedisguise || redisguise;
+    if (--g_populationTransactionDepth != 0) return;
 
-    const bool applyDisguise = g_PopulationTransactionRedisguise;
-    g_PopulationTransactionRedisguise = false;
-    g_PopulationIdentity.reset();
-    if (applyDisguise) identity_runtime::ApplyManagedDisguise(g_Plugin.IsDisguiseEnabled());
+    const bool applyDisguise = g_populationTransactionRedisguise;
+    g_populationTransactionRedisguise = false;
+    g_populationIdentity.reset();
+    if (applyDisguise) identity_runtime::ApplyManagedDisguise(g_plugin.IsDisguiseEnabled());
 }
 
-bool PopulationTransactionActive() { return g_PopulationTransactionDepth != 0; }
+bool PopulationTransactionActive() { return g_populationTransactionDepth != 0; }
 
-PopulationTransactionScope::PopulationTransactionScope(bool redisguise) : m_Redisguise(redisguise)
+PopulationTransactionScope::PopulationTransactionScope(bool redisguise) : m_redisguise(redisguise)
 {
     BeginPopulationTransaction(redisguise);
 }
 
-PopulationTransactionScope::~PopulationTransactionScope() { EndPopulationTransaction(m_Redisguise); }
+PopulationTransactionScope::~PopulationTransactionScope() { EndPopulationTransaction(m_redisguise); }
 
 class PackEntitiesDepthGuard
 {
   public:
     // Marks the current thread as executing the outer packing callback
-    PackEntitiesDepthGuard() { ++g_PackEntitiesDepth; }
+    PackEntitiesDepthGuard() { ++g_packEntitiesDepth; }
 
     // Clears the current thread packing depth
-    ~PackEntitiesDepthGuard() { --g_PackEntitiesDepth; }
+    ~PackEntitiesDepthGuard() { --g_packEntitiesDepth; }
 };
 
 class ScopedBotFlagOverride
 {
   public:
     // Clears FL_BOT and marks changed fields before entity packing
-    ScopedBotFlagOverride() : m_ModifiedPawns(ApplyBotFlagOverride()) {}
+    ScopedBotFlagOverride() : m_modifiedPawns(ApplyBotFlagOverride()) {}
 
     // Restores only FL_BOT after entity packing without marking changes
-    ~ScopedBotFlagOverride() { RestoreBotFlagOverride(m_ModifiedPawns); }
+    ~ScopedBotFlagOverride() { RestoreBotFlagOverride(m_modifiedPawns); }
 
   private:
-    std::vector<BotPawnRef> m_ModifiedPawns;
+    std::vector<BotPawnRef> m_modifiedPawns;
 };
 
 // Passes entity packing through with a scoped FL_BOT override
-static void CS2BH_FASTCALL Detour_PackEntities(void* serverObject, void* packContext, int clientCount, void* clients, void* snapshotContext)
+static void CS2BH_FASTCALL DetourPackEntities(void* serverObject, void* packContext, int clientCount, void* clients, void* snapshotContext)
 {
-    std::lock_guard<std::recursive_mutex> lock(g_PackEntitiesMutex);
-    if (g_PackEntitiesDepth != 0)
+    std::lock_guard<std::recursive_mutex> lock(g_packEntitiesMutex);
+    if (g_packEntitiesDepth != 0)
     {
-        g_pfnPackEntitiesTramp(serverObject, packContext, clientCount, clients, snapshotContext);
+        g_packEntitiesTrampoline(serverObject, packContext, clientCount, clients, snapshotContext);
         return;
     }
 
     PackEntitiesDepthGuard depthGuard;
     ScopedBotFlagOverride flagOverride;
-    g_pfnPackEntitiesTramp(serverObject, packContext, clientCount, clients, snapshotContext);
+    g_packEntitiesTrampoline(serverObject, packContext, clientCount, clients, snapshotContext);
 }
 
 // Restores managed clients only at the same-map teardown call site
-static void* CS2BH_FASTCALL Detour_SameMapClientCollector(void* collection, uintptr_t source)
+static void* CS2BH_FASTCALL DetourSameMapClientCollector(void* collection, uintptr_t source)
 {
 #if defined(_MSC_VER)
     void* returnAddress = _ReturnAddress();
 #else
     void* returnAddress = __builtin_extract_return_addr(__builtin_return_address(0));
 #endif
-    if (returnAddress == g_pSameMapTeardownReturnAddress)
+    if (returnAddress == g_sameMapTeardownReturnAddress)
     {
         const int restored = identity_runtime::RestoreManagedClientsForEngineTeardown();
         META_CONPRINTF("[BOTHIDER] same-map teardown PRE restored=%d\n", restored);
     }
 
-    return g_pfnSameMapCollectorTramp ? g_pfnSameMapCollectorTramp(collection, source) : nullptr;
+    return g_sameMapCollectorTrampoline ? g_sameMapCollectorTrampoline(collection, source) : nullptr;
 }
 
 // Prepares one target and replaces its original pointer with the trampoline
 template <typename Function> static bool PrepareFunchook(Function& original, void* target, void* detour, const char* name)
 {
-    if (!g_pFunchook)
+    if (!g_funchook)
     {
-        g_pFunchook = funchook_create();
-        if (!g_pFunchook)
+        g_funchook = funchook_create();
+        if (!g_funchook)
         {
             META_CONPRINTF("[BOTHIDER] warning: funchook_create failed for %s\n", name);
             return false;
@@ -325,67 +325,67 @@ template <typename Function> static bool PrepareFunchook(Function& original, voi
     }
 
     void* trampoline = target;
-    int result = funchook_prepare(g_pFunchook, &trampoline, detour);
+    int result = funchook_prepare(g_funchook, &trampoline, detour);
     if (result != FUNCHOOK_ERROR_SUCCESS)
     {
-        META_CONPRINTF("[BOTHIDER] warning: funchook_prepare failed for %s: %s (%d)\n", name, funchook_error_message(g_pFunchook), result);
+        META_CONPRINTF("[BOTHIDER] warning: funchook_prepare failed for %s: %s (%d)\n", name, funchook_error_message(g_funchook), result);
         original = nullptr;
         return false;
     }
 
     original = reinterpret_cast<Function>(trampoline);
-    ++g_PreparedFunchookCount;
+    ++g_preparedFunchookCount;
     return true;
 }
 
 // Clears all published hook targets and trampoline pointers
 static void ClearBindings()
 {
-    g_pfnQuotaTramp = nullptr;
-    g_pfnPackEntitiesTramp = nullptr;
-    g_pQuotaHookTarget = nullptr;
-    g_pPackEntitiesHookTarget = nullptr;
-    g_pfnHandleJoinTeamTramp = nullptr;
-    g_pHandleJoinTeamHookTarget = nullptr;
-    g_pfnApplyHumanTeamRestrictionTramp = nullptr;
-    g_pApplyHumanTeamRestrictionHookTarget = nullptr;
-    g_pfnSameMapCollectorTramp = nullptr;
-    g_pSameMapTeardownHookTarget = nullptr;
-    g_pSameMapTeardownReturnAddress = nullptr;
-    g_PreparedFunchookCount = 0;
-    g_FunchooksInstalled = false;
+    g_quotaTrampoline = nullptr;
+    g_packEntitiesTrampoline = nullptr;
+    g_quotaHookTarget = nullptr;
+    g_packEntitiesHookTarget = nullptr;
+    g_handleJoinTeamTrampoline = nullptr;
+    g_handleJoinTeamHookTarget = nullptr;
+    g_applyHumanTeamRestrictionTrampoline = nullptr;
+    g_applyHumanTeamRestrictionHookTarget = nullptr;
+    g_sameMapCollectorTrampoline = nullptr;
+    g_sameMapTeardownHookTarget = nullptr;
+    g_sameMapTeardownReturnAddress = nullptr;
+    g_preparedFunchookCount = 0;
+    g_funchooksInstalled = false;
 }
 
 // Restores Bot identity while the engine counts bot quota
-static int64_t CS2BH_FASTCALL Detour_MaintainBotQuota(void* manager)
+static int64_t CS2BH_FASTCALL DetourMaintainBotQuota(void* manager)
 {
-    if (!g_Plugin.IsDisguiseEnabled()) return g_pfnQuotaTramp ? g_pfnQuotaTramp(manager) : 0;
+    if (!g_plugin.IsDisguiseEnabled()) return g_quotaTrampoline ? g_quotaTrampoline(manager) : 0;
     PopulationTransactionScope scope(true);
-    return g_pfnQuotaTramp ? g_pfnQuotaTramp(manager) : 0;
+    return g_quotaTrampoline ? g_quotaTrampoline(manager) : 0;
 }
 
 // Restores Bot identity while the engine applies mp_humanteam
-static int64_t CS2BH_FASTCALL Detour_ApplyHumanTeamRestriction()
+static int64_t CS2BH_FASTCALL DetourApplyHumanTeamRestriction()
 {
-    if (!g_Plugin.IsDisguiseEnabled()) return g_pfnApplyHumanTeamRestrictionTramp ? g_pfnApplyHumanTeamRestrictionTramp() : 0;
+    if (!g_plugin.IsDisguiseEnabled()) return g_applyHumanTeamRestrictionTrampoline ? g_applyHumanTeamRestrictionTrampoline() : 0;
     PopulationTransactionScope scope(true);
-    return g_pfnApplyHumanTeamRestrictionTramp ? g_pfnApplyHumanTeamRestrictionTramp() : 0;
+    return g_applyHumanTeamRestrictionTrampoline ? g_applyHumanTeamRestrictionTrampoline() : 0;
 }
 
 // Restores Bot identity only while the engine validates an initial team join
-static int64_t CS2BH_FASTCALL Detour_HandleCommandJoinTeam(void* controller, unsigned int requestedTeam, bool unknownFlag)
+static int64_t CS2BH_FASTCALL DetourHandleCommandJoinTeam(void* controller, unsigned int requestedTeam, bool unknownFlag)
 {
-    if (!g_Plugin.IsDisguiseEnabled())
-        return g_pfnHandleJoinTeamTramp ? g_pfnHandleJoinTeamTramp(controller, requestedTeam, unknownFlag) : 0;
+    if (!g_plugin.IsDisguiseEnabled())
+        return g_handleJoinTeamTrampoline ? g_handleJoinTeamTrampoline(controller, requestedTeam, unknownFlag) : 0;
 
     ManagedControllerTrace trace = TraceManagedController(controller);
     std::unique_ptr<PopulationTransactionScope> populationScope;
-    if (trace.Managed && !trace.Hltv)
+    if (trace.managed && !trace.hltv)
     {
         populationScope = std::make_unique<PopulationTransactionScope>(true);
     }
 
-    return g_pfnHandleJoinTeamTramp ? g_pfnHandleJoinTeamTramp(controller, requestedTeam, unknownFlag) : 0;
+    return g_handleJoinTeamTrampoline ? g_handleJoinTeamTrampoline(controller, requestedTeam, unknownFlag) : 0;
 }
 
 // Resolves and prepares the bot quota detour
@@ -406,9 +406,9 @@ static void PrepareQuotaHook(const nlohmann::json& gamedata, const sig::ModuleIn
         META_CONPRINTF("[BOTHIDER] warning: MaintainBotQuota sig not found — quota fix disabled\n");
         return;
     }
-    if (PrepareFunchook(g_pfnQuotaTramp, target, reinterpret_cast<void*>(&Detour_MaintainBotQuota), "CCSBotManager::MaintainBotQuota"))
+    if (PrepareFunchook(g_quotaTrampoline, target, reinterpret_cast<void*>(&DetourMaintainBotQuota), "CCSBotManager::MaintainBotQuota"))
     {
-        g_pQuotaHookTarget = target;
+        g_quotaHookTarget = target;
     }
 }
 
@@ -433,10 +433,10 @@ static void PrepareHandleJoinTeamHook(const nlohmann::json& gamedata, const sig:
     }
 
     void* target = matches.front();
-    if (PrepareFunchook(g_pfnHandleJoinTeamTramp, target, reinterpret_cast<void*>(&Detour_HandleCommandJoinTeam),
+    if (PrepareFunchook(g_handleJoinTeamTrampoline, target, reinterpret_cast<void*>(&DetourHandleCommandJoinTeam),
                         "CCSPlayerController::HandleCommand_JoinTeam"))
     {
-        g_pHandleJoinTeamHookTarget = target;
+        g_handleJoinTeamHookTarget = target;
     }
 }
 
@@ -461,10 +461,10 @@ static void PrepareHumanTeamRestrictionHook(const nlohmann::json& gamedata, cons
     }
 
     void* target = matches.front();
-    if (PrepareFunchook(g_pfnApplyHumanTeamRestrictionTramp, target, reinterpret_cast<void*>(&Detour_ApplyHumanTeamRestriction),
+    if (PrepareFunchook(g_applyHumanTeamRestrictionTrampoline, target, reinterpret_cast<void*>(&DetourApplyHumanTeamRestriction),
                         "MpHumanTeam_ApplyRestriction"))
     {
-        g_pApplyHumanTeamRestrictionHookTarget = target;
+        g_applyHumanTeamRestrictionHookTarget = target;
     }
 }
 
@@ -495,9 +495,9 @@ static void PreparePackEntitiesHook(const nlohmann::json& gamedata)
     }
 
     void* target = matches.front();
-    if (PrepareFunchook(g_pfnPackEntitiesTramp, target, reinterpret_cast<void*>(&Detour_PackEntities), "CNetworkGameServer::PackEntities"))
+    if (PrepareFunchook(g_packEntitiesTrampoline, target, reinterpret_cast<void*>(&DetourPackEntities), "CNetworkGameServer::PackEntities"))
     {
-        g_pPackEntitiesHookTarget = target;
+        g_packEntitiesHookTarget = target;
     }
 }
 
@@ -531,8 +531,8 @@ static void PrepareSameMapTeardownHook(const nlohmann::json& gamedata, const sig
     }
 
     auto* callSite = static_cast<unsigned char*>(matches.front()) + callOffset;
-    const uintptr_t moduleBegin = reinterpret_cast<uintptr_t>(serverModule.Base);
-    const uintptr_t moduleEnd = moduleBegin + serverModule.Size;
+    const uintptr_t moduleBegin = reinterpret_cast<uintptr_t>(serverModule.base);
+    const uintptr_t moduleEnd = moduleBegin + serverModule.size;
     const uintptr_t callAddress = reinterpret_cast<uintptr_t>(callSite);
     if (callAddress < moduleBegin || callAddress > moduleEnd - 5 || callSite[0] != 0xE8)
     {
@@ -550,11 +550,11 @@ static void PrepareSameMapTeardownHook(const nlohmann::json& gamedata, const sig
         return;
     }
 
-    if (PrepareFunchook(g_pfnSameMapCollectorTramp, target, reinterpret_cast<void*>(&Detour_SameMapClientCollector),
+    if (PrepareFunchook(g_sameMapCollectorTrampoline, target, reinterpret_cast<void*>(&DetourSameMapClientCollector),
                         "CCSGameRules::SameMapTeardown helper"))
     {
-        g_pSameMapTeardownHookTarget = target;
-        g_pSameMapTeardownReturnAddress = callSite + 5;
+        g_sameMapTeardownHookTarget = target;
+        g_sameMapTeardownReturnAddress = callSite + 5;
     }
 }
 
@@ -571,59 +571,59 @@ void PrepareAll(const nlohmann::json& gamedata, const sig::ModuleInfo& serverMod
 // Installs every successfully prepared identity detour
 void InstallPrepared()
 {
-    if (!g_pFunchook || g_PreparedFunchookCount == 0)
+    if (!g_funchook || g_preparedFunchookCount == 0)
     {
-        if (g_pFunchook) funchook_destroy(g_pFunchook);
-        g_pFunchook = nullptr;
+        if (g_funchook) funchook_destroy(g_funchook);
+        g_funchook = nullptr;
         ClearBindings();
         return;
     }
 
-    int result = funchook_install(g_pFunchook, 0);
+    int result = funchook_install(g_funchook, 0);
     if (result != FUNCHOOK_ERROR_SUCCESS)
     {
-        META_CONPRINTF("[BOTHIDER] warning: funchook_install failed: %s (%d)\n", funchook_error_message(g_pFunchook), result);
-        funchook_destroy(g_pFunchook);
-        g_pFunchook = nullptr;
+        META_CONPRINTF("[BOTHIDER] warning: funchook_install failed: %s (%d)\n", funchook_error_message(g_funchook), result);
+        funchook_destroy(g_funchook);
+        g_funchook = nullptr;
         ClearBindings();
         return;
     }
 
-    g_FunchooksInstalled = true;
+    g_funchooksInstalled = true;
 }
 
 // Uninstalls all identity detours and releases their shared handle
 bool Remove()
 {
-    if (g_PackEntitiesDepth != 0)
+    if (g_packEntitiesDepth != 0)
     {
         META_CONPRINTF("[BOTHIDER] error: refusing funchook removal during PackEntities\n");
         return false;
     }
 
-    std::unique_lock<std::recursive_mutex> lock(g_PackEntitiesMutex);
-    if (!g_pFunchook)
+    std::unique_lock<std::recursive_mutex> lock(g_packEntitiesMutex);
+    if (!g_funchook)
     {
         ClearBindings();
         return true;
     }
 
-    if (g_FunchooksInstalled)
+    if (g_funchooksInstalled)
     {
-        int result = funchook_uninstall(g_pFunchook, 0);
+        int result = funchook_uninstall(g_funchook, 0);
         if (result != FUNCHOOK_ERROR_SUCCESS)
         {
-            std::string message = funchook_error_message(g_pFunchook);
+            std::string message = funchook_error_message(g_funchook);
             lock.unlock();
             META_CONPRINTF("[BOTHIDER] error: funchook_uninstall failed: %s (%d)\n", message.c_str(), result);
             return false;
         }
     }
 
-    int result = funchook_destroy(g_pFunchook);
+    int result = funchook_destroy(g_funchook);
     std::string destroyMessage;
-    if (result != FUNCHOOK_ERROR_SUCCESS) destroyMessage = funchook_error_message(g_pFunchook);
-    g_pFunchook = nullptr;
+    if (result != FUNCHOOK_ERROR_SUCCESS) destroyMessage = funchook_error_message(g_funchook);
+    g_funchook = nullptr;
     ClearBindings();
     lock.unlock();
     if (result != FUNCHOOK_ERROR_SUCCESS)
@@ -632,18 +632,18 @@ bool Remove()
 }
 
 // Returns the resolved bot-quota hook target
-void* MaintainQuotaTarget() { return g_pQuotaHookTarget; }
+void* MaintainQuotaTarget() { return g_quotaHookTarget; }
 
 // Returns the resolved entity-packing hook target
-void* PackEntitiesTarget() { return g_pPackEntitiesHookTarget; }
+void* PackEntitiesTarget() { return g_packEntitiesHookTarget; }
 
 // Returns the resolved team-join hook target
-void* HandleJoinTeamTarget() { return g_pHandleJoinTeamHookTarget; }
+void* HandleJoinTeamTarget() { return g_handleJoinTeamHookTarget; }
 
 // Returns the resolved human-team restriction hook target
-void* HumanTeamRestrictionTarget() { return g_pApplyHumanTeamRestrictionHookTarget; }
+void* HumanTeamRestrictionTarget() { return g_applyHumanTeamRestrictionHookTarget; }
 
 // Returns the resolved same-map teardown helper target
-void* SameMapTeardownTarget() { return g_pSameMapTeardownHookTarget; }
+void* SameMapTeardownTarget() { return g_sameMapTeardownHookTarget; }
 
 } // namespace cs2bh::identity_hooks

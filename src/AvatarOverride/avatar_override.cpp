@@ -17,15 +17,15 @@ namespace cs2bh::avatar {
 
 struct AvatarRuntimeState
 {
-    uint32_t ProcessedSequence = 0xFFFFFFFFu;
-    uint64_t ProcessedSteamId = 0;
-    uint64_t AppliedSteamId = 0;
-    bool Applied = false;
+    uint32_t processedSequence = 0xFFFFFFFFu;
+    uint64_t processedSteamId = 0;
+    uint64_t appliedSteamId = 0;
+    bool applied = false;
 };
 
-static INetworkStringTableContainer* g_pNetworkStringTables = nullptr;
-static std::array<AvatarRuntimeState, PersonaPool::kMaxSlots> g_AvatarStates{};
-static INetworkStringTable* g_pLastAvatarTable = nullptr;
+static INetworkStringTableContainer* g_networkStringTables = nullptr;
+static std::array<AvatarRuntimeState, PersonaPool::kMaxSlots> g_avatarStates{};
+static INetworkStringTable* g_lastAvatarTable = nullptr;
 
 // Formats a SteamID64 key for ServerAvatarOverrides
 static void FormatAvatarSteamId(uint64_t steamId, char* buffer, size_t length)
@@ -128,13 +128,13 @@ static bool EnsureReliableAvatarData()
 }
 
 // Sets the network string-table interface used for avatar overrides
-void SetStringTableContainer(INetworkStringTableContainer* container) { g_pNetworkStringTables = container; }
+void SetStringTableContainer(INetworkStringTableContainer* container) { g_networkStringTables = container; }
 
 // Resets all per-slot avatar bookkeeping and published states
 void ResetRuntime()
 {
-    g_AvatarStates.fill(AvatarRuntimeState{});
-    g_pLastAvatarTable = nullptr;
+    g_avatarStates.fill(AvatarRuntimeState{});
+    g_lastAvatarTable = nullptr;
     for (int slot = 0; slot < PersonaPool::kMaxSlots; ++slot)
         Publisher().PublishAvatarState(slot, false, 0);
 }
@@ -142,14 +142,14 @@ void ResetRuntime()
 // Applies pending shared-memory avatar requests on the game thread
 void ProcessOverrides()
 {
-    if (!g_pNetworkStringTables) return;
-    INetworkStringTable* table = g_pNetworkStringTables->FindTable("ServerAvatarOverrides");
+    if (!g_networkStringTables) return;
+    INetworkStringTable* table = g_networkStringTables->FindTable("ServerAvatarOverrides");
     if (!table) return;
 
-    if (table != g_pLastAvatarTable)
+    if (table != g_lastAvatarTable)
     {
-        g_AvatarStates.fill(AvatarRuntimeState{});
-        g_pLastAvatarTable = table;
+        g_avatarStates.fill(AvatarRuntimeState{});
+        g_lastAvatarTable = table;
         for (int slot = 0; slot < PersonaPool::kMaxSlots; ++slot)
             Publisher().PublishAvatarState(slot, false, 0);
     }
@@ -162,45 +162,45 @@ void ProcessOverrides()
         uint64_t incarnation = 0;
         if (!Publisher().ReadAvatarMetadata(slot, sequence, length, incarnation)) continue;
 
-        AvatarRuntimeState& state = g_AvatarStates[slot];
+        AvatarRuntimeState& state = g_avatarStates[slot];
         bool currentRequest =
             Manager().IsManaged(slot) && length > 0 && incarnation != 0 && incarnation == Publisher().GetIncarnation(slot);
         uint64_t steamId = currentRequest ? Manager().GetSyntheticSid(slot) : 0;
         if (!currentRequest || steamId == 0)
         {
-            if (!state.Applied && state.ProcessedSequence == sequence && state.ProcessedSteamId == 0)
+            if (!state.applied && state.processedSequence == sequence && state.processedSteamId == 0)
             {
                 continue;
             }
-            if (state.Applied) ClearAvatarOverride(table, state.AppliedSteamId);
-            state.ProcessedSequence = sequence;
-            state.ProcessedSteamId = 0;
-            state.AppliedSteamId = 0;
-            state.Applied = false;
+            if (state.applied) ClearAvatarOverride(table, state.appliedSteamId);
+            state.processedSequence = sequence;
+            state.processedSteamId = 0;
+            state.appliedSteamId = 0;
+            state.applied = false;
             Publisher().PublishAvatarState(slot, false, 0);
             continue;
         }
 
-        if (state.ProcessedSequence == sequence && state.ProcessedSteamId == steamId)
+        if (state.processedSequence == sequence && state.processedSteamId == steamId)
         {
             continue;
         }
 
         SlotPublisher::AvatarRequest request;
-        if (!Publisher().ReadAvatarRequest(slot, request) || request.Sequence != sequence || request.Length != length ||
-            request.Incarnation != incarnation)
+        if (!Publisher().ReadAvatarRequest(slot, request) || request.sequence != sequence || request.length != length ||
+            request.incarnation != incarnation)
         {
             continue;
         }
 
-        if (state.Applied) ClearAvatarOverride(table, state.AppliedSteamId);
-        state.ProcessedSequence = request.Sequence;
-        state.ProcessedSteamId = steamId;
-        state.AppliedSteamId = 0;
-        state.Applied = false;
+        if (state.applied) ClearAvatarOverride(table, state.appliedSteamId);
+        state.processedSequence = request.sequence;
+        state.processedSteamId = steamId;
+        state.appliedSteamId = 0;
+        state.applied = false;
         Publisher().PublishAvatarState(slot, false, 0);
 
-        if (request.Data.size() < sizeof(kPngSignature) || std::memcmp(request.Data.data(), kPngSignature, sizeof(kPngSignature)) != 0)
+        if (request.data.size() < sizeof(kPngSignature) || std::memcmp(request.data.data(), kPngSignature, sizeof(kPngSignature)) != 0)
         {
             META_CONPRINTF("[BOTHIDER] avatar rejected slot=%d: invalid PNG signature\n", slot);
             continue;
@@ -209,18 +209,18 @@ void ProcessOverrides()
 
         int index = -1;
         char avatarError[128] = { 0 };
-        if (!SetAvatarOverride(table, steamId, request.Data, index, avatarError, sizeof(avatarError)))
+        if (!SetAvatarOverride(table, steamId, request.data, index, avatarError, sizeof(avatarError)))
         {
             META_CONPRINTF("[BOTHIDER] avatar rejected slot=%d sid=%llu: %s\n", slot, static_cast<unsigned long long>(steamId),
                            avatarError);
             continue;
         }
 
-        state.AppliedSteamId = steamId;
-        state.Applied = true;
+        state.appliedSteamId = steamId;
+        state.applied = true;
         Publisher().PublishAvatarState(slot, true, steamId);
         META_CONPRINTF("[BOTHIDER] avatar applied slot=%d sid=%llu bytes=%u index=%d\n", slot, static_cast<unsigned long long>(steamId),
-                       request.Length, index);
+                       request.length, index);
     }
 }
 

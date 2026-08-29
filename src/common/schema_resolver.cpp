@@ -22,8 +22,8 @@ namespace cs2bh::schema {
 using CreateIfaceFn = void* (*)(const char*, int*);
 
 namespace {
-ISchemaSystem* g_pSchema = nullptr;
-std::unordered_map<std::string, int> g_OffsetCache;
+ISchemaSystem* g_schema = nullptr;
+std::unordered_map<std::string, int> g_offsetCache;
 
 #if !defined(_WIN32)
 const char* BaseName(const char* path)
@@ -35,14 +35,14 @@ const char* BaseName(const char* path)
 
 struct FindModuleCtx
 {
-    const char* Name = nullptr;
+    const char* name = nullptr;
     const char* Path = nullptr;
 };
 
 int FindModuleCallback(dl_phdr_info* info, size_t, void* data)
 {
     auto* ctx = static_cast<FindModuleCtx*>(data);
-    if (info->dlpi_name && std::strcmp(BaseName(info->dlpi_name), ctx->Name) == 0)
+    if (info->dlpi_name && std::strcmp(BaseName(info->dlpi_name), ctx->name) == 0)
     {
         ctx->Path = info->dlpi_name;
         return 1;
@@ -56,7 +56,7 @@ void* OpenLoadedModule(const char* moduleName)
     if (mod) return mod;
 
     FindModuleCtx ctx{};
-    ctx.Name = moduleName;
+    ctx.name = moduleName;
     dl_iterate_phdr(FindModuleCallback, &ctx);
     if (ctx.Path && ctx.Path[0]) return dlopen(ctx.Path, RTLD_NOW | RTLD_NOLOAD);
     return nullptr;
@@ -66,7 +66,7 @@ void* OpenLoadedModule(const char* moduleName)
 
 bool Init()
 {
-    if (g_pSchema) return true;
+    if (g_schema) return true;
 
 #if defined(_WIN32)
     HMODULE mod = GetModuleHandleA(targets::kSchemaSystemModuleName);
@@ -79,8 +79,8 @@ bool Init()
 #endif
     if (!createIface) return false;
 
-    g_pSchema = reinterpret_cast<ISchemaSystem*>(createIface(SCHEMASYSTEM_INTERFACE_VERSION, nullptr));
-    return g_pSchema != nullptr;
+    g_schema = reinterpret_cast<ISchemaSystem*>(createIface(SCHEMASYSTEM_INTERFACE_VERSION, nullptr));
+    return g_schema != nullptr;
 }
 
 static CSchemaClassInfo* FindClass(const char* className)
@@ -93,13 +93,13 @@ static CSchemaClassInfo* FindClass(const char* className)
 
     for (const char* scopeName : kScopes)
     {
-        if (auto* scope = g_pSchema->FindTypeScopeForModule(scopeName, nullptr))
+        if (auto* scope = g_schema->FindTypeScopeForModule(scopeName, nullptr))
         {
             if (auto* info = scope->FindDeclaredClass(className).Get()) return info;
         }
     }
 
-    if (auto* scope = g_pSchema->GlobalTypeScope())
+    if (auto* scope = g_schema->GlobalTypeScope())
     {
         if (auto* info = scope->FindDeclaredClass(className).Get()) return info;
     }
@@ -110,9 +110,9 @@ int GetFieldOffset(const char* className, const char* fieldName)
 {
     if (!className || !fieldName) return -1;
     std::string key = std::string(className) + "::" + fieldName;
-    auto it = g_OffsetCache.find(key);
-    if (it != g_OffsetCache.end()) return it->second;
-    if (!g_pSchema) return -1;
+    auto it = g_offsetCache.find(key);
+    if (it != g_offsetCache.end()) return it->second;
+    if (!g_schema) return -1;
 
     CSchemaClassInfo* info = FindClass(className);
     if (!info) return -1;
@@ -127,7 +127,7 @@ int GetFieldOffset(const char* className, const char* fieldName)
             break;
         }
     }
-    g_OffsetCache[key] = offset;
+    g_offsetCache[key] = offset;
     return offset;
 }
 

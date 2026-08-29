@@ -31,7 +31,7 @@ static bool IsSteamIdInUseByOther(uint64_t steamId, int exceptSlot)
     if (steamId == 0 || !g_pNetworkServerService) return false;
     auto* gameServer = g_pNetworkServerService->GetIGameServer();
     if (!gameServer) return false;
-    auto* clients = reinterpret_cast<CUtlVector<void*>*>(reinterpret_cast<unsigned char*>(gameServer) + targets::kClientListOffset);
+    auto* clients = reinterpret_cast<CUtlVector<void*>*>(reinterpret_cast<unsigned char*>(gameServer) + targets::g_clientListOffset);
     const int count = clients->Count();
     if (count < 0 || count > 256) return false;
 
@@ -40,7 +40,7 @@ static bool IsSteamIdInUseByOther(uint64_t steamId, int exceptSlot)
         if (slot == exceptSlot) continue;
         void* client = clients->Element(slot);
         if (!client) continue;
-        const uint64_t otherSteamId = *reinterpret_cast<uint64_t*>(reinterpret_cast<unsigned char*>(client) + ssc::OFFSET_m_SteamID);
+        const uint64_t otherSteamId = *reinterpret_cast<uint64_t*>(reinterpret_cast<unsigned char*>(client) + ssc::g_steamIdOffset);
         if (otherSteamId == steamId) return true;
     }
     return false;
@@ -68,7 +68,7 @@ static BotPawnRef ResolveManagedBotPawn(int slot)
     void* client = entity_access::ResolveClientBySlot(slot);
     if (!client) return result;
 
-    const int controllerIndex = *reinterpret_cast<int*>(reinterpret_cast<unsigned char*>(client) + ssc::OFFSET_m_nEntityIndex);
+    const int controllerIndex = *reinterpret_cast<int*>(reinterpret_cast<unsigned char*>(client) + ssc::g_entityIndexOffset);
     char className[64];
     void* controller = entity_access::ResolveEntityInstance(controllerIndex, className, sizeof(className));
     if (!controller || std::strcmp(className, "cs_player_controller") != 0 || entity_access::IsEntityBeingDeleted(controller))
@@ -89,8 +89,8 @@ static BotPawnRef ResolveManagedBotPawn(int slot)
         return result;
     }
 
-    result.Instance = pawn;
-    result.Handle = pawnHandle;
+    result.instance = pawn;
+    result.handle = pawnHandle;
     return result;
 }
 
@@ -102,9 +102,9 @@ static std::vector<BotPawnRef> CollectManagedBotPawns()
     for (int slot = 0; slot < PersonaPool::kMaxSlots; ++slot)
     {
         BotPawnRef pawn = ResolveManagedBotPawn(slot);
-        if (!pawn.Instance) continue;
+        if (!pawn.instance) continue;
         auto duplicate = std::find_if(pawns.begin(), pawns.end(), [&pawn](const BotPawnRef& existing) {
-            return existing.Instance == pawn.Instance;
+            return existing.instance == pawn.instance;
         });
         if (duplicate == pawns.end()) pawns.push_back(pawn);
     }
@@ -118,7 +118,7 @@ static bool IsControllerReferencedByClient(void* controller, uint16_t* userIdOut
     {
         void* client = entity_access::ResolveClientBySlot(slot);
         if (!client) continue;
-        const int entityIndex = *reinterpret_cast<int*>(reinterpret_cast<unsigned char*>(client) + ssc::OFFSET_m_nEntityIndex);
+        const int entityIndex = *reinterpret_cast<int*>(reinterpret_cast<unsigned char*>(client) + ssc::g_entityIndexOffset);
         char className[64];
         void* current = entity_access::ResolveEntityInstance(entityIndex, className, sizeof(className));
         if (current != controller || std::strcmp(className, "cs_player_controller") != 0)
@@ -128,7 +128,7 @@ static bool IsControllerReferencedByClient(void* controller, uint16_t* userIdOut
 
         if (userIdOut)
         {
-            *userIdOut = *reinterpret_cast<uint16_t*>(reinterpret_cast<unsigned char*>(client) + ssc::OFFSET_m_UserID);
+            *userIdOut = *reinterpret_cast<uint16_t*>(reinterpret_cast<unsigned char*>(client) + ssc::g_userIdOffset);
         }
         return true;
     }
@@ -139,7 +139,7 @@ static bool IsControllerReferencedByClient(void* controller, uint16_t* userIdOut
 ManagedControllerTrace TraceManagedController(void* controller)
 {
     ManagedControllerTrace trace;
-    if (!controller || targets::kController_FakeClientFlagsOffset < 0)
+    if (!controller || targets::g_controllerFakeClientFlagsOffset < 0)
     {
         return trace;
     }
@@ -149,7 +149,7 @@ ManagedControllerTrace TraceManagedController(void* controller)
         if (!Manager().IsManaged(slot)) continue;
         void* client = entity_access::ResolveClientBySlot(slot);
         if (!client) continue;
-        const int entityIndex = *reinterpret_cast<int*>(reinterpret_cast<unsigned char*>(client) + ssc::OFFSET_m_nEntityIndex);
+        const int entityIndex = *reinterpret_cast<int*>(reinterpret_cast<unsigned char*>(client) + ssc::g_entityIndexOffset);
         char className[64];
         void* resolved = entity_access::ResolveEntityInstance(entityIndex, className, sizeof(className));
         if (resolved != controller || std::strcmp(className, "cs_player_controller") != 0 || entity_access::IsEntityBeingDeleted(resolved))
@@ -157,16 +157,16 @@ ManagedControllerTrace TraceManagedController(void* controller)
             continue;
         }
 
-        trace.Slot = slot;
-        trace.Handle = static_cast<uint32_t>(reinterpret_cast<CEntityInstance*>(resolved)->GetRefEHandle().ToInt());
-        trace.Flags = *reinterpret_cast<uint32_t*>(reinterpret_cast<unsigned char*>(resolved) + targets::kController_FakeClientFlagsOffset);
-        if (targets::kController_TeamOffset >= 0)
+        trace.slot = slot;
+        trace.handle = static_cast<uint32_t>(reinterpret_cast<CEntityInstance*>(resolved)->GetRefEHandle().ToInt());
+        trace.flags = *reinterpret_cast<uint32_t*>(reinterpret_cast<unsigned char*>(resolved) + targets::g_controllerFakeClientFlagsOffset);
+        if (targets::g_controllerTeamOffset >= 0)
         {
-            trace.CurrentTeam =
-                *reinterpret_cast<unsigned char*>(reinterpret_cast<unsigned char*>(resolved) + targets::kController_TeamOffset);
+            trace.currentTeam =
+                *reinterpret_cast<unsigned char*>(reinterpret_cast<unsigned char*>(resolved) + targets::g_controllerTeamOffset);
         }
-        trace.Managed = true;
-        trace.Hltv = ssc::IsHltv(client);
+        trace.managed = true;
+        trace.hltv = ssc::IsHltv(client);
         break;
     }
     return trace;
@@ -180,10 +180,10 @@ std::vector<BotPawnRef> ApplyBotFlagOverride()
     modified.reserve(pawns.size());
     for (const BotPawnRef& pawn : pawns)
     {
-        auto* flags = reinterpret_cast<uint32_t*>(reinterpret_cast<unsigned char*>(pawn.Instance) + targets::kBaseEntity_FlagsOffset);
+        auto* flags = reinterpret_cast<uint32_t*>(reinterpret_cast<unsigned char*>(pawn.instance) + targets::kBaseEntityFlagsOffset);
         if ((*flags & targets::kEntityFlagBot) == 0) continue;
         *flags &= ~targets::kEntityFlagBot;
-        entity_access::MarkEntityFieldChanged(pawn.Instance, static_cast<uint32_t>(targets::kBaseEntity_FlagsOffset));
+        entity_access::MarkEntityFieldChanged(pawn.instance, static_cast<uint32_t>(targets::kBaseEntityFlagsOffset));
         modified.push_back(pawn);
     }
     return modified;
@@ -194,20 +194,20 @@ void RestoreBotFlagOverride(const std::vector<BotPawnRef>& pawns)
 {
     for (const BotPawnRef& pawn : pawns)
     {
-        const int pawnIndex = static_cast<int>(pawn.Handle & 0x7FFF);
+        const int pawnIndex = static_cast<int>(pawn.handle & 0x7FFF);
         void* currentPawn = entity_access::ResolveEntityInstance(pawnIndex, nullptr, 0);
-        if (currentPawn != pawn.Instance || entity_access::IsEntityBeingDeleted(currentPawn))
+        if (currentPawn != pawn.instance || entity_access::IsEntityBeingDeleted(currentPawn))
         {
             continue;
         }
 
         auto* currentEntity = reinterpret_cast<CEntityInstance*>(currentPawn);
-        if (static_cast<uint32_t>(currentEntity->GetRefEHandle().ToInt()) != pawn.Handle)
+        if (static_cast<uint32_t>(currentEntity->GetRefEHandle().ToInt()) != pawn.handle)
         {
             continue;
         }
 
-        auto* flags = reinterpret_cast<uint32_t*>(reinterpret_cast<unsigned char*>(currentPawn) + targets::kBaseEntity_FlagsOffset);
+        auto* flags = reinterpret_cast<uint32_t*>(reinterpret_cast<unsigned char*>(currentPawn) + targets::kBaseEntityFlagsOffset);
         *flags |= targets::kEntityFlagBot;
     }
 }
@@ -220,7 +220,7 @@ int CountHumanClients()
     if (!g_pNetworkServerService) return 0;
     auto* gameServer = g_pNetworkServerService->GetIGameServer();
     if (!gameServer) return 0;
-    auto* clients = reinterpret_cast<CUtlVector<void*>*>(reinterpret_cast<unsigned char*>(gameServer) + targets::kClientListOffset);
+    auto* clients = reinterpret_cast<CUtlVector<void*>*>(reinterpret_cast<unsigned char*>(gameServer) + targets::g_clientListOffset);
     const int count = clients->Count();
     if (count < 0 || count > 256) return 0;
 
@@ -230,7 +230,7 @@ int CountHumanClients()
         void* client = clients->Element(slot);
         if (!client) continue;
         if (Manager().IsManaged(slot) || ssc::IsHltv(client) || ssc::IsFakePlayerSet(client)) continue;
-        void* networkChannel = *reinterpret_cast<void**>(reinterpret_cast<unsigned char*>(client) + ssc::OFFSET_m_NetChannel);
+        void* networkChannel = *reinterpret_cast<void**>(reinterpret_cast<unsigned char*>(client) + ssc::g_netChannelOffset);
         if (networkChannel) ++humans;
     }
     return humans;
@@ -276,12 +276,12 @@ uint64_t MakeUniqueSteamId(int slot, uint64_t desired)
     available.reserve(BotInfo().Count());
     for (const BotEntry& entry : BotInfo().All())
     {
-        if (entry.SteamId64 == 0 || IsSteamIdInUseByOther(entry.SteamId64, slot) ||
-            std::find(available.begin(), available.end(), entry.SteamId64) != available.end())
+        if (entry.steamId64 == 0 || IsSteamIdInUseByOther(entry.steamId64, slot) ||
+            std::find(available.begin(), available.end(), entry.steamId64) != available.end())
         {
             continue;
         }
-        available.push_back(entry.SteamId64);
+        available.push_back(entry.steamId64);
     }
     if (!available.empty()) return available[NextSteamIdRandom() % available.size()];
 
@@ -298,11 +298,11 @@ uint64_t MakeUniqueSteamId(int slot, uint64_t desired)
 // Synchronizes the controller fake-client bit for one slot
 bool SetControllerFakeClientFlag(int slot, bool fakeClient)
 {
-    if (targets::kController_FakeClientFlagsOffset < 0) return false;
+    if (targets::g_controllerFakeClientFlagsOffset < 0) return false;
     void* client = entity_access::ResolveClientBySlot(slot);
     if (!client) return false;
 
-    const int entityIndex = *reinterpret_cast<int*>(reinterpret_cast<unsigned char*>(client) + ssc::OFFSET_m_nEntityIndex);
+    const int entityIndex = *reinterpret_cast<int*>(reinterpret_cast<unsigned char*>(client) + ssc::g_entityIndexOffset);
     char className[64];
     void* controller = entity_access::ResolveEntityInstance(entityIndex, className, sizeof(className));
     if (!controller || std::strcmp(className, "cs_player_controller") != 0)
@@ -311,14 +311,14 @@ bool SetControllerFakeClientFlag(int slot, bool fakeClient)
     }
 
     constexpr uint32_t kFakeClientBit = 0x100;
-    auto* flags = reinterpret_cast<uint32_t*>(reinterpret_cast<unsigned char*>(controller) + targets::kController_FakeClientFlagsOffset);
+    auto* flags = reinterpret_cast<uint32_t*>(reinterpret_cast<unsigned char*>(controller) + targets::g_controllerFakeClientFlagsOffset);
     const uint32_t before = *flags;
     if (fakeClient) *flags |= kFakeClientBit;
     else
         *flags &= ~kFakeClientBit;
     if (*flags != before)
     {
-        entity_access::MarkEntityFieldChanged(controller, static_cast<uint32_t>(targets::kController_FakeClientFlagsOffset));
+        entity_access::MarkEntityFieldChanged(controller, static_cast<uint32_t>(targets::g_controllerFakeClientFlagsOffset));
     }
     return true;
 }
@@ -351,7 +351,7 @@ bool QueueControllerRemovalForClient(void* client, int slot)
         return false;
     }
 
-    const int entityIndex = *reinterpret_cast<int*>(reinterpret_cast<unsigned char*>(client) + ssc::OFFSET_m_nEntityIndex);
+    const int entityIndex = *reinterpret_cast<int*>(reinterpret_cast<unsigned char*>(client) + ssc::g_entityIndexOffset);
     char className[64];
     void* controller = entity_access::ResolveEntityInstance(entityIndex, className, sizeof(className));
     if (!controller)
@@ -373,11 +373,11 @@ bool QueueControllerRemovalForClient(void* client, int slot)
     const uint32_t handle = static_cast<uint32_t>(reinterpret_cast<CEntityInstance*>(controller)->GetRefEHandle().ToInt());
     auto& pending = identity_state::PendingControllerRemovals();
     auto duplicate = std::find_if(pending.begin(), pending.end(), [handle](const identity_state::PendingControllerRemoval& item) {
-        return item.Handle == handle;
+        return item.handle == handle;
     });
     if (duplicate != pending.end()) return true;
 
-    const uint16_t userId = *reinterpret_cast<uint16_t*>(reinterpret_cast<unsigned char*>(client) + ssc::OFFSET_m_UserID);
+    const uint16_t userId = *reinterpret_cast<uint16_t*>(reinterpret_cast<unsigned char*>(client) + ssc::g_userIdOffset);
     pending.push_back({ controller, handle, slot, userId, 0 });
     return true;
 }
@@ -394,12 +394,12 @@ void DrainPendingControllerRemovals()
 
     for (auto item = pending.begin(); item != pending.end();)
     {
-        const int entityIndex = static_cast<int>(item->Handle & 0x7FFF);
+        const int entityIndex = static_cast<int>(item->handle & 0x7FFF);
         char className[64];
         void* current = entity_access::ResolveEntityInstance(entityIndex, className, sizeof(className));
-        if (current != item->Controller || std::strcmp(className, "cs_player_controller") != 0 ||
+        if (current != item->controller || std::strcmp(className, "cs_player_controller") != 0 ||
             entity_access::IsEntityBeingDeleted(current) ||
-            static_cast<uint32_t>(reinterpret_cast<CEntityInstance*>(current)->GetRefEHandle().ToInt()) != item->Handle)
+            static_cast<uint32_t>(reinterpret_cast<CEntityInstance*>(current)->GetRefEHandle().ToInt()) != item->handle)
         {
             item = pending.erase(item);
             continue;
@@ -408,16 +408,16 @@ void DrainPendingControllerRemovals()
         uint16_t currentUserId = 0;
         if (IsControllerReferencedByClient(current, &currentUserId))
         {
-            if (currentUserId != item->UserId)
+            if (currentUserId != item->userId)
             {
                 META_CONPRINTF("[BOTHIDER] deferred destroy abandoned slot=%d "
                                "handle=0x%08x: controller was rebound to "
                                "userid=%u\n",
-                               item->Slot, item->Handle, static_cast<unsigned int>(currentUserId));
+                               item->slot, item->handle, static_cast<unsigned int>(currentUserId));
                 item = pending.erase(item);
                 continue;
             }
-            if (item->ReferencedFrames++ == 0)
+            if (item->referencedFrames++ == 0)
             {
                 ++item;
                 continue;

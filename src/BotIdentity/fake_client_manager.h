@@ -15,12 +15,12 @@ namespace cs2bh {
 
 struct ManagedSlot
 {
-    bool Active = false;
-    uint64_t SyntheticSid = 0;
-    uint32_t ScoreboardFlair = 0;
-    PingJitter Jitter{ 50 }; // 50ms baseline
-    PingDisplay Display;
-    bool SteamIdWritten = false;
+    bool active = false;
+    uint64_t syntheticSid = 0;
+    uint32_t scoreboardFlair = 0;
+    PingJitter jitter{ 50 }; // 50ms baseline
+    PingDisplay display;
+    bool steamIdWritten = false;
 };
 
 class FakeClientManager
@@ -33,7 +33,7 @@ class FakeClientManager
 
     void Init();
 
-    bool AdoptSlot(int slot, const char* pszName, uint64_t steamId64, const char* crosshairCode, uint32_t scoreboardFlair);
+    bool AdoptSlot(int slot, const char* name, uint64_t steamId64, const char* crosshairCode, uint32_t scoreboardFlair);
 
     // Release a slot on disconnect / mapchange
     void ReleaseSlot(int slot);
@@ -49,15 +49,15 @@ class FakeClientManager
     // Override the SteamID64
     void SetSyntheticSid(int slot, uint64_t sid);
 
-    SteamIdProvider* SteamIds() { return m_pSteamIds.get(); }
+    SteamIdProvider* SteamIds() { return m_steamIds.get(); }
 
   private:
-    mutable std::mutex m_Mutex;
-    std::array<ManagedSlot, PersonaPool::kMaxSlots> m_Slots;
-    std::unique_ptr<SteamIdProvider> m_pSteamIds;
-    bool m_FakePingEnabled = true;
-    int m_FakePingMinimum = 20;
-    int m_FakePingMaximum = 90;
+    mutable std::mutex m_mutex;
+    std::array<ManagedSlot, PersonaPool::kMaxSlots> m_slots;
+    std::unique_ptr<SteamIdProvider> m_steamIds;
+    bool m_fakePingEnabled = true;
+    int m_fakePingMinimum = 20;
+    int m_fakePingMaximum = 90;
 };
 
 FakeClientManager& Manager();

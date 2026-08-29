@@ -90,25 +90,40 @@ Checks: >
 
 # Turn all the warnings from the checks above into errors.
 WarningsAsErrors: "*"
+HeaderFilterRegex: '.*[/\\]src[/\\].*'
+ExcludeHeaderFilterRegex: '.*[/\\](build|out|_deps)[/\\].*'
 
 CheckOptions:
   google-readability-braces-around-statements.ShortStatementLines: '1'
   google-readability-function-size.StatementThreshold: '800'
   google-readability-namespace-comments.ShortNamespaceLines: '10'
   google-readability-namespace-comments.SpacesBeforeComments: '2'
-  readability-identifier-naming.PrivateMemberPrefix: 'm_'
-  readability-identifier-naming.ProtectedMemberPrefix: 'm_'
-  readability-identifier-naming.MemberPrefix: 'm_'
   readability-identifier-naming.ClassCase: CamelCase
-  readability-identifier-naming.MemberCase: CamelCase
+  readability-identifier-naming.StructCase: CamelCase
+  readability-identifier-naming.TypeAliasCase: CamelCase
+  readability-identifier-naming.TypedefCase: CamelCase
+  readability-identifier-naming.UnionCase: CamelCase
   readability-identifier-naming.EnumCase: CamelCase
   readability-identifier-naming.FunctionCase: CamelCase
-  readability-identifier-naming.ParameterCase: CamelCase
-  readability-identifier-naming.UnionCase: CamelCase
-  readability-identifier-naming.VariableCase: CamelCase
-  readability-identifier-naming.LocalConstantPointerPrefix: 'p'
-  readability-identifier-naming.VariableHungarianPrefix: On
-  readability-identifier-naming.ParameterHungarianPrefix: On
-  readability-identifier-naming.MemberHungarianPrefix: On
-  readability-identifier-naming.PointerParameterHungarianPrefix: On
-  readability-identifier-naming.PointerParameterCase: CamelCase
+  readability-identifier-naming.MethodCase: CamelCase
+  readability-identifier-naming.NamespaceCase: lower_case
+  readability-identifier-naming.LocalVariableCase: camelBack
+  readability-identifier-naming.LocalPointerCase: camelBack
+  readability-identifier-naming.LocalConstantCase: camelBack
+  readability-identifier-naming.ParameterCase: camelBack
+  readability-identifier-naming.PointerParameterCase: camelBack
+  readability-identifier-naming.PrivateMemberCase: camelBack
+  readability-identifier-naming.PrivateMemberPrefix: 'm_'
+  readability-identifier-naming.ProtectedMemberCase: camelBack
+  readability-identifier-naming.ProtectedMemberPrefix: 'm_'
+  readability-identifier-naming.PublicMemberCase: camelBack
+  readability-identifier-naming.GlobalVariableCase: camelBack
+  readability-identifier-naming.GlobalVariablePrefix: 'g_'
+  readability-identifier-naming.GlobalPointerCase: camelBack
+  readability-identifier-naming.GlobalPointerPrefix: 'g_'
+  readability-identifier-naming.GlobalConstantCase: CamelCase
+  readability-identifier-naming.GlobalConstantPrefix: 'k'
+  readability-identifier-naming.ClassConstantCase: CamelCase
+  readability-identifier-naming.ClassConstantPrefix: 'k'
+  readability-identifier-naming.EnumConstantCase: CamelCase
+  readability-identifier-naming.ScopedEnumConstantCase: CamelCase

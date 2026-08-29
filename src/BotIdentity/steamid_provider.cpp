@@ -22,7 +22,7 @@ SteamIdProvider::SteamIdProvider(const char* sessionId)
             h = (h ^ static_cast<unsigned char>(*p)) * 0x100000001B3ULL;
         }
     }
-    m_SessionSeed = h;
+    m_sessionSeed = h;
 }
 
 // Splitmix64-style avalanche on (seed XOR slot*phi64), reduced modulo
@@ -32,13 +32,13 @@ uint64_t SteamIdProvider::Generate(int botSlot) const noexcept
 {
     const auto& entries = BotInfo().All();
     if (entries.empty()) return 0;
-    uint64_t x = m_SessionSeed ^ (static_cast<uint64_t>(botSlot) * 0x9E3779B97F4A7C15ULL);
+    uint64_t x = m_sessionSeed ^ (static_cast<uint64_t>(botSlot) * 0x9E3779B97F4A7C15ULL);
     x ^= x >> 33;
     x *= 0xFF51AFD7ED558CCDULL;
     x ^= x >> 33;
     x *= 0xC4CEB9FE1A85EC53ULL;
     x ^= x >> 33;
-    return entries[x % entries.size()].SteamId64;
+    return entries[x % entries.size()].steamId64;
 }
 
 } // namespace cs2bh

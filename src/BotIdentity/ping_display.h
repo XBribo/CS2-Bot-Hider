@@ -20,16 +20,16 @@ class PingDisplay
 
     void Reset();
 
-    int LastWrittenPing() const { return m_LastWritten; }
+    int LastWrittenPing() const { return m_lastWritten; }
     int CurrentAverage() const;
 
   private:
-    std::array<int, kWindowTicks> m_Samples{};
-    int m_Idx = 0;
-    int m_Sum = 0;
-    int m_Filled = 0;
-    int m_TicksSinceWrite = 0;
-    int m_LastWritten = 0;
+    std::array<int, kWindowTicks> m_samples{};
+    int m_idx = 0;
+    int m_sum = 0;
+    int m_filled = 0;
+    int m_ticksSinceWrite = 0;
+    int m_lastWritten = 0;
 };
 
 class PingJitter
@@ -39,10 +39,10 @@ class PingJitter
     int NextSample();
 
   private:
-    int m_Baseline;
-    int m_Minimum;
-    int m_Maximum;
-    uint64_t m_State;
+    int m_baseline;
+    int m_minimum;
+    int m_maximum;
+    uint64_t m_state;
 };
 
 } // namespace cs2bh

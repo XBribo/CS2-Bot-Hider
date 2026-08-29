@@ -12,11 +12,11 @@ namespace identity_state {
 
 struct PendingControllerRemoval
 {
-    void* Controller = nullptr;
-    uint32_t Handle = 0xFFFFFFFF;
-    int Slot = -1;
-    uint16_t UserId = 0;
-    unsigned int ReferencedFrames = 0;
+    void* controller = nullptr;
+    uint32_t handle = 0xFFFFFFFF;
+    int slot = -1;
+    uint16_t userId = 0;
+    unsigned int referencedFrames = 0;
 };
 
 // Binds bot identity data and the original engine name to one slot
