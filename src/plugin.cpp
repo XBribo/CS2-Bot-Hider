@@ -43,83 +43,84 @@
 #include <tier1/utlvector.h>
 #include <tier1/convar.h>
 
-SH_DECL_HOOK6_void(
-    IServerGameClients,
-    OnClientConnected,
-    SH_NOATTRIB,
-    0,
-    CPlayerSlot,
-    const char*,
-    uint64,
-    const char*,
-    const char*,
-    bool); // NOLINT(google-build-using-namespace,google-explicit-constructor,misc-use-internal-linkage,performance-unnecessary-value-param,bugprone-multi-level-implicit-pointer-conversion)
-SH_DECL_HOOK4_void(
-    IServerGameClients,
-    ClientPutInServer,
-    SH_NOATTRIB,
-    0,
-    CPlayerSlot,
-    char const*,
-    int,
-    uint64); // NOLINT(google-build-using-namespace,google-explicit-constructor,misc-use-internal-linkage,performance-unnecessary-value-param,bugprone-multi-level-implicit-pointer-conversion)
-SH_DECL_HOOK5_void( // NOLINT(google-build-using-namespace,google-explicit-constructor,misc-use-internal-linkage,performance-unnecessary-value-param,bugprone-multi-level-implicit-pointer-conversion)
-    IServerGameClients,
-    ClientDisconnect,
-    SH_NOATTRIB,
-    0,
-    CPlayerSlot,
-    ENetworkDisconnectionReason,
-    const char*,
-    uint64,
-    const char*);
-SH_DECL_HOOK3(
-    INetworkGameServer,
-    StartChangeLevel,
-    SH_NOATTRIB,
-    0,
-    CUtlVector<INetworkGameClient*>*,
-    const char*,
-    const char*,
-    void*); // NOLINT(google-build-using-namespace,google-explicit-constructor,misc-use-internal-linkage,performance-unnecessary-value-param,bugprone-multi-level-implicit-pointer-conversion)
-SH_DECL_HOOK3_void(
-    IServerGameDLL,
-    GameFrame,
-    SH_NOATTRIB,
-    0,
-    bool,
-    bool,
-    bool); // NOLINT(google-build-using-namespace,google-explicit-constructor,misc-use-internal-linkage,performance-unnecessary-value-param,bugprone-multi-level-implicit-pointer-conversion)
-SH_DECL_HOOK3_void(
-    ICvar,
-    DispatchConCommand,
-    SH_NOATTRIB,
-    0,
-    ConCommandRef,
-    const CCommandContext&,
-    const CCommand&); // NOLINT(google-build-using-namespace,google-explicit-constructor,misc-use-internal-linkage,performance-unnecessary-value-param,bugprone-multi-level-implicit-pointer-conversion)
+SH_DECL_HOOK6_void(IServerGameClients, OnClientConnected, SH_NOATTRIB, 0, CPlayerSlot, const char*, uint64, const char*, const char*, bool);
+SH_DECL_HOOK4_void(IServerGameClients, ClientPutInServer, SH_NOATTRIB, 0, CPlayerSlot, char const*, int, uint64);
+SH_DECL_HOOK5_void(
+    IServerGameClients, ClientDisconnect, SH_NOATTRIB, 0, CPlayerSlot, ENetworkDisconnectionReason, const char*, uint64, const char*);
+SH_DECL_HOOK3(INetworkGameServer, StartChangeLevel, SH_NOATTRIB, 0, CUtlVector<INetworkGameClient*>*, const char*, const char*, void*);
+SH_DECL_HOOK3_void(IServerGameDLL, GameFrame, SH_NOATTRIB, 0, bool, bool, bool);
+SH_DECL_HOOK3_void(ICvar, DispatchConCommand, SH_NOATTRIB, 0, ConCommandRef, const CCommandContext&, const CCommand&);
 
 namespace cs2bh {
 
 HiderPlugin g_plugin;
 
+void HiderPlugin::SetLifecycleActive()
+{
+    std::unique_lock<std::mutex> lock(m_LifecycleMutex);
+    m_LifecycleCv.wait(lock, [this] {
+        return !m_TeardownRestoreActive.load(std::memory_order_acquire);
+    });
+
+    // A new level starts with no valid transaction snapshot from the previous
+    // level. Discard it before allowing hooks to access current entities.
+    identity_hooks::ResetPopulationTransaction();
+    m_populationCommandDepth = 0;
+    m_tickCounter = 0;
+    m_TeardownRestoreActive.store(false, std::memory_order_release);
+    m_LifecycleState.store(LifecycleState::Active, std::memory_order_release);
+    lock.unlock();
+    META_CONPRINTF("[BOTHIDER] lifecycle state=active\n");
+}
+
+bool HiderPlugin::BeginLifecycleTeardown()
+{
+    std::unique_lock<std::mutex> lock(m_LifecycleMutex);
+    if (m_LifecycleState.load(std::memory_order_acquire) != LifecycleState::Active)
+    {
+        m_LifecycleCv.wait(lock, [this] {
+            return !m_TeardownRestoreActive.load(std::memory_order_acquire);
+        });
+        return false;
+    }
+
+    // Publish teardown before restoring anything. Ordinary hooks use
+    // IsLifecycleActive() and stop touching level-owned objects immediately.
+    m_LifecycleState.store(LifecycleState::Teardown, std::memory_order_release);
+    m_TeardownRestoreActive.store(true, std::memory_order_release);
+    return true;
+}
+
+void HiderPlugin::EndLifecycleTeardown()
+{
+    m_populationCommandDepth = 0;
+    identity_runtime::ClearPendingControllerRemovals();
+    identity_hooks::ResetPopulationTransaction();
+    {
+        std::lock_guard<std::mutex> lock(m_LifecycleMutex);
+        m_TeardownRestoreActive.store(false, std::memory_order_release);
+    }
+    m_LifecycleCv.notify_all();
+}
+
 } // namespace cs2bh
 
-PLUGIN_EXPOSE(cs2bh::HiderPlugin, cs2bh::g_plugin); // NOLINT(misc-use-anonymous-namespace,bugprone-throwing-static-initialization)
+PLUGIN_EXPOSE(cs2bh::HiderPlugin, cs2bh::g_plugin);
 
 // Interface globals
 
-IVEngineServer* g_engine = nullptr; // NOLINT(misc-use-internal-linkage)
-ICvar* g_icvar = nullptr; // NOLINT(misc-use-internal-linkage)
-IServerGameClients* g_gameclients = nullptr; // NOLINT(misc-use-internal-linkage)
-IServerGameDLL* g_server = nullptr; // NOLINT(misc-use-internal-linkage)
+IVEngineServer* engine = nullptr;
+ICvar* icvar = nullptr;
+IServerGameClients* gameclients = nullptr;
+IServerGameDLL* server = nullptr;
 extern INetworkServerService* g_pNetworkServerService;
 
 namespace cs2bh {
 
 // Attaches level-scoped hooks and resets transient runtime state
-void HiderPlugin::OnLevelInit(char const* mapName, char const*, char const*, char const*, bool, bool)
+void HiderPlugin::OnLevelInit(char const* pMapName, char const*, char const*, char const*, bool, bool)
 {
+    SetLifecycleActive();
     identity_runtime::ClearPendingControllerRemovals();
     avatar::ResetRuntime();
     auto* gameServer = g_pNetworkServerService ? g_pNetworkServerService->GetIGameServer() : nullptr;
@@ -136,18 +137,33 @@ void HiderPlugin::OnLevelInit(char const* mapName, char const*, char const*, cha
         META_CONPRINTF("[BOTHIDER] StartChangeLevel hook attached to %p (id %d)\n", static_cast<void*>(gameServer),
                        m_startChangeLevelHookId);
     }
-    META_CONPRINTF("[BOTHIDER] OnLevelInit map=%s\n", mapName ? mapName : "?");
+    META_CONPRINTF("[BOTHIDER] OnLevelInit map=%s\n", pMapName ? pMapName : "?");
 }
 
 // Releases all state owned by the current level
 void HiderPlugin::OnLevelShutdown()
 {
+    const bool restoreOwner = BeginLifecycleTeardown();
+    int restoredClients = 0;
+    if (restoreOwner)
+    {
+        // Restore only through the dedicated teardown window. Ordinary hooks
+        // are already blocked by the state transition above.
+        restoredClients = identity_runtime::RestoreManagedClientsForEngineTeardown();
+        EndLifecycleTeardown();
+    }
     identity_state::ClearAll();
     Manager().ReleaseAll();
-    avatar::ProcessOverrides();
+    identity_runtime::ClearPendingControllerRemovals();
     avatar::ResetRuntime();
     BotInfo().ResetAssignments();
-    META_CONPRINTF("[BOTHIDER] OnLevelShutdown — state drained\n");
+    if (m_startChangeLevelHookId != 0)
+    {
+        SH_REMOVE_HOOK_ID(m_startChangeLevelHookId);
+        m_startChangeLevelHookId = 0;
+    }
+    m_hookedGameServer = nullptr;
+    META_CONPRINTF("[BOTHIDER] OnLevelShutdown restored=%d — state drained\n", restoredClients);
 }
 
 // Resolves interfaces and installs every plugin module
@@ -160,11 +176,14 @@ bool HiderPlugin::Load(PluginId id, ISmmAPI* ismm, char* error, size_t maxlen, b
     m_fakePingEnabled = true;
     m_fakePingMin = 20;
     m_fakePingMax = 90;
+    m_LifecycleState.store(LifecycleState::Inactive, std::memory_order_release);
+    m_populationCommandDepth = 0;
+    identity_hooks::ResetPopulationTransaction();
 
-    GET_V_IFACE_CURRENT(GetEngineFactory, g_engine, IVEngineServer, INTERFACEVERSION_VENGINESERVER);
-    GET_V_IFACE_CURRENT(GetEngineFactory, g_icvar, ICvar, CVAR_INTERFACE_VERSION);
-    GET_V_IFACE_ANY(GetServerFactory, g_gameclients, IServerGameClients, INTERFACEVERSION_SERVERGAMECLIENTS);
-    GET_V_IFACE_ANY(GetServerFactory, g_server, IServerGameDLL, INTERFACEVERSION_SERVERGAMEDLL);
+    GET_V_IFACE_CURRENT(GetEngineFactory, engine, IVEngineServer, INTERFACEVERSION_VENGINESERVER);
+    GET_V_IFACE_CURRENT(GetEngineFactory, icvar, ICvar, CVAR_INTERFACE_VERSION);
+    GET_V_IFACE_ANY(GetServerFactory, gameclients, IServerGameClients, INTERFACEVERSION_SERVERGAMECLIENTS);
+    GET_V_IFACE_ANY(GetServerFactory, server, IServerGameDLL, INTERFACEVERSION_SERVERGAMEDLL);
     GET_V_IFACE_ANY(GetEngineFactory, g_pNetworkServerService, INetworkServerService, NETWORKSERVERSERVICE_INTERFACE_VERSION);
 
     // Reads startup identity and fake-ping settings
@@ -275,7 +294,7 @@ bool HiderPlugin::Load(PluginId id, ISmmAPI* ismm, char* error, size_t maxlen, b
                                "name overwrite disabled\n");
             }
 
-            sig::ModuleInfo serverModule = sig::ModuleFromInterfacePtr(g_gameclients);
+            sig::ModuleInfo serverModule = sig::ModuleFromInterfacePtr(gameclients);
             if (!serverModule) serverModule = sig::ModuleFromName(targets::kServerModuleName);
             entity_access::ResolveUtilRemoveAndEntSys(gamedata, serverModule);
 
@@ -288,7 +307,7 @@ bool HiderPlugin::Load(PluginId id, ISmmAPI* ismm, char* error, size_t maxlen, b
                        "controller cleanup disabled\n");
     }
 
-    g_pCVar = g_icvar;
+    g_pCVar = icvar;
     g_SMAPI->AddListener(this, this);
 
     // Resolve controller pawn and idle-timer schema offsets
@@ -339,12 +358,12 @@ bool HiderPlugin::Load(PluginId id, ISmmAPI* ismm, char* error, size_t maxlen, b
                        jsonPath.c_str());
     }
 
-    SH_ADD_HOOK(IServerGameClients, OnClientConnected, g_gameclients, SH_MEMBER(this, &HiderPlugin::HookOnClientConnectedPost), true);
-    SH_ADD_HOOK(IServerGameClients, ClientPutInServer, g_gameclients, SH_MEMBER(this, &HiderPlugin::HookClientPutInServerPost), true);
-    SH_ADD_HOOK(IServerGameClients, ClientDisconnect, g_gameclients, SH_MEMBER(this, &HiderPlugin::HookClientDisconnectPre), false);
-    SH_ADD_HOOK(IServerGameDLL, GameFrame, g_server, SH_MEMBER(this, &HiderPlugin::HookGameFramePost), true);
-    SH_ADD_HOOK(ICvar, DispatchConCommand, g_icvar, SH_MEMBER(this, &HiderPlugin::HookDispatchConCommandPre), false);
-    SH_ADD_HOOK(ICvar, DispatchConCommand, g_icvar, SH_MEMBER(this, &HiderPlugin::HookDispatchConCommandPost), true);
+    SH_ADD_HOOK(IServerGameClients, OnClientConnected, gameclients, SH_MEMBER(this, &HiderPlugin::HookOnClientConnectedPost), true);
+    SH_ADD_HOOK(IServerGameClients, ClientPutInServer, gameclients, SH_MEMBER(this, &HiderPlugin::HookClientPutInServerPost), true);
+    SH_ADD_HOOK(IServerGameClients, ClientDisconnect, gameclients, SH_MEMBER(this, &HiderPlugin::HookClientDisconnectPre), false);
+    SH_ADD_HOOK(IServerGameDLL, GameFrame, server, SH_MEMBER(this, &HiderPlugin::HookGameFramePost), true);
+    SH_ADD_HOOK(ICvar, DispatchConCommand, icvar, SH_MEMBER(this, &HiderPlugin::HookDispatchConCommandPre), false);
+    SH_ADD_HOOK(ICvar, DispatchConCommand, icvar, SH_MEMBER(this, &HiderPlugin::HookDispatchConCommandPost), true);
 
     int installedHooks = 0;
     if (identity_hooks::MaintainQuotaTarget()) ++installedHooks;
@@ -352,38 +371,53 @@ bool HiderPlugin::Load(PluginId id, ISmmAPI* ismm, char* error, size_t maxlen, b
     if (identity_hooks::HandleJoinTeamTarget()) ++installedHooks;
     if (identity_hooks::HumanTeamRestrictionTarget()) ++installedHooks;
     if (identity_hooks::SameMapTeardownTarget()) ++installedHooks;
-    META_CONPRINTF("[BOTHIDER] config mode=%s fake_ping=%s range=%d-%d identities=%zu\n", IsBotMode() ? "bot" : "player",
-                   m_fakePingEnabled ? "on" : "off", m_fakePingMin, m_fakePingMax, BotInfo().Count());
+    META_CONPRINTF("[BOTHIDER] config mode=%s fake_ping=%s range=%d-%d identities=%zu\n",
+                   IsBotMode() ? "bot" : "player", m_fakePingEnabled ? "on" : "off", m_fakePingMin, m_fakePingMax,
+                   BotInfo().Count());
     META_CONPRINTF("[BOTHIDER] loaded v%s hooks=%d/5 util_remove=%s schema=%s shm=%s avatar=%s\n", GetVersion(), installedHooks,
-                   entity_access::UtilRemoveTarget() ? "ok" : "fail", schemaReady ? "ok" : "fail", sharedMemoryReady ? "ok" : "fail",
-                   networkStringTables ? "ok" : "fail");
+                   entity_access::UtilRemoveTarget() ? "ok" : "fail", schemaReady ? "ok" : "fail",
+                   sharedMemoryReady ? "ok" : "fail", networkStringTables ? "ok" : "fail");
+    SetLifecycleActive();
     return true;
 }
 
 // Removes hooks and releases every plugin module
 bool HiderPlugin::Unload(char* error, size_t maxlen)
 {
-    if (!identity_hooks::Remove())
+    const bool restoreOwner = BeginLifecycleTeardown();
+    int restoredClients = 0;
+    if (restoreOwner)
     {
-        std::snprintf(error, maxlen, "failed to uninstall funchook detours");
-        return false;
+        restoredClients = identity_runtime::RestoreManagedClientsForEngineTeardown();
+        EndLifecycleTeardown();
     }
-    SH_REMOVE_HOOK(IServerGameClients, OnClientConnected, g_gameclients, SH_MEMBER(this, &HiderPlugin::HookOnClientConnectedPost), true);
-    SH_REMOVE_HOOK(IServerGameClients, ClientPutInServer, g_gameclients, SH_MEMBER(this, &HiderPlugin::HookClientPutInServerPost), true);
-    SH_REMOVE_HOOK(IServerGameClients, ClientDisconnect, g_gameclients, SH_MEMBER(this, &HiderPlugin::HookClientDisconnectPre), false);
-    SH_REMOVE_HOOK(IServerGameDLL, GameFrame, g_server, SH_MEMBER(this, &HiderPlugin::HookGameFramePost), true);
-    SH_REMOVE_HOOK(ICvar, DispatchConCommand, g_icvar, SH_MEMBER(this, &HiderPlugin::HookDispatchConCommandPre), false);
-    SH_REMOVE_HOOK(ICvar, DispatchConCommand, g_icvar, SH_MEMBER(this, &HiderPlugin::HookDispatchConCommandPost), true);
+    SH_REMOVE_HOOK(IServerGameClients, OnClientConnected, gameclients, SH_MEMBER(this, &HiderPlugin::HookOnClientConnectedPost), true);
+    SH_REMOVE_HOOK(IServerGameClients, ClientPutInServer, gameclients, SH_MEMBER(this, &HiderPlugin::HookClientPutInServerPost), true);
+    SH_REMOVE_HOOK(IServerGameClients, ClientDisconnect, gameclients, SH_MEMBER(this, &HiderPlugin::HookClientDisconnectPre), false);
+    SH_REMOVE_HOOK(IServerGameDLL, GameFrame, server, SH_MEMBER(this, &HiderPlugin::HookGameFramePost), true);
+    SH_REMOVE_HOOK(ICvar, DispatchConCommand, icvar, SH_MEMBER(this, &HiderPlugin::HookDispatchConCommandPre), false);
+    SH_REMOVE_HOOK(ICvar, DispatchConCommand, icvar, SH_MEMBER(this, &HiderPlugin::HookDispatchConCommandPost), true);
 
     if (m_startChangeLevelHookId != 0)
     {
         SH_REMOVE_HOOK_ID(m_startChangeLevelHookId);
         m_startChangeLevelHookId = 0;
     }
+
+    // SourceHook callbacks are quiesced before removing native trampolines.
+    // Native detours remain installed until identity_hooks::Remove() waits for
+    // any engine thread already inside a detour.
+    if (!identity_hooks::Remove())
+    {
+        std::snprintf(error, maxlen, "failed to uninstall funchook detours");
+        return false;
+    }
+
     m_hookedGameServer = nullptr;
+    META_CONPRINTF("[BOTHIDER] Unload restored=%d\n", restoredClients);
     identity_state::ClearAll();
     Manager().ReleaseAll();
-    avatar::ProcessOverrides();
+    identity_runtime::ClearPendingControllerRemovals();
     avatar::ResetRuntime();
     Publisher().Shutdown();
     avatar::SetStringTableContainer(nullptr);

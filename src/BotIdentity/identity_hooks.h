@@ -43,6 +43,10 @@ void BeginPopulationTransaction(bool redisguise);
 void EndPopulationTransaction(bool redisguise);
 bool PopulationTransactionActive();
 
+// Drops any in-progress population snapshot without restoring through stale
+// entity pointers. Used when a level or plugin enters teardown.
+void ResetPopulationTransaction();
+
 class PopulationTransactionScope
 {
   public:

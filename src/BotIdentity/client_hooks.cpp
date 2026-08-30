@@ -1,5 +1,3 @@
-#include "network_connection.pb.h"
-#include "playerslot.h"
 #include "plugin.h"
 
 #include "bot_info.h"
@@ -11,18 +9,16 @@
 #include "personas.h"
 #include "serversideclient_ref.h"
 #include "slot_publisher.h"
-#include "steam/steamtypes.h"
-#include "sourcehook.h"
 
 #include <cstdint>
 #include <string>
 
+#include <iserver.h>
+
 namespace cs2bh {
 
-namespace {
-
 // Checks whether a disconnect may leave its controller behind
-bool IsTargetedClientRemovalReason(ENetworkDisconnectionReason reason)
+static bool IsTargetedClientRemovalReason(ENetworkDisconnectionReason reason)
 {
     switch (reason)
     {
@@ -39,18 +35,11 @@ bool IsTargetedClientRemovalReason(ENetworkDisconnectionReason reason)
            value <= static_cast<int>(NETWORK_DISCONNECT_KICKED_INSECURECLIENT);
 }
 
-} // namespace
-
 // Adopts fake clients from the authoritative connected slot
-void HiderPlugin::HookOnClientConnectedPost( // NOLINT(readability-make-member-function-const)
-    CPlayerSlot slot,
-    const char* name,
-    uint64 /*xuid*/,
-    const char* networkId,
-    const char* /*address*/,
-    bool fakePlayer)
+void HiderPlugin::HookOnClientConnectedPost(
+    CPlayerSlot slot, const char* pszName, uint64 /*xuid*/, const char* pszNetworkID, const char* /*pszAddress*/, bool bFakePlayer)
 {
-    if (m_selfDisabled || !fakePlayer || identity_runtime::IsHltvConnection(name, networkId))
+    if (m_selfDisabled || !IsLifecycleActive() || !bFakePlayer || identity_runtime::IsHltvConnection(pszName, pszNetworkID))
     {
         RETURN_META(MRES_IGNORED);
     }
@@ -64,13 +53,15 @@ void HiderPlugin::HookOnClientConnectedPost( // NOLINT(readability-make-member-f
     void* client = entity_access::ResolveClientBySlot(index);
     if (!client || ssc::IsHltv(client)) RETURN_META(MRES_IGNORED);
 
-    const BotEntry* entry = BotInfo().PickForBot(name);
+    const BotEntry* entry = BotInfo().PickForBot(pszName);
     std::string displayName;
-    if (entry && (m_useBotInfoName || !name || !name[0])) displayName = entry->name;
-    else if (name && name[0])
-        displayName = name;
+    if (m_useBotInfoName && entry) displayName = entry->name;
+    else if (pszName && pszName[0])
+        displayName = pszName;
+    else if (entry)
+        displayName = entry->name;
     else
-        displayName = entry ? entry->name : Personas().PickFromRoster();
+        displayName = Personas().PickFromRoster();
 
     if (displayName.empty())
     {
@@ -88,7 +79,7 @@ void HiderPlugin::HookOnClientConnectedPost( // NOLINT(readability-make-member-f
         RETURN_META(MRES_IGNORED);
     }
 
-    identity_state::BindSlot(index, entry, name);
+    identity_state::BindSlot(index, entry, pszName);
 
     if (steamId != 0)
     {
@@ -107,12 +98,9 @@ void HiderPlugin::HookOnClientConnectedPost( // NOLINT(readability-make-member-f
 }
 
 // Reapplies managed identity after a client enters the server
-void HiderPlugin::HookClientPutInServerPost(CPlayerSlot slot,
-                                            char const* name,
-                                            int type,
-                                            uint64 /*xuid*/) // NOLINT(readability-make-member-function-const)
+void HiderPlugin::HookClientPutInServerPost(CPlayerSlot slot, char const* pszName, int type, uint64 /*xuid*/)
 {
-    if (m_selfDisabled) RETURN_META(MRES_IGNORED);
+    if (m_selfDisabled || !IsLifecycleActive()) RETURN_META(MRES_IGNORED);
 
     (void)type;
     const int index = slot.Get();
@@ -144,7 +132,7 @@ void HiderPlugin::HookClientPutInServerPost(CPlayerSlot slot,
     }
 
     std::string visibleName = Personas().GetSlotName(index);
-    if (visibleName.empty() && name) visibleName = name;
+    if (visibleName.empty() && pszName) visibleName = pszName;
     if (!visibleName.empty())
     {
         entity_access::SetEngineName(client, visibleName.c_str());
@@ -158,16 +146,25 @@ void HiderPlugin::HookClientPutInServerPost(CPlayerSlot slot,
 }
 
 // Restores and releases managed identity before disconnect teardown
-void HiderPlugin::HookClientDisconnectPre( // NOLINT(readability-make-member-function-const)
-    CPlayerSlot slot,
-    ENetworkDisconnectionReason reason,
-    const char* /*name*/,
-    uint64 /*xuid*/,
-    const char* /*networkId*/)
+void HiderPlugin::HookClientDisconnectPre(
+    CPlayerSlot slot, ENetworkDisconnectionReason reason, const char* /*pszName*/, uint64 /*xuid*/, const char* /*pszNetworkID*/)
 {
     if (m_selfDisabled) RETURN_META(MRES_IGNORED);
 
     const int index = slot.Get();
+    if (!IsLifecycleActive())
+    {
+        // During teardown the client pointer may already be invalid. Release
+        // only BotHider-owned containers; level shutdown drains the rest.
+        if (index >= 0 && index < PersonaPool::kMaxSlots && Personas().IsSlotManaged(index))
+        {
+            BotInfo().ReleaseAssignment(identity_state::SlotEntry(index));
+            identity_state::ClearSlot(index);
+            Manager().ReleaseSlot(index);
+        }
+        RETURN_META(MRES_IGNORED);
+    }
+
     if (index < 0 || index >= PersonaPool::kMaxSlots || !Personas().IsSlotManaged(index))
     {
         RETURN_META(MRES_IGNORED);

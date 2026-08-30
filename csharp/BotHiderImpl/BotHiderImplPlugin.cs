@@ -31,9 +31,14 @@ public class BotHiderImplPlugin : BasePlugin
     private CounterStrikeSharp.API.Modules.Timers.Timer? _fastApplyTimer;
     private int _fastApplyRemaining;
     private Harmony? _harmony;
+    private bool _mapActive;
+    private long _lifecycleGeneration;
 
     public override void Load(bool hotReload)
     {
+        _mapActive = true;
+        _lifecycleGeneration++;
+
         // Inject the visible-write actions so SetPersonaName / SetBotSteamId
         // also update the scoreboard
         _client = new SharedMemoryClient(
@@ -59,6 +64,9 @@ public class BotHiderImplPlugin : BasePlugin
 
     public override void Unload(bool hotReload)
     {
+        _mapActive = false;
+        _lifecycleGeneration++;
+
         // Undo the patch first
         _harmony?.UnpatchAll(_harmony.Id);
         _harmony = null;
@@ -67,11 +75,14 @@ public class BotHiderImplPlugin : BasePlugin
         _fastApplyTimer?.Kill();
         _fastApplyTimer = null;
         _client?.Dispose();
+        _client = null;
     }
 
     // Clears presentation caches when a new map starts
     private void OnMapStart(string mapName)
     {
+        _lifecycleGeneration++;
+        _mapActive = true;
         ResetAppliedState();
         StartFastApplyWindow();
     }
@@ -79,6 +90,10 @@ public class BotHiderImplPlugin : BasePlugin
     // Clears presentation caches when the current map ends
     private void OnMapEnd()
     {
+        _mapActive = false;
+        _lifecycleGeneration++;
+        _fastApplyTimer?.Kill();
+        _fastApplyTimer = null;
         ResetAppliedState();
     }
 
@@ -92,6 +107,8 @@ public class BotHiderImplPlugin : BasePlugin
     [GameEventHandler]
     public HookResult OnRoundStart(EventRoundStart @event, GameEventInfo info)
     {
+        if (!_mapActive)
+            return HookResult.Continue;
         StartFastApplyWindow();
         AddTimer(0.3f, RespawnDeadManagedBots);
         return HookResult.Continue;
@@ -101,6 +118,8 @@ public class BotHiderImplPlugin : BasePlugin
     [GameEventHandler]
     public HookResult OnPlayerConnectFull(EventPlayerConnectFull @event, GameEventInfo info)
     {
+        if (!_mapActive)
+            return HookResult.Continue;
         StartFastApplyWindow();
         return HookResult.Continue;
     }
@@ -109,6 +128,8 @@ public class BotHiderImplPlugin : BasePlugin
     [GameEventHandler]
     public HookResult OnPlayerSpawn(EventPlayerSpawn @event, GameEventInfo info)
     {
+        if (!_mapActive)
+            return HookResult.Continue;
         StartFastApplyWindow();
         return HookResult.Continue;
     }
@@ -117,6 +138,8 @@ public class BotHiderImplPlugin : BasePlugin
     [GameEventHandler]
     public HookResult OnPlayerDeath(EventPlayerDeath @event, GameEventInfo info)
     {
+        if (!_mapActive)
+            return HookResult.Continue;
         StartFastApplyWindow();
         return HookResult.Continue;
     }
@@ -125,60 +148,83 @@ public class BotHiderImplPlugin : BasePlugin
     [GameEventHandler]
     public HookResult OnVoteOptions(EventVoteOptions @event, GameEventInfo info)
     {
-        Server.NextFrame(AcceptVoteForManagedBots);
+        if (!_mapActive || _client == null)
+            return HookResult.Continue;
+
+        long generation = _lifecycleGeneration;
+        Server.NextFrame(() =>
+        {
+            if (!_mapActive || generation != _lifecycleGeneration)
+                return;
+            AcceptVoteForManagedBots(generation);
+        });
         return HookResult.Continue;
     }
 
     // Casts a yes vote from every valid managed bot
-    private void AcceptVoteForManagedBots()
+    private void AcceptVoteForManagedBots(long generation)
     {
-        if (_client == null) return;
+        if (!_mapActive || generation != _lifecycleGeneration || _client == null)
+            return;
 
         var voteController = Utilities
             .FindAllEntitiesByDesignerName<CVoteController>("vote_controller")
             .FirstOrDefault(controller => controller.IsValid);
-        if (voteController == null)
+        if (voteController == null || !voteController.IsValid || voteController.ActiveIssueIndex < 0)
         {
-            Server.PrintToConsole("[BotHider] automatic vote failed: vote controller not found");
             return;
         }
 
-        Span<int> votesCast = voteController.VotesCast;
-        Span<int> optionCounts = voteController.VoteOptionCount;
-        int onlyTeam = voteController.OnlyTeamToVote;
-        int accepted = 0;
-
-        foreach (int slot in _client.GetManagedSlots())
+        try
         {
-            if ((uint)slot >= (uint)votesCast.Length) continue;
+            Span<int> votesCast = voteController.VotesCast;
+            Span<int> optionCounts = voteController.VoteOptionCount;
+            if (votesCast.Length == 0 || optionCounts.Length == 0)
+                return;
 
-            var player = Utilities.GetPlayerFromSlot(slot);
-            if (player == null || !player.IsValid) continue;
-            if (onlyTeam >= (int)CsTeam.Terrorist && (int)player.Team != onlyTeam) continue;
-
-            votesCast[slot] = 0;
-            accepted++;
-
-            var voteEvent = new EventVoteCast(true)
+            int onlyTeam = voteController.OnlyTeamToVote;
+            int accepted = 0;
+            foreach (int slot in _client.GetManagedSlots())
             {
-                Team = onlyTeam,
-                Userid = player,
-                VoteOption = 0
-            };
-            voteEvent.FireEvent(false);
-        }
+                if ((uint)slot >= (uint)votesCast.Length) continue;
 
-        if (accepted == 0) return;
-        optionCounts[0] += accepted;
-        Utilities.SetStateChanged(
-            voteController, "CVoteController", "m_nVoteOptionCount");
-        Server.PrintToConsole($"[BotHider] automatic yes votes cast={accepted}");
+                var player = Utilities.GetPlayerFromSlot(slot);
+                if (player == null || !player.IsValid) continue;
+                if (onlyTeam >= (int)CsTeam.Terrorist && (int)player.Team != onlyTeam) continue;
+
+                votesCast[slot] = 0;
+                accepted++;
+
+                var voteEvent = new EventVoteCast(true)
+                {
+                    Team = onlyTeam,
+                    Userid = player,
+                    VoteOption = 0
+                };
+                voteEvent.FireEvent(false);
+            }
+
+            if (accepted == 0 || !_mapActive || generation != _lifecycleGeneration || !voteController.IsValid)
+                return;
+            if (optionCounts[0] > int.MaxValue - accepted)
+            {
+                Server.PrintToConsole("[BotHider] automatic vote skipped: vote count overflow");
+                return;
+            }
+            optionCounts[0] += accepted;
+            Utilities.SetStateChanged(voteController, "CVoteController", "m_nVoteOptionCount");
+            Server.PrintToConsole($"[BotHider] automatic yes votes cast={accepted}");
+        }
+        catch (Exception e)
+        {
+            Server.PrintToConsole($"[BotHider] automatic vote skipped during controller update: {e.Message}");
+        }
     }
 
     // Respawn any managed bot that is not alive
     private void RespawnDeadManagedBots()
     {
-        if (_client == null) return;
+        if (!_mapActive || _client == null) return;
 
         // Current team headcount across everyone, for balancing unassigned bots
         int tCount = 0, ctCount = 0;
@@ -222,10 +268,12 @@ public class BotHiderImplPlugin : BasePlugin
     }
 
     // Set CCSPlayerController.m_iszPlayerName
-    private static void ApplyVisibleName(int slot, string name)
+    private void ApplyVisibleName(int slot, string name)
     {
+        long generation = _lifecycleGeneration;
         Server.NextFrame(() =>
         {
+            if (!_mapActive || generation != _lifecycleGeneration) return;
             var player = Utilities.GetPlayerFromSlot(slot);
             if (player == null || !player.IsValid) return;
             player.PlayerName = name;
@@ -234,10 +282,12 @@ public class BotHiderImplPlugin : BasePlugin
     }
 
     // Write CBasePlayerController.m_steamID
-    private static void ApplyVisibleSid(int slot, ulong sid)
+    private void ApplyVisibleSid(int slot, ulong sid)
     {
+        long generation = _lifecycleGeneration;
         Server.NextFrame(() =>
         {
+            if (!_mapActive || generation != _lifecycleGeneration) return;
             var player = Utilities.GetPlayerFromSlot(slot);
             if (player == null || !player.IsValid) return;
             try
@@ -253,10 +303,12 @@ public class BotHiderImplPlugin : BasePlugin
     }
 
     // Write CCSPlayerController.m_szCrosshairCodes
-    private static void ApplyVisibleCrosshair(int slot, string code)
+    private void ApplyVisibleCrosshair(int slot, string code)
     {
+        long generation = _lifecycleGeneration;
         Server.NextFrame(() =>
         {
+            if (!_mapActive || generation != _lifecycleGeneration) return;
             var player = Utilities.GetPlayerFromSlot(slot);
             if (player == null || !player.IsValid) return;
             try
@@ -274,8 +326,10 @@ public class BotHiderImplPlugin : BasePlugin
     // Write CCSPlayerController_InventoryServices.m_rank
     private void ApplyVisibleScoreboardFlair(int slot, uint itemDefIndex)
     {
+        long generation = _lifecycleGeneration;
         Server.NextFrame(() =>
         {
+            if (!_mapActive || generation != _lifecycleGeneration) return;
             if (TryApplyScoreboardFlair(slot, itemDefIndex))
                 _appliedScoreboardFlair[slot] = itemDefIndex;
         });
@@ -284,6 +338,7 @@ public class BotHiderImplPlugin : BasePlugin
     // Opens a short high-frequency apply window for early-round fields
     private void StartFastApplyWindow()
     {
+        if (!_mapActive) return;
         _fastApplyRemaining = Math.Max(_fastApplyRemaining, 80);
         if (_fastApplyTimer != null) return;
         _fastApplyTimer = AddTimer(0.25f, RunFastApplyTick, TimerFlags.REPEAT | TimerFlags.STOP_ON_MAPCHANGE);
@@ -292,6 +347,8 @@ public class BotHiderImplPlugin : BasePlugin
     // Runs one early apply retry tick
     private void RunFastApplyTick()
     {
+        if (!_mapActive)
+            return;
         ApplyManagedSlots();
         _fastApplyRemaining--;
         if (_fastApplyRemaining > 0) return;
@@ -318,7 +375,7 @@ public class BotHiderImplPlugin : BasePlugin
     // Timer body
     private void ApplyManagedSlots()
     {
-        if (_client == null) return;
+        if (!_mapActive || _client == null) return;
         int[] managedSlots = _client.GetManagedSlots();
         var managed = new bool[64];
         foreach (int slot in managedSlots)

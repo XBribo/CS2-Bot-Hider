@@ -1,13 +1,8 @@
 #include "entity_access.h"
 
-#include "playerslot.h"
-#include "nlohmann/json.hpp"
-#include "ISmmPlugin.h"
-#include "entityidentity.h"
-#include "plugin.h" // NOLINT(misc-include-cleaner)
+#include "plugin.h"
 #include "schema_resolver.h"
 #include "serversideclient_ref.h"
-#include "sig_scan.h"
 #include "version_targets.h"
 
 #include <cstdint>
@@ -15,12 +10,13 @@
 #include <string>
 #include <vector>
 
+#include <eiface.h>
 #include <entity2/entityinstance.h>
 #include <iserver.h>
 #include <tier1/utlvector.h>
 
-#ifdef _WIN32
-#include <excpt.h>
+#if defined(_WIN32)
+#include <Windows.h>
 #define CS2BH_FASTCALL __fastcall
 #else
 #define CS2BH_FASTCALL
@@ -30,28 +26,26 @@ extern INetworkServerService* g_pNetworkServerService;
 
 namespace cs2bh::entity_access {
 
-namespace {
-
 using UtilRemoveFn = void(CS2BH_FASTCALL*)(void*);
 using ClientSetNameFn = void(CS2BH_FASTCALL*)(void*, const char*);
 
-void* g_gameResourceService = nullptr;
-UtilRemoveFn g_utilRemove = nullptr;
-void** g_entitySystemGlobal = nullptr;
-int g_botPawnHandleOffset = -1;
-
-} // namespace
+static void* g_pGameResourceService = nullptr;
+static UtilRemoveFn g_pfnUtilRemove = nullptr;
+static void** g_ppEntSysGlobal = nullptr;
+static int g_botPawnHandleOffset = -1;
 
 // Stores the GameResourceService interface used for entity resolution
-void SetGameResourceService(void* gameResourceService) { g_gameResourceService = gameResourceService; }
+void SetGameResourceService(void* gameResourceService) { g_pGameResourceService = gameResourceService; }
 
 // Returns the current GameResourceService interface
-void* GameResourceService() { return g_gameResourceService; }
+void* GameResourceService() { return g_pGameResourceService; }
 
 // Resolves one server-side client from its slot
 void* ResolveClientBySlot(int slot)
 {
-    if (!g_pNetworkServerService || targets::g_clientListOffset < 0) return nullptr;
+    if ((!g_plugin.IsLifecycleActive() && !g_plugin.IsLifecycleRestorationActive()) || !g_pNetworkServerService ||
+        targets::g_clientListOffset < 0)
+        return nullptr;
     auto* gameServer = g_pNetworkServerService->GetIGameServer();
     if (!gameServer) return nullptr;
     auto* clients = reinterpret_cast<CUtlVector<void*>*>(reinterpret_cast<unsigned char*>(gameServer) + targets::g_clientListOffset);
@@ -63,7 +57,7 @@ void* ResolveClientBySlot(int slot)
 // Publishes changed userinfo for one client slot
 bool RefreshClientUserInfo(int slot)
 {
-    if (!g_pNetworkServerService || slot < 0 || slot >= 64) return false;
+    if (!g_plugin.IsLifecycleActive() || !g_pNetworkServerService || slot < 0 || slot >= 64) return false;
     auto* gameServer = g_pNetworkServerService->GetIGameServer();
     if (!gameServer) return false;
     gameServer->UserInfoChanged(CPlayerSlot(slot));
@@ -73,8 +67,8 @@ bool RefreshClientUserInfo(int slot)
 // Resolves UTIL_Remove and its entity-system reference
 void ResolveUtilRemoveAndEntSys(const nlohmann::json& gamedata, const sig::ModuleInfo& serverModule)
 {
-    g_utilRemove = nullptr;
-    g_entitySystemGlobal = nullptr;
+    g_pfnUtilRemove = nullptr;
+    g_ppEntSysGlobal = nullptr;
     if (!serverModule)
     {
         META_CONPRINTF("[BOTHIDER] warning: %s module unresolved for signature scan\n", targets::kServerModuleName);
@@ -92,7 +86,7 @@ void ResolveUtilRemoveAndEntSys(const nlohmann::json& gamedata, const sig::Modul
 
     auto* hit = static_cast<unsigned char*>(sig::FindPatternIn(serverModule, bytes, wildcards));
     if (!hit) return;
-    g_utilRemove = reinterpret_cast<UtilRemoveFn>(hit);
+    g_pfnUtilRemove = reinterpret_cast<UtilRemoveFn>(hit);
 
     /*
      * Windows: mov rcx, [rip+disp32]
@@ -107,7 +101,7 @@ void ResolveUtilRemoveAndEntSys(const nlohmann::json& gamedata, const sig::Modul
         unsigned char* displacementAddress = hit + i + 3;
         const int32_t displacement = *reinterpret_cast<int32_t*>(displacementAddress);
         unsigned char* instructionEnd = displacementAddress + 4;
-        g_entitySystemGlobal = reinterpret_cast<void**>(instructionEnd + displacement);
+        g_ppEntSysGlobal = reinterpret_cast<void**>(instructionEnd + displacement);
         break;
     }
 }
@@ -149,12 +143,11 @@ void LoadMemberOffsets(const nlohmann::json& gamedata)
         FindPlatformOffset(gamedata, "CEntityIdentity::m_designerName", targets::g_entityIdentityClassNameOffset);
 }
 
-namespace {
-
-// Reads one pointer while isolating invalid memory access on Windows
-bool SafeReadPointer(const void* address, void** output)
+// Reads one engine pointer. Windows can catch access faults; Linux still
+// relies on the engine lifecycle guard and validated entity handles.
+static bool ReadEnginePointer(const void* address, void** output)
 {
-#ifdef _WIN32
+#if defined(_WIN32)
     __try
     {
         *output = *reinterpret_cast<void* const*>(address);
@@ -176,10 +169,11 @@ bool SafeReadPointer(const void* address, void** output)
 #endif
 }
 
-// Copies one indirectly referenced string with guarded reads on Windows
-bool SafeReadString(const void* address, char* output, size_t capacity)
+// Copies one engine string. Linux cannot make a raw pointer dereference safe
+// against a concurrent use-after-free.
+static bool ReadEngineString(const void* address, char* output, size_t capacity)
 {
-#ifdef _WIN32
+#if defined(_WIN32)
     __try
     {
         const char* source = *reinterpret_cast<const char* const*>(address);
@@ -219,22 +213,20 @@ bool SafeReadString(const void* address, char* output, size_t capacity)
 #endif
 }
 
-} // namespace
-
 // Resolves one entity instance and optionally copies its class name
 void* ResolveEntityInstance(int entityIndex, char* classnameOut, size_t classnameCap)
 {
     if (classnameOut && classnameCap) classnameOut[0] = '\0';
-    if (!g_gameResourceService || entityIndex <= 0 || entityIndex >= 0x8000 || targets::g_entitySystemOffsetInGameResourceService < 0 ||
-        targets::g_entitySystemIdentityChunksOffset < 0 || targets::g_entityIdentitySize <= 0 ||
-        targets::g_entityIdentityInstanceOffset < 0 || (classnameOut && classnameCap && targets::g_entityIdentityClassNameOffset < 0))
+    if ((!g_plugin.IsLifecycleActive() && !g_plugin.IsLifecycleRestorationActive()) || !g_pGameResourceService || entityIndex <= 0 ||
+        entityIndex >= 0x8000 || targets::g_entitySystemOffsetInGameResourceService < 0 ||
+        targets::g_entitySystemIdentityChunksOffset < 0 || targets::g_entityIdentitySize <= 0 || targets::g_entityIdentityInstanceOffset < 0 ||
+        (classnameOut && classnameCap && targets::g_entityIdentityClassNameOffset < 0))
     {
         return nullptr;
     }
 
     void* entitySystem = nullptr;
-    if (!SafeReadPointer(reinterpret_cast<unsigned char*>(g_gameResourceService) + targets::g_entitySystemOffsetInGameResourceService,
-                         &entitySystem) ||
+    if (!ReadEnginePointer(reinterpret_cast<unsigned char*>(g_pGameResourceService) + targets::g_entitySystemOffsetInGameResourceService, &entitySystem) ||
         !entitySystem)
     {
         return nullptr;
@@ -242,18 +234,18 @@ void* ResolveEntityInstance(int entityIndex, char* classnameOut, size_t classnam
 
     void* chunk = nullptr;
     const void* chunkSlot = reinterpret_cast<unsigned char*>(entitySystem) + targets::g_entitySystemIdentityChunksOffset +
-                            ((entityIndex / targets::kEntListChunkSize) * sizeof(void*));
-    if (!SafeReadPointer(chunkSlot, &chunk) || !chunk) return nullptr;
+                            (entityIndex / targets::kEntListChunkSize) * sizeof(void*);
+    if (!ReadEnginePointer(chunkSlot, &chunk) || !chunk) return nullptr;
 
     unsigned char* identity =
-        reinterpret_cast<unsigned char*>(chunk) + ((entityIndex % targets::kEntListChunkSize) * targets::g_entityIdentitySize);
+        reinterpret_cast<unsigned char*>(chunk) + (entityIndex % targets::kEntListChunkSize) * targets::g_entityIdentitySize;
     if (classnameOut && classnameCap)
     {
-        SafeReadString(identity + targets::g_entityIdentityClassNameOffset, classnameOut, classnameCap);
+        ReadEngineString(identity + targets::g_entityIdentityClassNameOffset, classnameOut, classnameCap);
     }
 
     void* instance = nullptr;
-    if (!SafeReadPointer(identity + targets::g_entityIdentityInstanceOffset, &instance) || !instance)
+    if (!ReadEnginePointer(identity + targets::g_entityIdentityInstanceOffset, &instance) || !instance)
     {
         return nullptr;
     }
@@ -263,32 +255,32 @@ void* ResolveEntityInstance(int entityIndex, char* classnameOut, size_t classnam
 // Returns whether an entity is already entering deletion
 bool IsEntityBeingDeleted(void* instance)
 {
-    if (!instance) return true;
+    if ((!g_plugin.IsLifecycleActive() && !g_plugin.IsLifecycleRestorationActive()) || !instance) return true;
     auto* entity = reinterpret_cast<CEntityInstance*>(instance);
     if (!entity->m_pEntity) return true;
-    const auto flags = static_cast<uint32_t>(entity->m_pEntity->m_flags);
+    const uint32_t flags = static_cast<uint32_t>(entity->m_pEntity->m_flags);
     return (flags & (EF_DELETE_IN_PROGRESS | EF_MARKED_FOR_DELETE)) != 0;
 }
 
 // Marks one flattened entity field as changed
 void MarkEntityFieldChanged(void* instance, unsigned int offset)
 {
-    if (!instance) return;
+    if ((!g_plugin.IsLifecycleActive() && !g_plugin.IsLifecycleRestorationActive()) || !instance) return;
     NetworkStateChangedData changed(offset);
     reinterpret_cast<CEntityInstance*>(instance)->NetworkStateChanged(changed);
 }
 
 // Returns the resolved UTIL_Remove target
-void* UtilRemoveTarget() { return reinterpret_cast<void*>(g_utilRemove); }
+void* UtilRemoveTarget() { return reinterpret_cast<void*>(g_pfnUtilRemove); }
 
 // Returns the resolved entity-system global address
-void* EntitySystemGlobalAddress() { return reinterpret_cast<void*>(g_entitySystemGlobal); }
+void* EntitySystemGlobalAddress() { return reinterpret_cast<void*>(g_ppEntSysGlobal); }
 
 // Removes one entity through the resolved engine function
 bool RemoveEntity(void* instance)
 {
-    if (!g_utilRemove || !instance) return false;
-    g_utilRemove(instance);
+    if (!g_plugin.IsLifecycleActive() || !g_pfnUtilRemove || !instance) return false;
+    g_pfnUtilRemove(instance);
     return true;
 }
 
@@ -301,7 +293,7 @@ int BotPawnHandleOffset() { return g_botPawnHandleOffset; }
 // Resets the idle timer for the pawn owned by one client
 void ResetIdleTimerForClient(void* client)
 {
-    if (!client) return;
+    if (!g_plugin.IsLifecycleActive() || !client) return;
 
     const int pawnOffset = schema::GetFieldOffset("CBasePlayerController", "m_hPawn");
     const int idleOffset = schema::GetFieldOffset("CCSPlayerPawnBase", "m_flIdleTimeSinceLastAction");
@@ -321,17 +313,17 @@ void ResetIdleTimerForClient(void* client)
     void* pawn = ResolveEntityInstance(pawnIndex, nullptr, 0);
     if (!pawn) return;
 
-    *reinterpret_cast<float*>(reinterpret_cast<unsigned char*>(pawn) + idleOffset) = 0.0F;
+    *reinterpret_cast<float*>(reinterpret_cast<unsigned char*>(pawn) + idleOffset) = 0.0f;
 }
 
 // Updates the engine-side name for one client
 const char* SetEngineName(void* client, const char* newName)
 {
-    if (!client || !newName || !newName[0] || targets::g_vtableSlotClientSetName < 0)
+    if (!g_plugin.IsLifecycleActive() || !client || !newName || !newName[0] || targets::g_vtableSlotClientSetName < 0)
     {
         return nullptr;
     }
-#ifdef _WIN32
+#if defined(_WIN32)
     __try
     {
         auto** vtable = *reinterpret_cast<void***>(client);
@@ -358,9 +350,9 @@ const char* SetEngineName(void* client, const char* newName)
 // Clears resolved interfaces and runtime targets
 void Reset()
 {
-    g_gameResourceService = nullptr;
-    g_utilRemove = nullptr;
-    g_entitySystemGlobal = nullptr;
+    g_pGameResourceService = nullptr;
+    g_pfnUtilRemove = nullptr;
+    g_ppEntSysGlobal = nullptr;
     g_botPawnHandleOffset = -1;
 }
 
