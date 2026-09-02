@@ -99,8 +99,9 @@ void HiderPlugin::HookOnClientConnectedPost( // NOLINT(readability-make-member-f
 
     if (IsDisguiseEnabled())
     {
-        ssc::ClearFakePlayer(client);
-        identity_runtime::SetControllerFakeClientFlag(index, identity_hooks::PopulationTransactionActive());
+        const bool populationTransactionActive = identity_hooks::PopulationTransactionActive();
+        if (populationTransactionActive || !identity_runtime::TryApplyManagedDisguise(index)) identity_runtime::DeferManagedDisguise(index);
+        identity_runtime::SetControllerFakeClientFlag(index, populationTransactionActive);
     }
 
     RETURN_META(MRES_IGNORED);
@@ -130,8 +131,9 @@ void HiderPlugin::HookClientPutInServerPost(CPlayerSlot slot,
 
     if (IsDisguiseEnabled())
     {
-        ssc::ClearFakePlayer(client);
-        identity_runtime::SetControllerFakeClientFlag(index, identity_hooks::PopulationTransactionActive());
+        const bool populationTransactionActive = identity_hooks::PopulationTransactionActive();
+        if (populationTransactionActive || !identity_runtime::TryApplyManagedDisguise(index)) identity_runtime::DeferManagedDisguise(index);
+        identity_runtime::SetControllerFakeClientFlag(index, populationTransactionActive);
     }
 
     const uint64_t desiredSteamId = Manager().GetSyntheticSid(index);

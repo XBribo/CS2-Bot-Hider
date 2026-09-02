@@ -121,6 +121,7 @@ namespace cs2bh {
 void HiderPlugin::OnLevelInit(char const* mapName, char const*, char const*, char const*, bool, bool)
 {
     identity_runtime::ClearPendingControllerRemovals();
+    identity_runtime::ClearPendingManagedDisguises();
     avatar::ResetRuntime();
     auto* gameServer = g_pNetworkServerService ? g_pNetworkServerService->GetIGameServer() : nullptr;
     if (gameServer && gameServer != m_hookedGameServer)
@@ -142,6 +143,7 @@ void HiderPlugin::OnLevelInit(char const* mapName, char const*, char const*, cha
 // Releases all state owned by the current level
 void HiderPlugin::OnLevelShutdown()
 {
+    identity_runtime::ClearPendingManagedDisguises();
     identity_state::ClearAll();
     Manager().ReleaseAll();
     avatar::ProcessOverrides();
@@ -160,6 +162,7 @@ bool HiderPlugin::Load(PluginId id, ISmmAPI* ismm, char* error, size_t maxlen, b
     m_fakePingEnabled = true;
     m_fakePingMin = 20;
     m_fakePingMax = 90;
+    identity_runtime::ClearPendingManagedDisguises();
 
     GET_V_IFACE_CURRENT(GetEngineFactory, g_engine, IVEngineServer, INTERFACEVERSION_VENGINESERVER);
     GET_V_IFACE_CURRENT(GetEngineFactory, g_icvar, ICvar, CVAR_INTERFACE_VERSION);
@@ -383,6 +386,7 @@ bool HiderPlugin::Unload(char* error, size_t maxlen)
     m_hookedGameServer = nullptr;
     identity_state::ClearAll();
     Manager().ReleaseAll();
+    identity_runtime::ClearPendingManagedDisguises();
     avatar::ProcessOverrides();
     avatar::ResetRuntime();
     Publisher().Shutdown();

@@ -11,6 +11,7 @@
 #include "version_targets.h"
 
 #include <algorithm>
+#include <array>
 #include <chrono>
 #include <cstdint>
 #include <cstring>
@@ -25,6 +26,14 @@
 extern INetworkServerService* g_pNetworkServerService;
 
 namespace cs2bh {
+
+namespace identity_runtime {
+namespace {
+
+std::array<bool, PersonaPool::kMaxSlots> g_pendingManagedDisguise{};
+
+} // namespace
+} // namespace identity_runtime
 
 namespace {
 
@@ -246,15 +255,13 @@ void ApplyManagedDisguise(bool disguised)
     for (int slot = 0; slot < PersonaPool::kMaxSlots; ++slot)
     {
         if (!Manager().IsManaged(slot)) continue;
+        if (disguised && g_pendingManagedDisguise[slot]) continue;
         void* client = entity_access::ResolveClientBySlot(slot);
         if (!client) continue;
 
         if (disguised)
         {
-            ssc::ClearFakePlayer(client);
-            SetControllerFakeClientFlag(slot, false);
-            const uint64_t steamId = Manager().GetSyntheticSid(slot);
-            if (steamId != 0) ssc::WriteSteamId(client, steamId);
+            if (!TryApplyManagedDisguise(slot)) g_pendingManagedDisguise[slot] = true;
         }
         else
         {
@@ -268,6 +275,44 @@ void ApplyManagedDisguise(bool disguised)
         entity_access::RefreshClientUserInfo(slot);
     }
 }
+
+bool TryApplyManagedDisguise(int slot)
+{
+    if (slot < 0 || slot >= PersonaPool::kMaxSlots || !Manager().IsManaged(slot)) return false;
+
+    void* client = entity_access::ResolveClientBySlot(slot);
+    if (!client || !SetControllerFakeClientFlag(slot, false)) return false;
+
+    // Change the controller first. If it is unavailable, leave the client as
+    // a complete native bot until a later frame instead of exposing a mixed identity.
+    ssc::ClearFakePlayer(client);
+    const uint64_t steamId = Manager().GetSyntheticSid(slot);
+    if (steamId != 0) ssc::WriteSteamId(client, steamId);
+    entity_access::RefreshClientUserInfo(slot);
+    g_pendingManagedDisguise[slot] = false;
+    return true;
+}
+
+void DeferManagedDisguise(int slot)
+{
+    if (slot >= 0 && slot < PersonaPool::kMaxSlots) g_pendingManagedDisguise[slot] = true;
+}
+
+void ProcessPendingManagedDisguises()
+{
+    for (int slot = 0; slot < PersonaPool::kMaxSlots; ++slot)
+    {
+        if (!g_pendingManagedDisguise[slot]) continue;
+        if (!Manager().IsManaged(slot))
+        {
+            g_pendingManagedDisguise[slot] = false;
+            continue;
+        }
+        TryApplyManagedDisguise(slot);
+    }
+}
+
+void ClearPendingManagedDisguises() { g_pendingManagedDisguise.fill(false); }
 
 // Selects a non-colliding SteamID for one managed slot
 uint64_t MakeUniqueSteamId(int slot, uint64_t desired)
@@ -317,14 +362,9 @@ bool SetControllerFakeClientFlag(int slot, bool fakeClient)
 
     constexpr uint32_t kFakeClientBit = 0x100;
     auto* flags = reinterpret_cast<uint32_t*>(reinterpret_cast<unsigned char*>(controller) + targets::g_controllerFakeClientFlagsOffset);
-    const uint32_t before = *flags;
     if (fakeClient) *flags |= kFakeClientBit;
     else
         *flags &= ~kFakeClientBit;
-    if (*flags != before)
-    {
-        entity_access::MarkEntityFieldChanged(controller, static_cast<uint32_t>(targets::g_controllerFakeClientFlagsOffset));
-    }
     return true;
 }
 

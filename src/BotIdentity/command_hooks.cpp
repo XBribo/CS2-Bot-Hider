@@ -161,6 +161,7 @@ void HiderPlugin::HookGameFramePost(bool simulating, bool /*firstTick*/, bool /*
     if (m_selfDisabled || !simulating) RETURN_META(MRES_IGNORED);
 
     identity_runtime::DrainPendingControllerRemovals();
+    identity_runtime::ProcessPendingManagedDisguises();
     for (int slot = 0; slot < PersonaPool::kMaxSlots; ++slot)
     {
         if (!Manager().IsManaged(slot)) continue;
@@ -191,8 +192,7 @@ void HiderPlugin::HookGameFramePost(bool simulating, bool /*firstTick*/, bool /*
         const uint64_t uniqueSteamId = identity_runtime::MakeUniqueSteamId(slot, steamId);
         if (IsDisguiseEnabled())
         {
-            ssc::ClearFakePlayer(client);
-            identity_runtime::SetControllerFakeClientFlag(slot, false);
+            identity_runtime::TryApplyManagedDisguise(slot);
         }
         ssc::WriteSteamId(client, uniqueSteamId);
         Manager().SetSyntheticSid(slot, uniqueSteamId);

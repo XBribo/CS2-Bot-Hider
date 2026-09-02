@@ -164,13 +164,7 @@ class ScopedNativeBotIdentityRestore
                                                       targets::g_controllerFakeClientFlagsOffset);
             snapshot.controllerFlags = *flags;
             snapshot.hasController = true;
-            const uint32_t before = *flags;
             *flags |= 0x100U;
-            if (*flags != before)
-            {
-                entity_access::MarkEntityFieldChanged(snapshot.controller,
-                                                      static_cast<uint32_t>(targets::g_controllerFakeClientFlagsOffset));
-            }
         }
     }
 
@@ -215,7 +209,6 @@ class ScopedNativeBotIdentityRestore
             if (*flags != snapshot.controllerFlags)
             {
                 *flags = snapshot.controllerFlags;
-                entity_access::MarkEntityFieldChanged(controller, static_cast<uint32_t>(targets::g_controllerFakeClientFlagsOffset));
             }
         }
     }

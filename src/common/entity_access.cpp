@@ -233,12 +233,13 @@ void* ResolveEntityInstance(int entityIndex, char* classnameOut, size_t classnam
     }
 
     void* entitySystem = nullptr;
-    if (!SafeReadPointer(reinterpret_cast<unsigned char*>(g_gameResourceService) + targets::g_entitySystemOffsetInGameResourceService,
-                         &entitySystem) ||
-        !entitySystem)
-    {
-        return nullptr;
-    }
+    // Prefer the server's authoritative entity-system global. The resource-service
+    // member may not yet expose the current system during level/client setup.
+    if (g_entitySystemGlobal) SafeReadPointer(g_entitySystemGlobal, &entitySystem);
+    if (!entitySystem)
+        SafeReadPointer(reinterpret_cast<unsigned char*>(g_gameResourceService) + targets::g_entitySystemOffsetInGameResourceService,
+                        &entitySystem);
+    if (!entitySystem) return nullptr;
 
     void* chunk = nullptr;
     const void* chunkSlot = reinterpret_cast<unsigned char*>(entitySystem) + targets::g_entitySystemIdentityChunksOffset +

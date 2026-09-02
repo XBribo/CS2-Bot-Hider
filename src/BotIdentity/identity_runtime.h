@@ -10,6 +10,14 @@ int CountHumanClients();
 // Applies the requested native or disguised identity to all managed clients
 void ApplyManagedDisguise(bool disguised);
 
+// Applies player presentation only after both client and controller state are available.
+bool TryApplyManagedDisguise(int slot);
+
+// Defers player presentation while a new controller is still being registered.
+void DeferManagedDisguise(int slot);
+void ProcessPendingManagedDisguises();
+void ClearPendingManagedDisguises();
+
 // Selects a non-colliding SteamID for one managed slot
 uint64_t MakeUniqueSteamId(int slot, uint64_t desired);
 
