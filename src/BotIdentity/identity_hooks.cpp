@@ -35,6 +35,7 @@ namespace cs2bh::identity_hooks {
 namespace {
 
 using MaintainQuotaFn = int64_t(CS2BH_FASTCALL*)(void*);
+using CountPotentialVotersFn = int(CS2BH_FASTCALL*)(void*);
 using HandleJoinTeamFn = int64_t(CS2BH_FASTCALL*)(void*, unsigned int, bool);
 using ApplyHumanTeamRestrictionFn = int64_t(CS2BH_FASTCALL*)();
 using PackEntitiesFn = void(CS2BH_FASTCALL*)(void*, void*, int, void*, void*);
@@ -46,6 +47,8 @@ bool g_funchooksInstalled = false;
 
 MaintainQuotaFn g_quotaTrampoline = nullptr;
 void* g_quotaHookTarget = nullptr;
+CountPotentialVotersFn g_countPotentialVotersTrampoline = nullptr;
+void* g_countPotentialVotersHookTarget = nullptr;
 HandleJoinTeamFn g_handleJoinTeamTrampoline = nullptr;
 void* g_handleJoinTeamHookTarget = nullptr;
 ApplyHumanTeamRestrictionFn g_applyHumanTeamRestrictionTrampoline = nullptr;
@@ -57,8 +60,8 @@ void* g_sameMapTeardownHookTarget = nullptr;
 void* g_sameMapTeardownReturnAddress = nullptr;
 std::recursive_mutex g_packEntitiesMutex;
 thread_local uint32_t g_packEntitiesDepth = 0;
-std::array<bool, 64> g_quotaResolveWarned{};
-bool g_quotaInvalidOffsetWarned = false;
+std::array<bool, 64> g_identityResolveWarned{};
+bool g_identityInvalidOffsetWarned = false;
 
 struct NativeBotIdentitySnapshot
 {
@@ -98,10 +101,10 @@ class ScopedNativeBotIdentityRestore
         if (ssc::g_userIdOffset < 0 || ssc::g_entityIndexOffset < 0 || ssc::g_netChannelOffset < 0 ||
             ssc::g_connectionTypeFlagsOffset < 0 || ssc::g_fakePlayerOffset < 0 || targets::g_controllerFakeClientFlagsOffset < 0)
         {
-            if (!g_quotaInvalidOffsetWarned)
+            if (!g_identityInvalidOffsetWarned)
             {
-                META_CONPRINTF("[BOTHIDER] warning: quota identity restore disabled: invalid client/controller offsets\n");
-                g_quotaInvalidOffsetWarned = true;
+                META_CONPRINTF("[BOTHIDER] warning: native identity restore disabled: invalid client/controller offsets\n");
+                g_identityInvalidOffsetWarned = true;
             }
             return;
         }
@@ -115,10 +118,10 @@ class ScopedNativeBotIdentityRestore
             snapshot.client = entity_access::ResolveClientBySlot(slot);
             if (!snapshot.client)
             {
-                if (!g_quotaResolveWarned[slot])
+                if (!g_identityResolveWarned[slot])
                 {
-                    META_CONPRINTF("[BOTHIDER] warning: quota identity restore client resolve failed slot=%d\n", slot);
-                    g_quotaResolveWarned[slot] = true;
+                    META_CONPRINTF("[BOTHIDER] warning: native identity restore client resolve failed slot=%d\n", slot);
+                    g_identityResolveWarned[slot] = true;
                 }
                 continue;
             }
@@ -136,27 +139,27 @@ class ScopedNativeBotIdentityRestore
             snapshot.controller = entity_access::ResolveEntityInstance(entityIndex, className, sizeof(className));
             if (!snapshot.controller)
             {
-                if (!g_quotaResolveWarned[slot])
+                if (!g_identityResolveWarned[slot])
                 {
-                    META_CONPRINTF("[BOTHIDER] warning: quota identity restore controller resolve failed slot=%d userid=%u entIdx=%d "
+                    META_CONPRINTF("[BOTHIDER] warning: native identity restore controller resolve failed slot=%d userid=%u entIdx=%d "
                                    "clientFake=%u conn=0x%02x net=%p\n",
                                    slot, static_cast<unsigned int>(snapshot.userId), entityIndex,
                                    static_cast<unsigned int>(snapshot.fakePlayer), static_cast<unsigned int>(snapshot.connectionFlags),
                                    *reinterpret_cast<void**>(raw + ssc::g_netChannelOffset));
-                    g_quotaResolveWarned[slot] = true;
+                    g_identityResolveWarned[slot] = true;
                 }
                 continue;
             }
             if (std::strcmp(className, "cs_player_controller") != 0 || entity_access::IsEntityBeingDeleted(snapshot.controller))
             {
-                META_CONPRINTF("[BOTHIDER] warning: quota identity restore invalid controller slot=%d userid=%u entIdx=%d cls='%s'\n", slot,
-                               static_cast<unsigned int>(snapshot.userId), entityIndex, className);
-                g_quotaResolveWarned[slot] = true;
+                META_CONPRINTF("[BOTHIDER] warning: native identity restore invalid controller slot=%d userid=%u entIdx=%d cls='%s'\n",
+                               slot, static_cast<unsigned int>(snapshot.userId), entityIndex, className);
+                g_identityResolveWarned[slot] = true;
                 snapshot.controller = nullptr;
                 continue;
             }
 
-            g_quotaResolveWarned[slot] = false;
+            g_identityResolveWarned[slot] = false;
 
             auto* entity = reinterpret_cast<CEntityInstance*>(snapshot.controller);
             snapshot.handle = static_cast<uint32_t>(entity->GetRefEHandle().ToInt());
@@ -184,7 +187,7 @@ class ScopedNativeBotIdentityRestore
             void* currentClient = entity_access::ResolveClientBySlot(snapshot.slot);
             if (currentClient != snapshot.client)
             {
-                META_CONPRINTF("[BOTHIDER] warning: quota identity restore skipped slot=%d: client rebound\n", snapshot.slot);
+                META_CONPRINTF("[BOTHIDER] warning: native identity restore skipped slot=%d: client rebound\n", snapshot.slot);
                 continue;
             }
 
@@ -192,7 +195,7 @@ class ScopedNativeBotIdentityRestore
             const uint16_t currentUserId = *reinterpret_cast<uint16_t*>(raw + ssc::g_userIdOffset);
             if (currentUserId != snapshot.userId)
             {
-                META_CONPRINTF("[BOTHIDER] warning: quota identity restore skipped slot=%d: userid changed %u->%u\n", snapshot.slot,
+                META_CONPRINTF("[BOTHIDER] warning: native identity restore skipped slot=%d: userid changed %u->%u\n", snapshot.slot,
                                static_cast<unsigned int>(snapshot.userId), static_cast<unsigned int>(currentUserId));
                 continue;
             }
@@ -205,7 +208,7 @@ class ScopedNativeBotIdentityRestore
             void* controller = entity_access::ResolveEntityInstance(entityIndex, className, sizeof(className));
             if (!IsValidController(controller, className, snapshot.handle) || controller != snapshot.controller)
             {
-                META_CONPRINTF("[BOTHIDER] warning: quota identity restore skipped slot=%d userid=%u: controller rebound\n", snapshot.slot,
+                META_CONPRINTF("[BOTHIDER] warning: native identity restore skipped slot=%d userid=%u: controller rebound\n", snapshot.slot,
                                static_cast<unsigned int>(snapshot.userId));
                 continue;
             }
@@ -354,8 +357,10 @@ template <typename Function> bool PrepareFunchook(Function& original, void* targ
 void ClearBindings()
 {
     g_quotaTrampoline = nullptr;
+    g_countPotentialVotersTrampoline = nullptr;
     g_packEntitiesTrampoline = nullptr;
     g_quotaHookTarget = nullptr;
+    g_countPotentialVotersHookTarget = nullptr;
     g_packEntitiesHookTarget = nullptr;
     g_handleJoinTeamTrampoline = nullptr;
     g_handleJoinTeamHookTarget = nullptr;
@@ -374,6 +379,15 @@ int64_t CS2BH_FASTCALL DetourMaintainBotQuota(void* manager)
     if (!g_plugin.IsDisguiseEnabled()) return g_quotaTrampoline ? g_quotaTrampoline(manager) : 0;
     PopulationTransactionScope scope(true);
     return g_quotaTrampoline ? g_quotaTrampoline(manager) : 0;
+}
+
+// Restores Bot identity while the engine counts eligible voters
+int CS2BH_FASTCALL DetourCountPotentialVoters(void* issue)
+{
+    if (!g_plugin.IsDisguiseEnabled()) return g_countPotentialVotersTrampoline ? g_countPotentialVotersTrampoline(issue) : 0;
+
+    ScopedNativeBotIdentityRestore identity;
+    return g_countPotentialVotersTrampoline ? g_countPotentialVotersTrampoline(issue) : 0;
 }
 
 // Restores Bot identity while the engine applies mp_humanteam
@@ -421,6 +435,34 @@ void PrepareQuotaHook(const nlohmann::json& gamedata, const sig::ModuleInfo& ser
     if (PrepareFunchook(g_quotaTrampoline, target, reinterpret_cast<void*>(&DetourMaintainBotQuota), "CCSBotManager::MaintainBotQuota"))
     {
         g_quotaHookTarget = target;
+    }
+}
+
+// Resolves and prepares the eligible-voter count detour
+void PrepareCountPotentialVotersHook(const nlohmann::json& gamedata, const sig::ModuleInfo& serverModule)
+{
+    if (!serverModule) return;
+    std::string signature = sig::FindPlatformSig(gamedata, "CBaseIssue::CountPotentialVoters");
+    std::vector<uint8_t> bytes;
+    std::vector<bool> wildcards;
+    if (signature.empty() || !sig::ParseSigString(signature, bytes, wildcards))
+    {
+        META_CONPRINTF("[BOTHIDER] warning: CountPotentialVoters signature missing or malformed\n");
+        return;
+    }
+
+    std::vector<void*> matches = sig::FindPatternMatchesIn(serverModule, bytes, wildcards);
+    if (matches.size() != 1)
+    {
+        META_CONPRINTF("[BOTHIDER] warning: CountPotentialVoters hook requires exactly one match\n");
+        return;
+    }
+
+    void* target = matches.front();
+    if (PrepareFunchook(g_countPotentialVotersTrampoline, target, reinterpret_cast<void*>(&DetourCountPotentialVoters),
+                        "CBaseIssue::CountPotentialVoters"))
+    {
+        g_countPotentialVotersHookTarget = target;
     }
 }
 
@@ -576,6 +618,7 @@ void PrepareSameMapTeardownHook(const nlohmann::json& gamedata, const sig::Modul
 void PrepareAll(const nlohmann::json& gamedata, const sig::ModuleInfo& serverModule)
 {
     PrepareQuotaHook(gamedata, serverModule);
+    PrepareCountPotentialVotersHook(gamedata, serverModule);
     PrepareHandleJoinTeamHook(gamedata, serverModule);
     PrepareHumanTeamRestrictionHook(gamedata, serverModule);
     PreparePackEntitiesHook(gamedata);
@@ -647,6 +690,9 @@ bool Remove()
 
 // Returns the resolved bot-quota hook target
 void* MaintainQuotaTarget() { return g_quotaHookTarget; }
+
+// Returns the resolved eligible-voter count hook target
+void* CountPotentialVotersTarget() { return g_countPotentialVotersHookTarget; }
 
 // Returns the resolved entity-packing hook target
 void* PackEntitiesTarget() { return g_packEntitiesHookTarget; }

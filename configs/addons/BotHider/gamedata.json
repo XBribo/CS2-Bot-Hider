@@ -16,6 +16,14 @@
     },
     "comment": "runs the bot quota pass"
   },
+  "CBaseIssue::CountPotentialVoters": {
+    "signatures": {
+      "library": "server",
+      "windows": "48 89 5C 24 ? 48 89 74 24 ? 57 41 56 41 57 48 83 EC ? 48 8B 05",
+      "linux": "55 48 89 E5 41 57 41 56 49 89 FE 41 55 41 54 53 31 DB 48 83 EC ? 4C 8D 2D ? ? ? ? 49 8B 45 ? 44 8B 60 ? 45 85 E4 0F 8E ? ? ? ? C7 45 ? ? ? ? ? 31 FF E8 ? ? ? ? 48 89 C2"
+    },
+    "comment": "counts eligible voters"
+  },
   "CCSPlayerController::HandleCommand_JoinTeam": {
     "signatures": {
       "library": "server",

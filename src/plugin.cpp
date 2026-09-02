@@ -319,6 +319,7 @@ bool HiderPlugin::Load(PluginId id, ISmmAPI* ismm, char* error, size_t maxlen, b
         // Publish resolved hook/sig addresses for bh_status (0 = unresolved)
         Publisher().PublishSignature("UTIL_Remove", entity_access::UtilRemoveTarget());
         Publisher().PublishSignature("MaintainBotQuota", identity_hooks::MaintainQuotaTarget());
+        Publisher().PublishSignature("CountPotentialVoters", identity_hooks::CountPotentialVotersTarget());
         Publisher().PublishSignature("PackEntities", identity_hooks::PackEntitiesTarget());
         Publisher().PublishSignature("HandleJoinTeam", identity_hooks::HandleJoinTeamTarget());
         Publisher().PublishSignature("HumanTeamRestriction", identity_hooks::HumanTeamRestrictionTarget());
@@ -348,13 +349,14 @@ bool HiderPlugin::Load(PluginId id, ISmmAPI* ismm, char* error, size_t maxlen, b
 
     int installedHooks = 0;
     if (identity_hooks::MaintainQuotaTarget()) ++installedHooks;
+    if (identity_hooks::CountPotentialVotersTarget()) ++installedHooks;
     if (identity_hooks::PackEntitiesTarget()) ++installedHooks;
     if (identity_hooks::HandleJoinTeamTarget()) ++installedHooks;
     if (identity_hooks::HumanTeamRestrictionTarget()) ++installedHooks;
     if (identity_hooks::SameMapTeardownTarget()) ++installedHooks;
     META_CONPRINTF("[BOTHIDER] config mode=%s fake_ping=%s range=%d-%d identities=%zu\n", IsBotMode() ? "bot" : "player",
                    m_fakePingEnabled ? "on" : "off", m_fakePingMin, m_fakePingMax, BotInfo().Count());
-    META_CONPRINTF("[BOTHIDER] loaded v%s hooks=%d/5 util_remove=%s schema=%s shm=%s avatar=%s\n", GetVersion(), installedHooks,
+    META_CONPRINTF("[BOTHIDER] loaded v%s hooks=%d/6 util_remove=%s schema=%s shm=%s avatar=%s\n", GetVersion(), installedHooks,
                    entity_access::UtilRemoveTarget() ? "ok" : "fail", schemaReady ? "ok" : "fail", sharedMemoryReady ? "ok" : "fail",
                    networkStringTables ? "ok" : "fail");
     return true;

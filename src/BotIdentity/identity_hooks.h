@@ -67,6 +67,9 @@ bool Remove();
 // Returns the resolved bot-quota hook target
 void* MaintainQuotaTarget();
 
+// Returns the resolved eligible-voter count hook target
+void* CountPotentialVotersTarget();
+
 // Returns the resolved entity-packing hook target
 void* PackEntitiesTarget();
 
