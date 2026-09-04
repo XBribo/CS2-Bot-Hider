@@ -19,7 +19,6 @@
 #include <cstring>
 
 #include <eiface.h>
-#include <iserver.h>
 #include <tier1/convar.h>
 
 extern IVEngineServer* g_engine;
@@ -40,13 +39,6 @@ bool IsBotAddCommand(const char* name)
 {
     if (!name || !name[0]) return false;
     return !std::strcmp(name, "bot_add") || !std::strcmp(name, "bot_add_t") || !std::strcmp(name, "bot_add_ct");
-}
-
-// Returns whether a bot_kick target is a built-in group
-bool IsBotKickGroupTarget(const char* target)
-{
-    if (!target || !target[0]) return false;
-    return !std::strcmp(target, "all") || !std::strcmp(target, "t") || !std::strcmp(target, "ct");
 }
 
 // Finds a managed slot from its current persona name
@@ -79,19 +71,15 @@ void HiderPlugin::HookDispatchConCommandPre(ConCommandRef command, const CComman
         RETURN_META(MRES_IGNORED);
     }
 
-    if (!std::strcmp(commandName, "bot_kick"))
+    if (!std::strcmp(commandName, "kick"))
     {
         const char* target = arguments.ArgC() >= 2 ? arguments.Arg(1) : "";
-        if (target[0] && !IsBotKickGroupTarget(target))
+        if (FindManagedSlotByPersonaName(target) >= 0 && g_engine)
         {
-            const int slot = FindManagedSlotByPersonaName(target);
-            if (slot >= 0 && g_engine)
-            {
-                char kickCommand[640];
-                std::snprintf(kickCommand, sizeof(kickCommand), "kick \"%s\"\n", target);
-                g_engine->ServerCommand(kickCommand);
-                RETURN_META(MRES_SUPERCEDE);
-            }
+            char botKickCommand[640];
+            std::snprintf(botKickCommand, sizeof(botKickCommand), "bot_kick \"%s\"\n", target);
+            g_engine->ServerCommand(botKickCommand);
+            RETURN_META(MRES_SUPERCEDE);
         }
     }
 
