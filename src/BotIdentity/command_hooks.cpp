@@ -16,6 +16,7 @@
 
 #include <cstdint>
 #include <cstdio>
+#include <cstdlib>
 #include <cstring>
 
 #include <eiface.h>
@@ -53,6 +54,39 @@ int FindManagedSlotByPersonaName(const char* name)
     return -1;
 }
 
+// Finds a managed slot from its current user ID
+int FindManagedSlotByUserId(const char* value)
+{
+    if (!value || !value[0]) return -1;
+
+    char* end = nullptr;
+    const long userId = std::strtol(value, &end, 10);
+    if (!end || end == value || end[0] != '\0' || userId < 0 || userId > UINT16_MAX) return -1;
+
+    for (int slot = 0; slot < PersonaPool::kMaxSlots; ++slot)
+    {
+        if (!Manager().IsManaged(slot)) continue;
+        void* client = entity_access::ResolveClientBySlot(slot);
+        if (!client) continue;
+        const auto* raw = reinterpret_cast<const unsigned char*>(client);
+        if (*reinterpret_cast<const uint16_t*>(raw + ssc::g_userIdOffset) == static_cast<uint16_t>(userId)) return slot;
+    }
+    return -1;
+}
+
+// Queues a managed bot removal through Valve's bot command
+bool QueueManagedBotKick(int slot)
+{
+    if (slot < 0 || !g_engine) return false;
+    const std::string name = Personas().GetSlotName(slot);
+    if (name.empty()) return false;
+
+    char botKickCommand[640];
+    std::snprintf(botKickCommand, sizeof(botKickCommand), "bot_kick \"%s\"\n", name.c_str());
+    g_engine->ServerCommand(botKickCommand);
+    return true;
+}
+
 } // namespace
 
 // Opens one identity transaction for the complete engine population command.
@@ -74,13 +108,16 @@ void HiderPlugin::HookDispatchConCommandPre(ConCommandRef command, const CComman
     if (!std::strcmp(commandName, "kick"))
     {
         const char* target = arguments.ArgC() >= 2 ? arguments.Arg(1) : "";
-        if (FindManagedSlotByPersonaName(target) >= 0 && g_engine)
+        if (QueueManagedBotKick(FindManagedSlotByPersonaName(target)))
         {
-            char botKickCommand[640];
-            std::snprintf(botKickCommand, sizeof(botKickCommand), "bot_kick \"%s\"\n", target);
-            g_engine->ServerCommand(botKickCommand);
             RETURN_META(MRES_SUPERCEDE);
         }
+    }
+
+    if (!std::strcmp(commandName, "kickid"))
+    {
+        const char* target = arguments.ArgC() >= 2 ? arguments.Arg(1) : "";
+        if (QueueManagedBotKick(FindManagedSlotByUserId(target))) RETURN_META(MRES_SUPERCEDE);
     }
 
     if (!IsKickCommand(commandName)) RETURN_META(MRES_IGNORED);
