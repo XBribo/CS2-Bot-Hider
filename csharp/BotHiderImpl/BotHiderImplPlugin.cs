@@ -15,7 +15,7 @@ namespace BotHiderImpl;
 public class BotHiderImplPlugin : BasePlugin
 {
     public override string ModuleName => "BotHiderImpl";
-    public override string ModuleVersion => "0.4.4";
+    public override string ModuleVersion => "0.4.5";
     public override string ModuleAuthor => "XBribo";
     public override string ModuleDescription =>
         "BotHider CSS Plugin";

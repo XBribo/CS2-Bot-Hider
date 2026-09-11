@@ -42,11 +42,9 @@ inline constexpr int kEntListChunkSize = 512; // entities per identity chunk
 // CBasePlayerController::m_iszPlayerName
 inline constexpr int kControllerPlayerNameOffset = 1780;
 
-inline int g_controllerFakeClientFlagsOffset = 904; // 0x388
-inline int g_controllerTeamOffset = 836;
-
-// CBaseEntity::m_fFlags network field
-inline constexpr int kBaseEntityFlagsOffset = 0x388;
+// CBaseEntity fields resolved from Schema before hooks are installed
+inline int g_baseEntityFlagsOffset = -1;
+inline int g_controllerTeamOffset = -1;
 inline constexpr uint32_t kEntityFlagBot = 0x10;
 
 #ifdef _WIN32

@@ -167,6 +167,20 @@ bool HiderPlugin::Load(PluginId id, ISmmAPI* ismm, char* error, size_t maxlen, b
     GET_V_IFACE_ANY(GetServerFactory, g_server, IServerGameDLL, INTERFACEVERSION_SERVERGAMEDLL);
     GET_V_IFACE_ANY(GetEngineFactory, g_pNetworkServerService, INetworkServerService, NETWORKSERVERSERVICE_INTERFACE_VERSION);
 
+    // Require live entity offsets before any identity writes or hook preparation
+    const bool schemaReady = schema::Init();
+    targets::g_baseEntityFlagsOffset = schemaReady ? schema::GetFieldOffset("CBaseEntity", "m_fFlags") : -1;
+    targets::g_controllerTeamOffset = schemaReady ? schema::GetFieldOffset("CBaseEntity", "m_iTeamNum") : -1;
+    if (targets::g_baseEntityFlagsOffset < 0 || targets::g_controllerTeamOffset < 0)
+    {
+        std::snprintf(error, maxlen, "required CBaseEntity Schema offsets unavailable: m_fFlags=%d m_iTeamNum=%d; identity hooks disabled",
+                      targets::g_baseEntityFlagsOffset, targets::g_controllerTeamOffset);
+        META_CONPRINTF("[BOTHIDER] error: %s\n", error);
+        return false;
+    }
+    META_CONPRINTF("[BOTHIDER] Schema CBaseEntity: m_fFlags=0x%x m_iTeamNum=0x%x\n", targets::g_baseEntityFlagsOffset,
+                   targets::g_controllerTeamOffset);
+
     // Reads startup identity and fake-ping settings
     {
         std::string configPath = g_SMAPI->GetBaseDir();
@@ -292,7 +306,6 @@ bool HiderPlugin::Load(PluginId id, ISmmAPI* ismm, char* error, size_t maxlen, b
     g_SMAPI->AddListener(this, this);
 
     // Resolve controller pawn and idle-timer schema offsets
-    const bool schemaReady = schema::Init();
     if (schemaReady)
     {
         int pawnOff = schema::GetFieldOffset("CBasePlayerController", "m_hPawn");

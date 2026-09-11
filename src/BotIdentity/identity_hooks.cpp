@@ -99,7 +99,7 @@ class ScopedNativeBotIdentityRestore
     void Capture()
     {
         if (ssc::g_userIdOffset < 0 || ssc::g_entityIndexOffset < 0 || ssc::g_netChannelOffset < 0 ||
-            ssc::g_connectionTypeFlagsOffset < 0 || ssc::g_fakePlayerOffset < 0 || targets::g_controllerFakeClientFlagsOffset < 0)
+            ssc::g_connectionTypeFlagsOffset < 0 || ssc::g_fakePlayerOffset < 0 || targets::g_baseEntityFlagsOffset < 0)
         {
             if (!g_identityInvalidOffsetWarned)
             {
@@ -163,16 +163,15 @@ class ScopedNativeBotIdentityRestore
 
             auto* entity = reinterpret_cast<CEntityInstance*>(snapshot.controller);
             snapshot.handle = static_cast<uint32_t>(entity->GetRefEHandle().ToInt());
-            auto* flags = reinterpret_cast<uint32_t*>(reinterpret_cast<unsigned char*>(snapshot.controller) +
-                                                      targets::g_controllerFakeClientFlagsOffset);
+            auto* flags =
+                reinterpret_cast<uint32_t*>(reinterpret_cast<unsigned char*>(snapshot.controller) + targets::g_baseEntityFlagsOffset);
             snapshot.controllerFlags = *flags;
             snapshot.hasController = true;
             const uint32_t before = *flags;
             *flags |= 0x100U;
             if (*flags != before)
             {
-                entity_access::MarkEntityFieldChanged(snapshot.controller,
-                                                      static_cast<uint32_t>(targets::g_controllerFakeClientFlagsOffset));
+                entity_access::MarkEntityFieldChanged(snapshot.controller, static_cast<uint32_t>(targets::g_baseEntityFlagsOffset));
             }
         }
     }
@@ -213,12 +212,11 @@ class ScopedNativeBotIdentityRestore
                 continue;
             }
 
-            auto* flags =
-                reinterpret_cast<uint32_t*>(reinterpret_cast<unsigned char*>(controller) + targets::g_controllerFakeClientFlagsOffset);
+            auto* flags = reinterpret_cast<uint32_t*>(reinterpret_cast<unsigned char*>(controller) + targets::g_baseEntityFlagsOffset);
             if (*flags != snapshot.controllerFlags)
             {
                 *flags = snapshot.controllerFlags;
-                entity_access::MarkEntityFieldChanged(controller, static_cast<uint32_t>(targets::g_controllerFakeClientFlagsOffset));
+                entity_access::MarkEntityFieldChanged(controller, static_cast<uint32_t>(targets::g_baseEntityFlagsOffset));
             }
         }
     }

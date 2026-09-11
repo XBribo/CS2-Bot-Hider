@@ -134,9 +134,6 @@ void LoadMemberOffsets(const nlohmann::json& gamedata)
     ssc::g_isHltvOffset = FindPlatformOffset(gamedata, "CServerSideClient::m_bIsHLTV", ssc::g_isHltvOffset);
 
     targets::g_clientListOffset = FindPlatformOffset(gamedata, "CNetworkGameServerBase::m_Clients", targets::g_clientListOffset);
-    targets::g_controllerFakeClientFlagsOffset =
-        FindPlatformOffset(gamedata, "CBasePlayerController::FakeClientFlags", targets::g_controllerFakeClientFlagsOffset);
-    targets::g_controllerTeamOffset = FindPlatformOffset(gamedata, "CBaseEntity::m_iTeamNum", targets::g_controllerTeamOffset);
     targets::g_vtableSlotClientSetName = FindPlatformOffset(gamedata, "CServerSideClient::SetName", targets::g_vtableSlotClientSetName);
     targets::g_entitySystemOffsetInGameResourceService =
         FindPlatformOffset(gamedata, "GameResourceServiceServer::m_pEntitySystem", targets::g_entitySystemOffsetInGameResourceService);

@@ -144,7 +144,7 @@ bool IsControllerReferencedByClient(void* controller, uint16_t* userIdOut)
 ManagedControllerTrace TraceManagedController(void* controller)
 {
     ManagedControllerTrace trace;
-    if (!controller || targets::g_controllerFakeClientFlagsOffset < 0)
+    if (!controller || targets::g_baseEntityFlagsOffset < 0)
     {
         return trace;
     }
@@ -164,7 +164,7 @@ ManagedControllerTrace TraceManagedController(void* controller)
 
         trace.slot = slot;
         trace.handle = static_cast<uint32_t>(reinterpret_cast<CEntityInstance*>(resolved)->GetRefEHandle().ToInt());
-        trace.flags = *reinterpret_cast<uint32_t*>(reinterpret_cast<unsigned char*>(resolved) + targets::g_controllerFakeClientFlagsOffset);
+        trace.flags = *reinterpret_cast<uint32_t*>(reinterpret_cast<unsigned char*>(resolved) + targets::g_baseEntityFlagsOffset);
         if (targets::g_controllerTeamOffset >= 0)
         {
             trace.currentTeam =
@@ -180,15 +180,16 @@ ManagedControllerTrace TraceManagedController(void* controller)
 // Clears FL_BOT for managed pawns during entity packing
 std::vector<BotPawnRef> ApplyBotFlagOverride()
 {
+    if (targets::g_baseEntityFlagsOffset < 0) return {};
     std::vector<BotPawnRef> pawns = CollectManagedBotPawns();
     std::vector<BotPawnRef> modified;
     modified.reserve(pawns.size());
     for (const BotPawnRef& pawn : pawns)
     {
-        auto* flags = reinterpret_cast<uint32_t*>(reinterpret_cast<unsigned char*>(pawn.instance) + targets::kBaseEntityFlagsOffset);
+        auto* flags = reinterpret_cast<uint32_t*>(reinterpret_cast<unsigned char*>(pawn.instance) + targets::g_baseEntityFlagsOffset);
         if ((*flags & targets::kEntityFlagBot) == 0) continue;
         *flags &= ~targets::kEntityFlagBot;
-        entity_access::MarkEntityFieldChanged(pawn.instance, static_cast<uint32_t>(targets::kBaseEntityFlagsOffset));
+        entity_access::MarkEntityFieldChanged(pawn.instance, static_cast<uint32_t>(targets::g_baseEntityFlagsOffset));
         modified.push_back(pawn);
     }
     return modified;
@@ -197,6 +198,7 @@ std::vector<BotPawnRef> ApplyBotFlagOverride()
 // Restores FL_BOT on every still-current pawn
 void RestoreBotFlagOverride(const std::vector<BotPawnRef>& pawns)
 {
+    if (targets::g_baseEntityFlagsOffset < 0) return;
     for (const BotPawnRef& pawn : pawns)
     {
         const int pawnIndex = static_cast<int>(pawn.handle & 0x7FFF);
@@ -212,7 +214,7 @@ void RestoreBotFlagOverride(const std::vector<BotPawnRef>& pawns)
             continue;
         }
 
-        auto* flags = reinterpret_cast<uint32_t*>(reinterpret_cast<unsigned char*>(currentPawn) + targets::kBaseEntityFlagsOffset);
+        auto* flags = reinterpret_cast<uint32_t*>(reinterpret_cast<unsigned char*>(currentPawn) + targets::g_baseEntityFlagsOffset);
         *flags |= targets::kEntityFlagBot;
     }
 }
@@ -303,7 +305,7 @@ uint64_t MakeUniqueSteamId(int slot, uint64_t desired)
 // Synchronizes the controller fake-client bit for one slot
 bool SetControllerFakeClientFlag(int slot, bool fakeClient)
 {
-    if (targets::g_controllerFakeClientFlagsOffset < 0) return false;
+    if (targets::g_baseEntityFlagsOffset < 0) return false;
     void* client = entity_access::ResolveClientBySlot(slot);
     if (!client) return false;
 
@@ -316,14 +318,14 @@ bool SetControllerFakeClientFlag(int slot, bool fakeClient)
     }
 
     constexpr uint32_t kFakeClientBit = 0x100;
-    auto* flags = reinterpret_cast<uint32_t*>(reinterpret_cast<unsigned char*>(controller) + targets::g_controllerFakeClientFlagsOffset);
+    auto* flags = reinterpret_cast<uint32_t*>(reinterpret_cast<unsigned char*>(controller) + targets::g_baseEntityFlagsOffset);
     const uint32_t before = *flags;
     if (fakeClient) *flags |= kFakeClientBit;
     else
         *flags &= ~kFakeClientBit;
     if (*flags != before)
     {
-        entity_access::MarkEntityFieldChanged(controller, static_cast<uint32_t>(targets::g_controllerFakeClientFlagsOffset));
+        entity_access::MarkEntityFieldChanged(controller, static_cast<uint32_t>(targets::g_baseEntityFlagsOffset));
     }
     return true;
 }
