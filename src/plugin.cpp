@@ -431,7 +431,7 @@ const char* HiderPlugin::GetName() { return "CS2-Bot-Hider"; }
 // Returns the plugin description.
 const char* HiderPlugin::GetDescription() { return "Bot persona/steamid/ping/crosshair/avatar hider"; }
 // Returns the plugin project URL.
-const char* HiderPlugin::GetURL() { return ""; }
+const char* HiderPlugin::GetURL() { return "https://github.com/XBribo/CS2-Bot-Hider"; }
 // Returns the plugin license.
 const char* HiderPlugin::GetLicense() { return "AGPL-3.0"; }
 // Returns the version supplied by the build.
