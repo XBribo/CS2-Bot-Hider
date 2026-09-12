@@ -97,24 +97,10 @@ endif()
 
 message(STATUS "protoc: ${PROTOC_EXE} (${PROTOC_VER})")
 
-include(FetchContent)
-
-set(FUNCHOOK_BUILD_SHARED OFF CACHE BOOL "" FORCE)
-set(FUNCHOOK_BUILD_STATIC ON CACHE BOOL "" FORCE)
-set(FUNCHOOK_BUILD_TESTS OFF CACHE BOOL "" FORCE)
-set(FUNCHOOK_INSTALL OFF CACHE BOOL "" FORCE)
-set(FUNCHOOK_DISASM distorm CACHE STRING "" FORCE)
-
-FetchContent_Declare(
-    funchook
-    GIT_REPOSITORY https://github.com/kubo/funchook.git
-    GIT_TAG v1.1.3
-    GIT_SHALLOW TRUE
-    GIT_SUBMODULES_RECURSE TRUE
-)
-
-FetchContent_MakeAvailable(funchook)
-set_target_properties(funchook-static PROPERTIES POSITION_INDEPENDENT_CODE ON)
+set(KHOOK_INCLUDE "${MMS}/third_party/khook/include")
+if(NOT EXISTS "${KHOOK_INCLUDE}/khook.hpp")
+    message(FATAL_ERROR "KHook headers missing from MMSOURCE_DEV submodules: '${KHOOK_INCLUDE}'")
+endif()
 
 set(PROTO_FILES network_connection.proto)
 set(GENERATED_DIR "${CMAKE_BINARY_DIR}/generated")
@@ -144,11 +130,6 @@ set(SDK_SOURCES
     ${HL2SDK}/public/tier0/memoverride.cpp
     ${HL2SDK}/tier1/keyvalues3.cpp
     ${HL2SDK}/tier1/convar.cpp
-    ${MMS}/core/sourcehook/sourcehook.cpp
-    ${MMS}/core/sourcehook/sourcehook_impl_chookidman.cpp
-    ${MMS}/core/sourcehook/sourcehook_impl_chookmaninfo.cpp
-    ${MMS}/core/sourcehook/sourcehook_impl_cvfnptr.cpp
-    ${MMS}/core/sourcehook/sourcehook_impl_cproto.cpp
 )
 
 add_library(
@@ -188,8 +169,8 @@ target_include_directories(
     ${NLOHMANN_JSON_INCLUDE}
     ${GENERATED_DIR}
     ${HL2SDK}/thirdparty/protobuf-3.21.8/src
+    ${KHOOK_INCLUDE}
     ${MMS}/core
-    ${MMS}/core/sourcehook
     ${MMS}/core/sourcemm
     ${HL2SDK}/public
     ${HL2SDK}/public/engine
@@ -201,8 +182,6 @@ target_include_directories(
     ${HL2SDK}/game/shared
     ${HL2SDK}/common
 )
-
-target_link_libraries(BotHider PRIVATE funchook-static)
 
 target_compile_definitions(BotHider PRIVATE
     META_IS_SOURCE2

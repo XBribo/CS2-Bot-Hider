@@ -61,7 +61,7 @@ void PrepareAll(const nlohmann::json& gamedata, const sig::ModuleInfo& serverMod
 // Installs every successfully prepared identity detour
 void InstallPrepared();
 
-// Uninstalls all identity detours and releases their shared handle
+// Removes every identity callback before plugin state is released.
 bool Remove();
 
 // Returns the resolved bot-quota hook target
@@ -79,7 +79,7 @@ void* HandleJoinTeamTarget();
 // Returns the resolved human-team restriction hook target
 void* HumanTeamRestrictionTarget();
 
-// Returns the resolved same-map teardown helper target
+// Returns the resolved end-match state-machine target.
 void* SameMapTeardownTarget();
 
 } // namespace identity_hooks

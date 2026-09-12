@@ -8,13 +8,13 @@
 #include "personas.h"
 #include "plugin.h"
 #include "serversideclient_ref.h"
+#include "schema_resolver.h"
 #include "sig_scan.h"
 #include "version_targets.h"
 
 #include <cstdint>
 #include <array>
 #include <cstring>
-#include <limits>
 #include <memory>
 #include <mutex>
 #include <utility>
@@ -22,44 +22,22 @@
 #include <vector>
 
 #include <entity2/entityinstance.h>
-#include <funchook.h>
-
-#ifdef _WIN32
-#define CS2BH_FASTCALL __fastcall
-#else
-#define CS2BH_FASTCALL
-#endif
+#include <khook.hpp>
 
 namespace cs2bh::identity_hooks {
 
 namespace {
 
-using MaintainQuotaFn = int64_t(CS2BH_FASTCALL*)(void*);
-using CountPotentialVotersFn = int(CS2BH_FASTCALL*)(void*);
-using HandleJoinTeamFn = int64_t(CS2BH_FASTCALL*)(void*, unsigned int, bool);
-using ApplyHumanTeamRestrictionFn = int64_t(CS2BH_FASTCALL*)();
-using PackEntitiesFn = void(CS2BH_FASTCALL*)(void*, void*, int, void*, void*);
-using SameMapClientCollectorFn = void*(CS2BH_FASTCALL*)(void*, uintptr_t);
-
-funchook_t* g_funchook = nullptr;
-size_t g_preparedFunchookCount = 0;
-bool g_funchooksInstalled = false;
-
-MaintainQuotaFn g_quotaTrampoline = nullptr;
 void* g_quotaHookTarget = nullptr;
-CountPotentialVotersFn g_countPotentialVotersTrampoline = nullptr;
 void* g_countPotentialVotersHookTarget = nullptr;
-HandleJoinTeamFn g_handleJoinTeamTrampoline = nullptr;
 void* g_handleJoinTeamHookTarget = nullptr;
-ApplyHumanTeamRestrictionFn g_applyHumanTeamRestrictionTrampoline = nullptr;
 void* g_applyHumanTeamRestrictionHookTarget = nullptr;
-PackEntitiesFn g_packEntitiesTrampoline = nullptr;
 void* g_packEntitiesHookTarget = nullptr;
-SameMapClientCollectorFn g_sameMapCollectorTrampoline = nullptr;
 void* g_sameMapTeardownHookTarget = nullptr;
-void* g_sameMapTeardownReturnAddress = nullptr;
+int g_pickNewTeamsOnResetOffset = -1;
 std::recursive_mutex g_packEntitiesMutex;
 thread_local uint32_t g_packEntitiesDepth = 0;
+thread_local uint32_t g_nativeHookDepth = 0;
 std::array<bool, 64> g_identityResolveWarned{};
 bool g_identityInvalidOffsetWarned = false;
 
@@ -269,147 +247,183 @@ PopulationTransactionScope::~PopulationTransactionScope() { EndPopulationTransac
 
 namespace {
 
-class PackEntitiesDepthGuard
+thread_local std::vector<bool> g_quotaFrames;
+thread_local std::vector<bool> g_humanTeamFrames;
+thread_local std::vector<bool> g_joinTeamFrames;
+thread_local std::vector<bool> g_teardownFrames;
+thread_local std::vector<std::unique_ptr<ScopedNativeBotIdentityRestore>> g_voterFrames;
+thread_local std::vector<BotPawnRef> g_packedPawns;
+
+// Keeps each PRE paired with its POST even when callbacks nest or change identity mode.
+void BeginPopulationFrame(std::vector<bool>& frames, bool enabled)
+{
+    frames.push_back(enabled);
+    ++g_nativeHookDepth;
+    if (enabled) BeginPopulationTransaction(true);
+}
+
+// Restores the transaction belonging to this invocation, not the current identity mode.
+void EndPopulationFrame(std::vector<bool>& frames)
+{
+    const bool enabled = frames.back();
+    frames.pop_back();
+    if (enabled) EndPopulationTransaction(true);
+    --g_nativeHookDepth;
+}
+
+// Restores bot identity before quota evaluation without bypassing other consumers.
+KHook::Return<int64_t> QuotaPre(void*) noexcept
+{
+    BeginPopulationFrame(g_quotaFrames, g_plugin.IsDisguiseEnabled());
+    return { KHook::Action::Ignore };
+}
+
+// Reapplies disguise after quota evaluation.
+KHook::Return<int64_t> QuotaPost(void*) noexcept
+{
+    EndPopulationFrame(g_quotaFrames);
+    return { KHook::Action::Ignore };
+}
+
+// Captures bot identity for each nested voter count.
+KHook::Return<int> VotersPre(void*) noexcept
+{
+    ++g_nativeHookDepth;
+    g_voterFrames.push_back(g_plugin.IsDisguiseEnabled() ? std::make_unique<ScopedNativeBotIdentityRestore>() : nullptr);
+    return { KHook::Action::Ignore };
+}
+
+// Restores the matching voter-count snapshot.
+KHook::Return<int> VotersPost(void*) noexcept
+{
+    g_voterFrames.pop_back();
+    --g_nativeHookDepth;
+    return { KHook::Action::Ignore };
+}
+
+// Restores native identity while applying mp_humanteam.
+KHook::Return<int64_t> HumanTeamPre() noexcept
+{
+    BeginPopulationFrame(g_humanTeamFrames, g_plugin.IsDisguiseEnabled());
+    return { KHook::Action::Ignore };
+}
+
+// Reapplies disguise after the human-team restriction.
+KHook::Return<int64_t> HumanTeamPost() noexcept
+{
+    EndPopulationFrame(g_humanTeamFrames);
+    return { KHook::Action::Ignore };
+}
+
+// Restores native identity only for managed non-HLTV team joins.
+KHook::Return<int64_t> JoinTeamPre(void* controller, unsigned int, bool) noexcept
+{
+    bool enabled = false;
+    if (g_plugin.IsDisguiseEnabled())
+    {
+        const auto trace = TraceManagedController(controller);
+        enabled = trace.managed && !trace.hltv;
+    }
+    BeginPopulationFrame(g_joinTeamFrames, enabled);
+    return { KHook::Action::Ignore };
+}
+
+// Ends the identity transaction for this team join.
+KHook::Return<int64_t> JoinTeamPost(void*, unsigned int, bool) noexcept
+{
+    EndPopulationFrame(g_joinTeamFrames);
+    return { KHook::Action::Ignore };
+}
+
+// Serializes packing and clears FL_BOT only for the outermost invocation.
+KHook::Return<void> PackPre(void*, void*, int, void*, void*) noexcept
+{
+    g_packEntitiesMutex.lock();
+    ++g_nativeHookDepth;
+    if (g_packEntitiesDepth++ == 0) g_packedPawns = ApplyBotFlagOverride();
+    return { KHook::Action::Ignore };
+}
+
+// Restores FL_BOT after all nested packing calls have finished.
+KHook::Return<void> PackPost(void*, void*, int, void*, void*) noexcept
+{
+    if (--g_packEntitiesDepth == 0)
+    {
+        RestoreBotFlagOverride(g_packedPawns);
+        g_packedPawns.clear();
+    }
+    --g_nativeHookDepth;
+    g_packEntitiesMutex.unlock();
+    return { KHook::Action::Ignore };
+}
+
+// Restores native identity only while the end-match state machine can reset teams.
+KHook::Return<bool> EndMatchPre(void* gameRules) noexcept
+{
+    const bool enabled = g_plugin.IsDisguiseEnabled() && gameRules && g_pickNewTeamsOnResetOffset >= 0 &&
+                         *(static_cast<const uint8_t*>(gameRules) + g_pickNewTeamsOnResetOffset) != 0;
+    BeginPopulationFrame(g_teardownFrames, enabled);
+    return { KHook::Action::Ignore };
+}
+
+// Redisguises surviving clients after the engine finishes its end-match work.
+KHook::Return<bool> EndMatchPost(void*) noexcept
+{
+    EndPopulationFrame(g_teardownFrames);
+    return { KHook::Action::Ignore };
+}
+
+// Exposes registration failure while retaining KHook's typed callback bridge.
+template <typename Return, typename... Args> class NativeHook : public KHook::Function<Return, Args...>
 {
   public:
-    // Marks the current thread as executing the outer packing callback
-    PackEntitiesDepthGuard() { ++g_packEntitiesDepth; }
+    using KHook::Function<Return, Args...>::Function;
 
-    // Clears the current thread packing depth
-    ~PackEntitiesDepthGuard() { --g_packEntitiesDepth; }
+    // Registers the target and reports whether KHook accepted it.
+    bool Install(void* target)
+    {
+        this->Configure(target);
+        return this->_associated_hook_id != KHook::INVALID_HOOK;
+    }
 };
 
-class ScopedBotFlagOverride
+using QuotaHook = NativeHook<int64_t, void*>;
+using VotersHook = NativeHook<int, void*>;
+using HumanTeamHook = NativeHook<int64_t>;
+using JoinTeamHook = NativeHook<int64_t, void*, unsigned int, bool>;
+using PackHook = NativeHook<void, void*, void*, int, void*, void*>;
+using EndMatchHook = NativeHook<bool, void*>;
+std::unique_ptr<QuotaHook> g_quotaHook;
+std::unique_ptr<VotersHook> g_votersHook;
+std::unique_ptr<HumanTeamHook> g_humanTeamHook;
+std::unique_ptr<JoinTeamHook> g_joinTeamHook;
+std::unique_ptr<PackHook> g_packHook;
+std::unique_ptr<EndMatchHook> g_endMatchHook;
+
+// Installs one resolved optional hook and clears failed targets from diagnostics.
+template <typename Hook, typename Pre, typename Post>
+void InstallHook(std::unique_ptr<Hook>& hook, void*& target, Pre pre, Post post, const char* name)
 {
-  public:
-    // Clears FL_BOT and marks changed fields before entity packing
-    ScopedBotFlagOverride() : m_modifiedPawns(ApplyBotFlagOverride()) {}
-
-    // Restores only FL_BOT after entity packing without marking changes
-    ~ScopedBotFlagOverride() { RestoreBotFlagOverride(m_modifiedPawns); }
-
-  private:
-    std::vector<BotPawnRef> m_modifiedPawns;
-};
-
-// Passes entity packing through with a scoped FL_BOT override
-void CS2BH_FASTCALL DetourPackEntities(void* serverObject, void* packContext, int clientCount, void* clients, void* snapshotContext)
-{
-    std::lock_guard<std::recursive_mutex> lock(g_packEntitiesMutex);
-    if (g_packEntitiesDepth != 0)
+    if (!target) return;
+    hook = std::make_unique<Hook>(pre, post);
+    if (!hook->Install(target))
     {
-        g_packEntitiesTrampoline(serverObject, packContext, clientCount, clients, snapshotContext);
-        return;
+        META_CONPRINTF("[BOTHIDER] warning: KHook registration failed for %s\n", name);
+        hook.reset();
+        target = nullptr;
     }
-
-    PackEntitiesDepthGuard depthGuard;
-    ScopedBotFlagOverride flagOverride;
-    g_packEntitiesTrampoline(serverObject, packContext, clientCount, clients, snapshotContext);
 }
 
-// Restores managed clients only at the same-map teardown call site
-void* CS2BH_FASTCALL DetourSameMapClientCollector(void* collection, uintptr_t source)
-{
-#ifdef _MSC_VER
-    void* returnAddress = _ReturnAddress();
-#else
-    void* returnAddress = __builtin_extract_return_addr(__builtin_return_address(0));
-#endif
-    if (returnAddress == g_sameMapTeardownReturnAddress)
-    {
-        const int restored = identity_runtime::RestoreManagedClientsForEngineTeardown();
-        META_CONPRINTF("[BOTHIDER] same-map teardown PRE restored=%d\n", restored);
-    }
-
-    return g_sameMapCollectorTrampoline ? g_sameMapCollectorTrampoline(collection, source) : nullptr;
-}
-
-// Prepares one target and replaces its original pointer with the trampoline
-template <typename Function> bool PrepareFunchook(Function& original, void* target, void* detour, const char* name)
-{
-    if (!g_funchook)
-    {
-        g_funchook = funchook_create();
-        if (!g_funchook)
-        {
-            META_CONPRINTF("[BOTHIDER] warning: funchook_create failed for %s\n", name);
-            return false;
-        }
-    }
-
-    void* trampoline = target;
-    int result = funchook_prepare(g_funchook, &trampoline, detour);
-    if (result != FUNCHOOK_ERROR_SUCCESS)
-    {
-        META_CONPRINTF("[BOTHIDER] warning: funchook_prepare failed for %s: %s (%d)\n", name, funchook_error_message(g_funchook), result);
-        original = nullptr;
-        return false;
-    }
-
-    original = reinterpret_cast<Function>(trampoline);
-    ++g_preparedFunchookCount;
-    return true;
-}
-
-// Clears all published hook targets and trampoline pointers
+// Clears the resolved targets after hook removal.
 void ClearBindings()
 {
-    g_quotaTrampoline = nullptr;
-    g_countPotentialVotersTrampoline = nullptr;
-    g_packEntitiesTrampoline = nullptr;
     g_quotaHookTarget = nullptr;
     g_countPotentialVotersHookTarget = nullptr;
     g_packEntitiesHookTarget = nullptr;
-    g_handleJoinTeamTrampoline = nullptr;
     g_handleJoinTeamHookTarget = nullptr;
-    g_applyHumanTeamRestrictionTrampoline = nullptr;
     g_applyHumanTeamRestrictionHookTarget = nullptr;
-    g_sameMapCollectorTrampoline = nullptr;
     g_sameMapTeardownHookTarget = nullptr;
-    g_sameMapTeardownReturnAddress = nullptr;
-    g_preparedFunchookCount = 0;
-    g_funchooksInstalled = false;
-}
-
-// Restores Bot identity while the engine counts bot quota
-int64_t CS2BH_FASTCALL DetourMaintainBotQuota(void* manager)
-{
-    if (!g_plugin.IsDisguiseEnabled()) return g_quotaTrampoline ? g_quotaTrampoline(manager) : 0;
-    PopulationTransactionScope scope(true);
-    return g_quotaTrampoline ? g_quotaTrampoline(manager) : 0;
-}
-
-// Restores Bot identity while the engine counts eligible voters
-int CS2BH_FASTCALL DetourCountPotentialVoters(void* issue)
-{
-    if (!g_plugin.IsDisguiseEnabled()) return g_countPotentialVotersTrampoline ? g_countPotentialVotersTrampoline(issue) : 0;
-
-    ScopedNativeBotIdentityRestore identity;
-    return g_countPotentialVotersTrampoline ? g_countPotentialVotersTrampoline(issue) : 0;
-}
-
-// Restores Bot identity while the engine applies mp_humanteam
-int64_t CS2BH_FASTCALL DetourApplyHumanTeamRestriction()
-{
-    if (!g_plugin.IsDisguiseEnabled()) return g_applyHumanTeamRestrictionTrampoline ? g_applyHumanTeamRestrictionTrampoline() : 0;
-    PopulationTransactionScope scope(true);
-    return g_applyHumanTeamRestrictionTrampoline ? g_applyHumanTeamRestrictionTrampoline() : 0;
-}
-
-// Restores Bot identity only while the engine validates an initial team join
-int64_t CS2BH_FASTCALL DetourHandleCommandJoinTeam(void* controller, unsigned int requestedTeam, bool unknownFlag)
-{
-    if (!g_plugin.IsDisguiseEnabled())
-        return g_handleJoinTeamTrampoline ? g_handleJoinTeamTrampoline(controller, requestedTeam, unknownFlag) : 0;
-
-    ManagedControllerTrace trace = TraceManagedController(controller);
-    std::unique_ptr<PopulationTransactionScope> populationScope;
-    if (trace.managed && !trace.hltv)
-    {
-        populationScope = std::make_unique<PopulationTransactionScope>(true);
-    }
-
-    return g_handleJoinTeamTrampoline ? g_handleJoinTeamTrampoline(controller, requestedTeam, unknownFlag) : 0;
+    g_pickNewTeamsOnResetOffset = -1;
 }
 
 // Resolves and prepares the bot quota detour
@@ -430,10 +444,7 @@ void PrepareQuotaHook(const nlohmann::json& gamedata, const sig::ModuleInfo& ser
         META_CONPRINTF("[BOTHIDER] warning: MaintainBotQuota sig not found — quota fix disabled\n");
         return;
     }
-    if (PrepareFunchook(g_quotaTrampoline, target, reinterpret_cast<void*>(&DetourMaintainBotQuota), "CCSBotManager::MaintainBotQuota"))
-    {
-        g_quotaHookTarget = target;
-    }
+    g_quotaHookTarget = target;
 }
 
 // Resolves and prepares the eligible-voter count detour
@@ -457,11 +468,7 @@ void PrepareCountPotentialVotersHook(const nlohmann::json& gamedata, const sig::
     }
 
     void* target = matches.front();
-    if (PrepareFunchook(g_countPotentialVotersTrampoline, target, reinterpret_cast<void*>(&DetourCountPotentialVoters),
-                        "CBaseIssue::CountPotentialVoters"))
-    {
-        g_countPotentialVotersHookTarget = target;
-    }
+    g_countPotentialVotersHookTarget = target;
 }
 
 // Resolves and prepares the team-join identity detour
@@ -485,11 +492,7 @@ void PrepareHandleJoinTeamHook(const nlohmann::json& gamedata, const sig::Module
     }
 
     void* target = matches.front();
-    if (PrepareFunchook(g_handleJoinTeamTrampoline, target, reinterpret_cast<void*>(&DetourHandleCommandJoinTeam),
-                        "CCSPlayerController::HandleCommand_JoinTeam"))
-    {
-        g_handleJoinTeamHookTarget = target;
-    }
+    g_handleJoinTeamHookTarget = target;
 }
 
 // Resolves and prepares the human-team restriction detour
@@ -513,11 +516,7 @@ void PrepareHumanTeamRestrictionHook(const nlohmann::json& gamedata, const sig::
     }
 
     void* target = matches.front();
-    if (PrepareFunchook(g_applyHumanTeamRestrictionTrampoline, target, reinterpret_cast<void*>(&DetourApplyHumanTeamRestriction),
-                        "MpHumanTeam_ApplyRestriction"))
-    {
-        g_applyHumanTeamRestrictionHookTarget = target;
-    }
+    g_applyHumanTeamRestrictionHookTarget = target;
 }
 
 // Resolves and prepares the entity-packing detour
@@ -547,17 +546,14 @@ void PreparePackEntitiesHook(const nlohmann::json& gamedata)
     }
 
     void* target = matches.front();
-    if (PrepareFunchook(g_packEntitiesTrampoline, target, reinterpret_cast<void*>(&DetourPackEntities), "CNetworkGameServer::PackEntities"))
-    {
-        g_packEntitiesHookTarget = target;
-    }
+    g_packEntitiesHookTarget = target;
 }
 
-// Resolves the helper called immediately before the same-map client teardown loop
+// Resolves the state-machine entry and its Schema-controlled team-reset condition.
 void PrepareSameMapTeardownHook(const nlohmann::json& gamedata, const sig::ModuleInfo& serverModule)
 {
     if (!serverModule) return;
-    constexpr const char* kTargetName = "CCSGameRules::SameMapTeardown";
+    constexpr const char* kTargetName = "CCSGameRules::EndMatchState";
     std::string signature = sig::FindPlatformSig(gamedata, kTargetName);
     std::vector<uint8_t> bytes;
     std::vector<bool> wildcards;
@@ -574,40 +570,14 @@ void PrepareSameMapTeardownHook(const nlohmann::json& gamedata, const sig::Modul
         return;
     }
 
-    constexpr int kMissingCallOffset = std::numeric_limits<int>::min();
-    const int callOffset = sig::FindPlatformOffset(gamedata, kTargetName, kMissingCallOffset);
-    if (callOffset == kMissingCallOffset)
+    g_pickNewTeamsOnResetOffset = schema::GetFieldOffset("CCSGameRules", "m_bPickNewTeamsOnReset");
+    if (g_pickNewTeamsOnResetOffset < 0)
     {
-        META_CONPRINTF("[BOTHIDER] warning: same-map teardown helper call offset is missing\n");
+        META_CONPRINTF("[BOTHIDER] warning: CCSGameRules::m_bPickNewTeamsOnReset Schema field unavailable - teardown hook disabled\n");
         return;
     }
-
-    auto* callSite = static_cast<unsigned char*>(matches.front()) + callOffset;
-    const auto moduleBegin = reinterpret_cast<uintptr_t>(serverModule.base);
-    const uintptr_t moduleEnd = moduleBegin + serverModule.size;
-    const auto callAddress = reinterpret_cast<uintptr_t>(callSite);
-    if (callAddress < moduleBegin || callAddress > moduleEnd - 5 || callSite[0] != 0xE8)
-    {
-        META_CONPRINTF("[BOTHIDER] warning: same-map teardown helper call is invalid\n");
-        return;
-    }
-
-    int32_t displacement = 0;
-    std::memcpy(&displacement, callSite + 1, sizeof(displacement));
-    auto* target = callSite + 5 + displacement;
-    const auto targetAddress = reinterpret_cast<uintptr_t>(target);
-    if (targetAddress < moduleBegin || targetAddress >= moduleEnd)
-    {
-        META_CONPRINTF("[BOTHIDER] warning: same-map teardown helper target is outside server module\n");
-        return;
-    }
-
-    if (PrepareFunchook(g_sameMapCollectorTrampoline, target, reinterpret_cast<void*>(&DetourSameMapClientCollector),
-                        "CCSGameRules::SameMapTeardown helper"))
-    {
-        g_sameMapTeardownHookTarget = target;
-        g_sameMapTeardownReturnAddress = callSite + 5;
-    }
+    g_sameMapTeardownHookTarget = matches.front();
+    META_CONPRINTF("[BOTHIDER] Schema CCSGameRules::m_bPickNewTeamsOnReset=0x%x\n", g_pickNewTeamsOnResetOffset);
 }
 
 } // namespace
@@ -626,63 +596,30 @@ void PrepareAll(const nlohmann::json& gamedata, const sig::ModuleInfo& serverMod
 // Installs every successfully prepared identity detour
 void InstallPrepared()
 {
-    if (!g_funchook || g_preparedFunchookCount == 0)
-    {
-        if (g_funchook) funchook_destroy(g_funchook);
-        g_funchook = nullptr;
-        ClearBindings();
-        return;
-    }
-
-    int result = funchook_install(g_funchook, 0);
-    if (result != FUNCHOOK_ERROR_SUCCESS)
-    {
-        META_CONPRINTF("[BOTHIDER] warning: funchook_install failed: %s (%d)\n", funchook_error_message(g_funchook), result);
-        funchook_destroy(g_funchook);
-        g_funchook = nullptr;
-        ClearBindings();
-        return;
-    }
-
-    g_funchooksInstalled = true;
+    InstallHook(g_quotaHook, g_quotaHookTarget, QuotaPre, QuotaPost, "CCSBotManager::MaintainBotQuota");
+    InstallHook(g_votersHook, g_countPotentialVotersHookTarget, VotersPre, VotersPost, "CBaseIssue::CountPotentialVoters");
+    InstallHook(g_joinTeamHook, g_handleJoinTeamHookTarget, JoinTeamPre, JoinTeamPost, "CCSPlayerController::HandleCommand_JoinTeam");
+    InstallHook(g_humanTeamHook, g_applyHumanTeamRestrictionHookTarget, HumanTeamPre, HumanTeamPost, "MpHumanTeam_ApplyRestriction");
+    InstallHook(g_packHook, g_packEntitiesHookTarget, PackPre, PackPost, "CNetworkGameServer::PackEntities");
+    InstallHook(g_endMatchHook, g_sameMapTeardownHookTarget, EndMatchPre, EndMatchPost, "CCSGameRules::EndMatchState");
 }
 
 // Uninstalls all identity detours and releases their shared handle
 bool Remove()
 {
-    if (g_packEntitiesDepth != 0)
+    if (g_nativeHookDepth != 0)
     {
-        META_CONPRINTF("[BOTHIDER] error: refusing funchook removal during PackEntities\n");
+        META_CONPRINTF("[BOTHIDER] error: refusing KHook removal during an identity callback\n");
         return false;
     }
-
-    std::unique_lock<std::recursive_mutex> lock(g_packEntitiesMutex);
-    if (!g_funchook)
-    {
-        ClearBindings();
-        return true;
-    }
-
-    if (g_funchooksInstalled)
-    {
-        int result = funchook_uninstall(g_funchook, 0);
-        if (result != FUNCHOOK_ERROR_SUCCESS)
-        {
-            std::string message = funchook_error_message(g_funchook);
-            lock.unlock();
-            META_CONPRINTF("[BOTHIDER] error: funchook_uninstall failed: %s (%d)\n", message.c_str(), result);
-            return false;
-        }
-    }
-
-    int result = funchook_destroy(g_funchook);
-    std::string destroyMessage;
-    if (result != FUNCHOOK_ERROR_SUCCESS) destroyMessage = funchook_error_message(g_funchook);
-    g_funchook = nullptr;
+    // KHook waits for active calls; holding the packing mutex here would deadlock them.
+    g_packHook.reset();
+    g_endMatchHook.reset();
+    g_joinTeamHook.reset();
+    g_humanTeamHook.reset();
+    g_votersHook.reset();
+    g_quotaHook.reset();
     ClearBindings();
-    lock.unlock();
-    if (result != FUNCHOOK_ERROR_SUCCESS)
-        META_CONPRINTF("[BOTHIDER] warning: funchook_destroy failed: %s (%d)\n", destroyMessage.c_str(), result);
     return true;
 }
 

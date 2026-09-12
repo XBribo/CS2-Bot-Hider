@@ -11,13 +11,13 @@
 #include "personas.h"
 #include "serversideclient_ref.h"
 #include "slot_publisher.h"
-#include "sourcehook.h"
 #include "utlvector.h"
 
 #include <cstdint>
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
+#include <vector>
 
 #include <eiface.h>
 #include <tier1/convar.h>
@@ -27,6 +27,8 @@ extern IVEngineServer* g_engine;
 namespace cs2bh {
 
 namespace {
+
+thread_local std::vector<bool> g_populationCommandFrames;
 
 // Returns whether a console command disconnects a client
 bool IsKickCommand(const char* name)
@@ -90,9 +92,13 @@ bool QueueManagedBotKick(int slot)
 } // namespace
 
 // Opens one identity transaction for the complete engine population command.
-void HiderPlugin::HookDispatchConCommandPre(ConCommandRef command, const CCommandContext&, const CCommand& arguments)
+KHook::Return<void>
+HiderPlugin::HookDispatchConCommandPre(ICvar*, ConCommandRef command, const CCommandContext&, const CCommand& arguments) noexcept
 {
-    if (m_selfDisabled || !command.IsValidRef()) RETURN_META(MRES_IGNORED);
+    const hooks::CallbackScope callbackScope;
+    hooks::BeginDispatch();
+    g_populationCommandFrames.push_back(false);
+    if (m_selfDisabled || !command.IsValidRef()) return { KHook::Action::Ignore };
     const char* commandName = command.GetName();
 
     if (IsBotAddCommand(commandName))
@@ -100,9 +106,9 @@ void HiderPlugin::HookDispatchConCommandPre(ConCommandRef command, const CComman
         if (IsDisguiseEnabled())
         {
             identity_hooks::BeginPopulationTransaction(true);
-            ++m_populationCommandDepth;
+            g_populationCommandFrames.back() = true;
         }
-        RETURN_META(MRES_IGNORED);
+        return { KHook::Action::Ignore };
     }
 
     if (!std::strcmp(commandName, "kick"))
@@ -110,49 +116,38 @@ void HiderPlugin::HookDispatchConCommandPre(ConCommandRef command, const CComman
         const char* target = arguments.ArgC() >= 2 ? arguments.Arg(1) : "";
         if (QueueManagedBotKick(FindManagedSlotByPersonaName(target)))
         {
-            RETURN_META(MRES_SUPERCEDE);
+            return { KHook::Action::Supersede };
         }
     }
 
     if (!std::strcmp(commandName, "kickid"))
     {
         const char* target = arguments.ArgC() >= 2 ? arguments.Arg(1) : "";
-        if (QueueManagedBotKick(FindManagedSlotByUserId(target))) RETURN_META(MRES_SUPERCEDE);
+        if (QueueManagedBotKick(FindManagedSlotByUserId(target))) return { KHook::Action::Supersede };
     }
 
-    if (!IsKickCommand(commandName)) RETURN_META(MRES_IGNORED);
+    if (!IsKickCommand(commandName))
+    {
+        return { KHook::Action::Ignore };
+    }
 
     if (IsDisguiseEnabled())
     {
         identity_hooks::BeginPopulationTransaction(true);
-        ++m_populationCommandDepth;
+        g_populationCommandFrames.back() = true;
     }
-    RETURN_META(MRES_IGNORED);
+    return { KHook::Action::Ignore };
 }
 
 // Closes the transaction after the engine command and any nested quota pass complete.
-void HiderPlugin::HookDispatchConCommandPost(ConCommandRef command, const CCommandContext&, const CCommand& /*arguments*/)
+KHook::Return<void> HiderPlugin::HookDispatchConCommandPost(ICvar*, ConCommandRef, const CCommandContext&, const CCommand&) noexcept
 {
-    if (m_selfDisabled || !command.IsValidRef()) RETURN_META(MRES_IGNORED);
-    const char* commandName = command.GetName();
-
-    if (IsBotAddCommand(commandName))
-    {
-        if (m_populationCommandDepth != 0)
-        {
-            --m_populationCommandDepth;
-            identity_hooks::EndPopulationTransaction(IsDisguiseEnabled());
-        }
-        RETURN_META(MRES_IGNORED);
-    }
-
-    if (!IsKickCommand(commandName)) RETURN_META(MRES_IGNORED);
-    if (m_populationCommandDepth != 0)
-    {
-        --m_populationCommandDepth;
-        identity_hooks::EndPopulationTransaction(IsDisguiseEnabled());
-    }
-    RETURN_META(MRES_IGNORED);
+    const hooks::CallbackScope callbackScope;
+    const bool populationCommand = g_populationCommandFrames.back();
+    g_populationCommandFrames.pop_back();
+    if (populationCommand) identity_hooks::EndPopulationTransaction(IsDisguiseEnabled());
+    hooks::EndDispatch();
+    return { KHook::Action::Ignore };
 }
 
 // Changes the global managed-bot identity mode
@@ -165,10 +160,14 @@ void HiderPlugin::SetIdentityMode(IdentityMode mode)
 }
 
 // Restores native bot identity and clears managed state before a level transition
-CUtlVector<INetworkGameClient*>* HiderPlugin::HookStartChangeLevelPre(
-    const char* mapName, const char* landmark, void* /*changelevelState*/) // NOLINT(readability-make-member-function-const)
+KHook::Return<CUtlVector<INetworkGameClient*>*>
+HiderPlugin::HookStartChangeLevelPre(INetworkGameServer*,
+                                     const char* mapName,
+                                     const char* landmark,
+                                     void* /*changelevelState*/) noexcept // NOLINT(readability-make-member-function-const)
 {
-    if (m_selfDisabled) RETURN_META_VALUE(MRES_IGNORED, nullptr);
+    const hooks::CallbackScope callbackScope;
+    if (m_selfDisabled) return { KHook::Action::Ignore, nullptr };
 
     const int restoredClients = identity_runtime::RestoreManagedClientsForEngineTeardown();
     identity_state::ClearAll();
@@ -177,13 +176,15 @@ CUtlVector<INetworkGameClient*>* HiderPlugin::HookStartChangeLevelPre(
     BotInfo().ResetAssignments();
     META_CONPRINTF("[BOTHIDER] StartChangeLevel PRE restored=%d map='%s' landmark='%s'\n", restoredClients, mapName ? mapName : "?",
                    landmark ? landmark : "");
-    RETURN_META_VALUE(MRES_IGNORED, nullptr);
+    return { KHook::Action::Ignore, nullptr };
 }
 
 // Drives deferred cleanup and shared-memory commands each frame
-void HiderPlugin::HookGameFramePost(bool simulating, bool /*firstTick*/, bool /*lastTick*/)
+KHook::Return<void> HiderPlugin::HookGameFramePost(IServerGameDLL*, bool simulating, bool /*firstTick*/, bool /*lastTick*/) noexcept
 {
-    if (m_selfDisabled || !simulating) RETURN_META(MRES_IGNORED);
+    const hooks::CallbackScope callbackScope;
+    ProcessPendingUnload();
+    if (m_selfDisabled || !simulating) return { KHook::Action::Ignore };
 
     identity_runtime::DrainPendingControllerRemovals();
     for (int slot = 0; slot < PersonaPool::kMaxSlots; ++slot)
@@ -246,7 +247,7 @@ void HiderPlugin::HookGameFramePost(bool simulating, bool /*firstTick*/, bool /*
         META_CONPRINTF("[BOTHIDER] name source -> %s\n", useBotInfo ? "bot_info" : "botprofile");
     });
     avatar::ProcessOverrides();
-    RETURN_META(MRES_IGNORED);
+    return { KHook::Action::Ignore };
 }
 
 } // namespace cs2bh

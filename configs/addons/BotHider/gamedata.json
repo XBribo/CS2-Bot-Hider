@@ -48,17 +48,13 @@
     },
     "comment": "packs network entities for clients"
   },
-  "CCSGameRules::SameMapTeardown": {
+  "CCSGameRules::EndMatchState": {
     "signatures": {
       "library": "server",
-      "windows": "41 3B DD 0F 84 99 00 00 00 41 8B 80 88 03 00 00 49 8B C8 C1 E8 08 A8 01 74 44",
-      "linux": "4C 8D BD 90 EE FF FF 31 F6 C7 85 90 EE FF FF 00 00 00 00 4C 89 FF E8 ? ? ? ? 49 8B 06 48 8D BD C0 EE FF FF"
+      "windows": "48 8B C4 55 41 57 48 8D A8 48 FC FF FF 48 81 EC A8 04 00 00 80 3D ? ? ? ? 00 4C 8B F9",
+      "linux": "55 48 89 E5 41 57 41 56 41 55 41 54 53 48 89 FB 48 81 EC A8 11 00 00 E8 ? ? ? ? 84 C0 0F 84 ? ? ? ? 83 BB E0 0D 00 00 09"
     },
-    "offsets": {
-      "windows": -43,
-      "linux": 22
-    },
-    "comment": "restores bot identity before same-map teardown"
+    "comment": "temporarily restores bot identity during end-match team resets"
   },
   "CServerSideClient::SetName": {
     "offsets": {

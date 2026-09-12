@@ -12,7 +12,6 @@
 #include "serversideclient_ref.h"
 #include "slot_publisher.h"
 #include "steam/steamtypes.h"
-#include "sourcehook.h"
 
 #include <cstdint>
 #include <string>
@@ -42,27 +41,29 @@ bool IsTargetedClientRemovalReason(ENetworkDisconnectionReason reason)
 } // namespace
 
 // Adopts fake clients from the authoritative connected slot
-void HiderPlugin::HookOnClientConnectedPost( // NOLINT(readability-make-member-function-const)
+KHook::Return<void> HiderPlugin::HookOnClientConnectedPost( // NOLINT(readability-make-member-function-const)
+    IServerGameClients*,
     CPlayerSlot slot,
     const char* name,
     uint64 /*xuid*/,
     const char* networkId,
     const char* /*address*/,
-    bool fakePlayer)
+    bool fakePlayer) noexcept
 {
+    const hooks::CallbackScope callbackScope;
     if (m_selfDisabled || !fakePlayer || identity_runtime::IsHltvConnection(name, networkId))
     {
-        RETURN_META(MRES_IGNORED);
+        return { KHook::Action::Ignore };
     }
 
     const int index = slot.Get();
     if (index < 0 || index >= PersonaPool::kMaxSlots || Manager().IsManaged(index))
     {
-        RETURN_META(MRES_IGNORED);
+        return { KHook::Action::Ignore };
     }
 
     void* client = entity_access::ResolveClientBySlot(index);
-    if (!client || ssc::IsHltv(client)) RETURN_META(MRES_IGNORED);
+    if (!client || ssc::IsHltv(client)) return { KHook::Action::Ignore };
 
     const BotEntry* entry = BotInfo().PickForBot(name);
     std::string displayName;
@@ -75,7 +76,7 @@ void HiderPlugin::HookOnClientConnectedPost( // NOLINT(readability-make-member-f
     if (displayName.empty())
     {
         BotInfo().ReleaseAssignment(entry);
-        RETURN_META(MRES_IGNORED);
+        return { KHook::Action::Ignore };
     }
 
     const uint64_t configuredSteamId = entry && entry->steamId64 != 0 ? entry->steamId64 : 0;
@@ -85,7 +86,7 @@ void HiderPlugin::HookOnClientConnectedPost( // NOLINT(readability-make-member-f
     if (!Manager().AdoptSlot(index, displayName.c_str(), steamId, crosshairCode, scoreboardFlair))
     {
         BotInfo().ReleaseAssignment(entry);
-        RETURN_META(MRES_IGNORED);
+        return { KHook::Action::Ignore };
     }
 
     identity_state::BindSlot(index, entry, name);
@@ -103,29 +104,31 @@ void HiderPlugin::HookOnClientConnectedPost( // NOLINT(readability-make-member-f
         identity_runtime::SetControllerFakeClientFlag(index, identity_hooks::PopulationTransactionActive());
     }
 
-    RETURN_META(MRES_IGNORED);
+    return { KHook::Action::Ignore };
 }
 
 // Reapplies managed identity after a client enters the server
-void HiderPlugin::HookClientPutInServerPost(CPlayerSlot slot,
-                                            char const* name,
-                                            int type,
-                                            uint64 /*xuid*/) // NOLINT(readability-make-member-function-const)
+KHook::Return<void> HiderPlugin::HookClientPutInServerPost(IServerGameClients*,
+                                                           CPlayerSlot slot,
+                                                           char const* name,
+                                                           int type,
+                                                           uint64 /*xuid*/) noexcept // NOLINT(readability-make-member-function-const)
 {
-    if (m_selfDisabled) RETURN_META(MRES_IGNORED);
+    const hooks::CallbackScope callbackScope;
+    if (m_selfDisabled) return { KHook::Action::Ignore };
 
     (void)type;
     const int index = slot.Get();
     if (index < 0 || index >= PersonaPool::kMaxSlots || !Personas().IsSlotManaged(index))
     {
-        RETURN_META(MRES_IGNORED);
+        return { KHook::Action::Ignore };
     }
 
     void* client = entity_access::ResolveClientBySlot(index);
-    if (!client) RETURN_META(MRES_IGNORED);
+    if (!client) return { KHook::Action::Ignore };
     if (identity_runtime::ReleaseManagedHltvSlot(index, client))
     {
-        RETURN_META(MRES_IGNORED);
+        return { KHook::Action::Ignore };
     }
 
     if (IsDisguiseEnabled())
@@ -154,23 +157,25 @@ void HiderPlugin::HookClientPutInServerPost(CPlayerSlot slot,
         entity_access::RefreshClientUserInfo(index);
     }
 
-    RETURN_META(MRES_IGNORED);
+    return { KHook::Action::Ignore };
 }
 
 // Restores and releases managed identity before disconnect teardown
-void HiderPlugin::HookClientDisconnectPre( // NOLINT(readability-make-member-function-const)
+KHook::Return<void> HiderPlugin::HookClientDisconnectPre( // NOLINT(readability-make-member-function-const)
+    IServerGameClients*,
     CPlayerSlot slot,
     ENetworkDisconnectionReason reason,
     const char* /*name*/,
     uint64 /*xuid*/,
-    const char* /*networkId*/)
+    const char* /*networkId*/) noexcept
 {
-    if (m_selfDisabled) RETURN_META(MRES_IGNORED);
+    const hooks::CallbackScope callbackScope;
+    if (m_selfDisabled) return { KHook::Action::Ignore };
 
     const int index = slot.Get();
     if (index < 0 || index >= PersonaPool::kMaxSlots || !Personas().IsSlotManaged(index))
     {
-        RETURN_META(MRES_IGNORED);
+        return { KHook::Action::Ignore };
     }
 
     void* client = entity_access::ResolveClientBySlot(index);
@@ -189,7 +194,7 @@ void HiderPlugin::HookClientDisconnectPre( // NOLINT(readability-make-member-fun
     identity_state::ClearSlot(index);
     Manager().ReleaseSlot(index);
 
-    RETURN_META(MRES_IGNORED);
+    return { KHook::Action::Ignore };
 }
 
 } // namespace cs2bh

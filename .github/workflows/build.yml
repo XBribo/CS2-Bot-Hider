@@ -127,6 +127,7 @@ jobs:
           repository: ${{ env.MMSOURCE_REPO }}
           ref: ${{ env.MMSOURCE_REF }}
           path: deps/metamod-source
+          submodules: recursive
 
       - name: Install protoc 3.21.12
         shell: bash
@@ -201,6 +202,7 @@ jobs:
           repository: ${{ env.MMSOURCE_REPO }}
           ref: ${{ env.MMSOURCE_REF }}
           path: deps/metamod-source
+          submodules: recursive
 
       - name: Install protoc 3.21.12
         run: |
