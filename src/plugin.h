@@ -40,14 +40,22 @@ class HiderPlugin : public ISmmPlugin, public IMetamodListener
     bool Load(PluginId id, ISmmAPI* ismm, char* error, size_t maxlen, bool late) override;
     bool Unload(char* error, size_t maxlen) override;
 
-    const char* GetAuthor() override { return "XBribo(๑•.•๑)"; }
-    const char* GetName() override { return "CS2-Bot-Hider"; }
-    const char* GetDescription() override { return "Bot persona/steamid/ping/crosshair/avatar hider"; }
-    const char* GetURL() override { return ""; }
-    const char* GetLicense() override { return "AGPL-3.0"; }
-    const char* GetVersion() override { return "0.5.0"; }
-    const char* GetDate() override { return __DATE__; }
-    const char* GetLogTag() override { return "BH"; }
+    // Returns plugin author metadata.
+    const char* GetAuthor() override;
+    // Returns the plugin name.
+    const char* GetName() override;
+    // Returns the plugin description.
+    const char* GetDescription() override;
+    // Returns the plugin project URL.
+    const char* GetURL() override;
+    // Returns the plugin license.
+    const char* GetLicense() override;
+    // Returns the version supplied by the build.
+    const char* GetVersion() override;
+    // Returns the compilation date and time.
+    const char* GetDate() override;
+    // Returns the plugin log tag.
+    const char* GetLogTag() override;
 
     // IMetamodListener
     void OnLevelInit(char const* mapName, char const*, char const*, char const*, bool, bool) override;

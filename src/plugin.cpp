@@ -30,6 +30,9 @@
 
 #include <nlohmann/json.hpp>
 
+#define VERSION_STRING  "v" SEMVER " @ " GITHUB_SHA
+#define BUILD_TIMESTAMP __DATE__ " " __TIME__
+
 #ifdef _WIN32
 #define CS2BH_FASTCALL __fastcall
 #else
@@ -62,12 +65,9 @@ namespace cs2bh {
 
 // Binds callbacks after all hook members have been constructed.
 HiderPlugin::HiderPlugin()
-    : m_onClientConnectedHook(&IServerGameClients::OnClientConnected),
-      m_clientPutInServerHook(&IServerGameClients::ClientPutInServer),
-      m_clientDisconnectHook(&IServerGameClients::ClientDisconnect),
-      m_startChangeLevelHook(&INetworkGameServer::StartChangeLevel),
-      m_gameFrameHook(&IServerGameDLL::GameFrame),
-      m_dispatchConCommandHook(&ICvar::DispatchConCommand)
+    : m_onClientConnectedHook(&IServerGameClients::OnClientConnected), m_clientPutInServerHook(&IServerGameClients::ClientPutInServer),
+      m_clientDisconnectHook(&IServerGameClients::ClientDisconnect), m_startChangeLevelHook(&INetworkGameServer::StartChangeLevel),
+      m_gameFrameHook(&IServerGameDLL::GameFrame), m_dispatchConCommandHook(&ICvar::DispatchConCommand)
 {
     m_onClientConnectedHook.AddContext(this, nullptr, &HiderPlugin::HookOnClientConnectedPost);
     m_clientPutInServerHook.AddContext(this, nullptr, &HiderPlugin::HookClientPutInServerPost);
@@ -377,7 +377,7 @@ bool HiderPlugin::Load(PluginId id, ISmmAPI* ismm, char* error, size_t maxlen, b
     if (identity_hooks::SameMapTeardownTarget()) ++installedHooks;
     META_CONPRINTF("[BOTHIDER] config mode=%s fake_ping=%s range=%d-%d identities=%zu\n", IsBotMode() ? "bot" : "player",
                    m_fakePingEnabled ? "on" : "off", m_fakePingMin, m_fakePingMax, BotInfo().Count());
-    META_CONPRINTF("[BOTHIDER] loaded v%s hooks=%d/6 util_remove=%s schema=%s shm=%s avatar=%s\n", GetVersion(), installedHooks,
+    META_CONPRINTF("[BOTHIDER] loaded %s hooks=%d/6 util_remove=%s schema=%s shm=%s avatar=%s\n", GetVersion(), installedHooks,
                    entity_access::UtilRemoveTarget() ? "ok" : "fail", schemaReady ? "ok" : "fail", sharedMemoryReady ? "ok" : "fail",
                    networkStringTables ? "ok" : "fail");
     return true;
@@ -423,5 +423,22 @@ bool HiderPlugin::Unload(char* error, size_t maxlen)
     entity_access::Reset();
     return true;
 }
+
+// Returns plugin author metadata.
+const char* HiderPlugin::GetAuthor() { return "XBribo(๑•.•๑)"; }
+// Returns the plugin name.
+const char* HiderPlugin::GetName() { return "CS2-Bot-Hider"; }
+// Returns the plugin description.
+const char* HiderPlugin::GetDescription() { return "Bot persona/steamid/ping/crosshair/avatar hider"; }
+// Returns the plugin project URL.
+const char* HiderPlugin::GetURL() { return ""; }
+// Returns the plugin license.
+const char* HiderPlugin::GetLicense() { return "AGPL-3.0"; }
+// Returns the version supplied by the build.
+const char* HiderPlugin::GetVersion() { return VERSION_STRING; }
+// Returns the compilation date and time.
+const char* HiderPlugin::GetDate() { return BUILD_TIMESTAMP; }
+// Returns the plugin log tag.
+const char* HiderPlugin::GetLogTag() { return "BH"; }
 
 } // namespace cs2bh

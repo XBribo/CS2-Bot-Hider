@@ -1,5 +1,25 @@
 cmake_minimum_required(VERSION 3.20)
-project(BotHider CXX)
+project(BotHider VERSION 0.5.0 LANGUAGES CXX)
+
+# The base version lives here; -DPLUGIN_VERSION overrides it for a build.
+if(NOT DEFINED PLUGIN_VERSION)
+    set(PLUGIN_VERSION "${PROJECT_VERSION}")
+endif()
+find_package(Git QUIET)
+set(PLUGIN_GIT_SHA "Local")
+if(GIT_FOUND)
+    execute_process(
+        COMMAND "${GIT_EXECUTABLE}" rev-parse --short HEAD
+        WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}"
+        OUTPUT_VARIABLE git_sha
+        OUTPUT_STRIP_TRAILING_WHITESPACE
+        RESULT_VARIABLE git_result
+        ERROR_QUIET
+    )
+    if(git_result EQUAL 0)
+        set(PLUGIN_GIT_SHA "${git_sha}")
+    endif()
+endif()
 
 set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 
@@ -184,6 +204,8 @@ target_include_directories(
 )
 
 target_compile_definitions(BotHider PRIVATE
+    SEMVER="${PLUGIN_VERSION}"
+    GITHUB_SHA="${PLUGIN_GIT_SHA}"
     META_IS_SOURCE2
     PLATFORM_64BITS
     X64BITS

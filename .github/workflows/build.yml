@@ -40,7 +40,7 @@ jobs:
       - name: Extract versions
         id: ver
         run: |
-          native=$(sed -nE 's/.*GetVersion\(\) override \{ return "([^"]+)".*/\1/p' src/plugin.h | head -1)
+          native=$(sed -nE 's/^project\([^ ]+ VERSION ([0-9.]+) LANGUAGES .*/\1/p' CMakeLists.txt | head -1)
           managed=$(sed -nE 's/.*ModuleVersion => "([^"]+)".*/\1/p' csharp/BotHiderImpl/BotHiderImplPlugin.cs | head -1)
           echo "Native=$native Managed=$managed"
           for version in "$native" "$managed"; do
