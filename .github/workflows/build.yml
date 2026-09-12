@@ -26,7 +26,7 @@ env:
   MMSOURCE_REF: master
 
 jobs:
-  # Extracts and validates the native and managed package versions
+  # Reads the shared native and managed package version.
   guard:
     runs-on: ubuntu-24.04
     timeout-minutes: 5
@@ -41,34 +41,21 @@ jobs:
         id: ver
         run: |
           native=$(sed -nE 's/^project\([^ ]+ VERSION ([0-9.]+) LANGUAGES .*/\1/p' CMakeLists.txt | head -1)
-          managed=$(sed -nE 's/.*ModuleVersion => "([^"]+)".*/\1/p' csharp/BotHiderImpl/BotHiderImplPlugin.cs | head -1)
-          echo "Native=$native Managed=$managed"
-          for version in "$native" "$managed"; do
-            test -n "$version" || { echo "::error::failed to extract a version string"; exit 1; }
-          done
+          test -n "$native" || { echo "::error::failed to extract the CMake version"; exit 1; }
+          echo "Package version=$native"
           {
             echo "native=$native"
-            echo "managed=$managed"
+            echo "managed=$native"
+            echo "unified=$native"
           } >> "$GITHUB_OUTPUT"
-          if [ "$native" = "$managed" ]; then
-            echo "unified=$native" >> "$GITHUB_OUTPUT"
-          else
-            echo "::warning::version mismatch: Native=$native Managed=$managed"
-            echo "unified=" >> "$GITHUB_OUTPUT"
-          fi
 
       - name: Release preconditions
         if: inputs.release
         env:
           NATIVE: ${{ steps.ver.outputs.native }}
-          MANAGED: ${{ steps.ver.outputs.managed }}
         run: |
           if [ "${{ inputs.target }}" != "all" ]; then
             echo "::error::release requires target=all (got '${{ inputs.target }}')"
-            exit 1
-          fi
-          if [ "$NATIVE" != "$MANAGED" ]; then
-            echo "::error::version mismatch, refusing to release: Native=$NATIVE Managed=$MANAGED"
             exit 1
           fi
           if git ls-remote --tags origin "refs/tags/v$NATIVE" | grep -q .; then
@@ -90,7 +77,7 @@ jobs:
           dotnet-version: 10.0.x
 
       - name: Build
-        run: dotnet build csharp/BotHiderImpl -c Release -o build/csharp
+        run: dotnet build csharp/BotHiderImpl -c Release -o build/csharp -p:PluginVersion=${{ needs.guard.outputs.version }}
 
       - name: Verify output
         run: |

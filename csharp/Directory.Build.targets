@@ -1,0 +1,26 @@
+<Project>
+  <!-- Generate constants for both runtime properties and SW2 attributes. -->
+  <Target Name="GeneratePluginBuildInfo" BeforeTargets="CoreCompile" DependsOnTargets="InitializeSourceControlInformation">
+    <Error Condition="'$(PluginVersion)' == ''" Text="Cannot read the CMake base version; supply -p:PluginVersion." />
+    <PropertyGroup>
+      <_PluginGitSha Condition="'$(SourceRevisionId)' != ''">$(SourceRevisionId)</_PluginGitSha>
+      <_PluginGitSha Condition="'$(_PluginGitSha)' == ''">Local</_PluginGitSha>
+      <_PluginBuildTime>$([System.DateTime]::UtcNow.ToString("yyyy-MM-dd HH:mm:ss 'UTC'"))</_PluginBuildTime>
+      <_PluginBuildInfo>$(IntermediateOutputPath)PluginBuildInfo.g.cs</_PluginBuildInfo>
+    </PropertyGroup>
+    <ItemGroup>
+      <_PluginBuildLine Include="// Generated build metadata." />
+      <_PluginBuildLine Include="internal static class PluginBuildInfo {" />
+      <_PluginBuildLine Include="public const string Version = &quot;$(PluginVersion)&quot;%3B" />
+      <_PluginBuildLine Include="public const string GitSha = &quot;$(_PluginGitSha)&quot;%3B" />
+      <_PluginBuildLine Include="public const string BuildTime = &quot;$(_PluginBuildTime)&quot;%3B" />
+      <_PluginBuildLine Include="public const string DisplayVersion = Version + &quot;+&quot; + GitSha%3B" />
+      <_PluginBuildLine Include="}" />
+    </ItemGroup>
+    <WriteLinesToFile File="$(_PluginBuildInfo)" Lines="@(_PluginBuildLine)" Overwrite="true" WriteOnlyWhenDifferent="true" Encoding="UTF-8" />
+    <ItemGroup>
+      <Compile Include="$(_PluginBuildInfo)" />
+      <FileWrites Include="$(_PluginBuildInfo)" />
+    </ItemGroup>
+  </Target>
+</Project>

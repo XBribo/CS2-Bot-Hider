@@ -15,7 +15,7 @@ namespace BotHiderImpl;
 public class BotHiderImplPlugin : BasePlugin
 {
     public override string ModuleName => "BotHiderImpl";
-    public override string ModuleVersion => "0.5.0";
+    public override string ModuleVersion => PluginBuildInfo.DisplayVersion;
     public override string ModuleAuthor => "XBribo";
     public override string ModuleDescription =>
         "BotHider CSS Plugin";
@@ -34,6 +34,7 @@ public class BotHiderImplPlugin : BasePlugin
 
     public override void Load(bool hotReload)
     {
+        Server.PrintToConsole($"[BotHider] {PluginBuildInfo.DisplayVersion}, built {PluginBuildInfo.BuildTime}");
         // Inject the visible-write actions so SetPersonaName / SetBotSteamId
         // also update the scoreboard
         _client = new SharedMemoryClient(

@@ -1,0 +1,8 @@
+<Project>
+  <!-- Use the native base version unless the build supplies an override. -->
+  <PropertyGroup>
+    <PluginVersion Condition="'$(PluginVersion)' == ''">$([System.Text.RegularExpressions.Regex]::Match($([System.IO.File]::ReadAllText('$(MSBuildThisFileDirectory)../CMakeLists.txt')), 'project\([^\r\n]* VERSION ([0-9.]+) LANGUAGES').Groups[1].Value)</PluginVersion>
+    <Version>$(PluginVersion)</Version>
+    <AssemblyVersion>1.0.0.0</AssemblyVersion>
+  </PropertyGroup>
+</Project>
