@@ -159,7 +159,7 @@ bool HiderPlugin::Load(PluginId id, ISmmAPI* ismm, char* error, size_t maxlen, b
         return false;
     }
 
-    if (!entity_access::InitSchema(error, maxlen))
+    if (!offsets::LoadFromSchema(error, maxlen))
     {
         schema::Reset();
         log::Close();

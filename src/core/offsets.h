@@ -2,9 +2,17 @@
 
 #pragma once
 
+#include <cstddef>
 #include <cstdint>
+#include <nlohmann/json.hpp>
 
 namespace cs2bh::offsets {
+
+// Resolves and validates entity fields before identity hooks are prepared.
+bool LoadFromSchema(char* error, size_t maxlen);
+
+// Overrides runtime member offsets from gamedata.
+void LoadFromGamedata(const nlohmann::json& gamedata);
 
 // CNetworkGameServerBase::m_Clients — CUtlVector<CServerSideClient*>
 inline int g_clientListOffset = 584;
@@ -45,6 +53,7 @@ inline constexpr int kControllerPlayerNameOffset = 1780;
 // CBaseEntity fields resolved from Schema before hooks are installed
 inline int g_baseEntityFlagsOffset = -1;
 inline int g_controllerTeamOffset = -1;
+inline int g_botPawnHandleOffset = -1;
 inline constexpr uint32_t kEntityFlagBot = 0x10;
 
 #ifdef _WIN32

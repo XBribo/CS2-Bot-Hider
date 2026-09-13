@@ -8,17 +8,11 @@
 
 namespace cs2bh::entity_access {
 
-// Resolves and validates entity fields before identity hooks are prepared.
-bool InitSchema(char* error, size_t maxlen);
-
 // Stores the GameResourceService interface used for entity resolution
 void SetGameResourceService(void* gameResourceService);
 
 // Returns the current GameResourceService interface
 void* GameResourceService();
-
-// Overrides runtime member offsets from gamedata
-void LoadMemberOffsets(const nlohmann::json& gamedata);
 
 // Resolves UTIL_Remove and its entity-system reference
 void ResolveUtilRemoveAndEntSys(const nlohmann::json& gamedata, const modules::ModuleInfo& serverModule);
@@ -31,9 +25,6 @@ void* EntitySystemGlobalAddress();
 
 // Removes one entity through the resolved engine function
 bool RemoveEntity(void* instance);
-
-// Stores the resolved controller pawn-handle offset
-void SetBotPawnHandleOffset(int offset);
 
 // Returns the resolved controller pawn-handle offset
 int BotPawnHandleOffset();

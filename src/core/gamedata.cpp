@@ -26,7 +26,7 @@ void Prepare(const char* baseDir)
         else
         {
             // Override member offsets from gamedata.json (fallback kept if absent)
-            entity_access::LoadMemberOffsets(gamedata);
+            offsets::LoadFromGamedata(gamedata);
             if (offsets::g_vtableSlotClientSetName < 0)
             {
                 BH_LOG_WARN("[BOTHIDER] warning: CServerSideClient::SetName vtable slot missing - "

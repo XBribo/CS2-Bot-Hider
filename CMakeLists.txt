@@ -186,6 +186,7 @@ add_library(
     src/features/identity/identity_state.cpp
     src/bridge/slot_publisher.cpp
     src/core/cs2_sdk/entity/entity_access.cpp
+    src/core/offsets.cpp
     src/core/memory_module.cpp
     src/core/gameconfig.cpp
     src/core/cs2_sdk/schema.cpp
