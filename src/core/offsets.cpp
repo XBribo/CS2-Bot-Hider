@@ -19,11 +19,10 @@ bool LoadFromSchema(char* error, size_t maxlen)
     {
         std::snprintf(error, maxlen, "required CBaseEntity Schema offsets unavailable: m_fFlags=%d m_iTeamNum=%d; identity hooks disabled",
                       offsets::g_baseEntityFlagsOffset, offsets::g_controllerTeamOffset);
-        BH_LOG_ERROR("[BOTHIDER] error: %s\n", error);
+        BH_LOG_ERROR("%s\n", error);
         return false;
     }
-    BH_LOG_INFO("[BOTHIDER] Schema CBaseEntity: m_fFlags=0x%x m_iTeamNum=0x%x\n", offsets::g_baseEntityFlagsOffset,
-                offsets::g_controllerTeamOffset);
+    BH_LOG_DEBUG("Schema CBaseEntity: m_fFlags=0x%x m_iTeamNum=0x%x\n", offsets::g_baseEntityFlagsOffset, offsets::g_controllerTeamOffset);
 
     // Resolve controller pawn and idle-timer schema offsets
     if (schemaReady)
@@ -31,12 +30,12 @@ bool LoadFromSchema(char* error, size_t maxlen)
         int pawnOff = schema::GetFieldOffset("CBasePlayerController", "m_hPawn");
         int playerPawnOff = schema::GetFieldOffset("CCSPlayerController", "m_hPlayerPawn");
         g_botPawnHandleOffset = playerPawnOff >= 0 ? playerPawnOff : pawnOff;
-        if (g_botPawnHandleOffset < 0) BH_LOG_WARN("[BOTHIDER] warning: bot pawn handle unresolved - FL_BOT override disabled\n");
+        if (g_botPawnHandleOffset < 0) BH_LOG_WARN("bot pawn handle unresolved - FL_BOT override disabled\n");
     }
     else
     {
         g_botPawnHandleOffset = -1;
-        BH_LOG_WARN("[BOTHIDER] warning: SchemaSystem unresolved — idle-kick and FL_BOT overrides disabled\n");
+        BH_LOG_WARN("SchemaSystem unresolved — idle-kick and FL_BOT overrides disabled\n");
     }
     return true;
 }

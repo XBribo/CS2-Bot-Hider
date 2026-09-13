@@ -355,7 +355,7 @@ bool QueueControllerRemovalForClient(void* client, int slot)
     if (!client) return false;
     if (!entity_access::UtilRemoveTarget())
     {
-        BH_LOG_INFO("[BOTHIDER] deferred destroy unavailable: UTIL_Remove unresolved\n");
+        BH_LOG_WARN("deferred destroy unavailable: UTIL_Remove unresolved\n");
         return false;
     }
 
@@ -364,14 +364,14 @@ bool QueueControllerRemovalForClient(void* client, int slot)
     void* controller = entity_access::ResolveEntityInstance(entityIndex, className, sizeof(className));
     if (!controller)
     {
-        BH_LOG_INFO("[BOTHIDER] deferred destroy skipped: entity resolve failed "
+        BH_LOG_WARN("deferred destroy skipped: entity resolve failed "
                     "entIdx=%d cls='%s' grs=%p (check kEntSys_* offsets)\n",
                     entityIndex, className, entity_access::GameResourceService());
         return false;
     }
     if (std::strcmp(className, "cs_player_controller") != 0)
     {
-        BH_LOG_INFO("[BOTHIDER] deferred destroy skipped entIdx=%d cls='%s' "
+        BH_LOG_WARN("deferred destroy skipped entIdx=%d cls='%s' "
                     "(not a controller)\n",
                     entityIndex, className);
         return false;
@@ -418,7 +418,7 @@ void DrainPendingControllerRemovals()
         {
             if (currentUserId != item->userId)
             {
-                BH_LOG_INFO("[BOTHIDER] deferred destroy abandoned slot=%d "
+                BH_LOG_WARN("deferred destroy abandoned slot=%d "
                             "handle=0x%08x: controller was rebound to "
                             "userid=%u\n",
                             item->slot, item->handle, static_cast<unsigned int>(currentUserId));
@@ -466,7 +466,7 @@ bool ReleaseManagedHltvSlot(int slot, void* client)
     identity_state::ClearSlot(slot);
     Manager().ReleaseSlot(slot);
 
-    BH_LOG_INFO("[BOTHIDER] slot=%d rejected: SourceTV/HLTV client\n", slot);
+    BH_LOG_DEBUG("slot=%d rejected: SourceTV/HLTV client\n", slot);
     return true;
 }
 

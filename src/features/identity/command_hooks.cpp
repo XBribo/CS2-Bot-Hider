@@ -157,7 +157,7 @@ void HiderPlugin::SetIdentityMode(IdentityMode mode)
     if (m_identityMode == mode) return;
     m_identityMode = mode;
     identity_runtime::ApplyManagedDisguise(mode == IdentityMode::Player);
-    BH_LOG_INFO("[BOTHIDER] identity mode=%s\n", mode == IdentityMode::Bot ? "bot" : "player");
+    BH_LOG_DEBUG("identity mode=%s\n", mode == IdentityMode::Bot ? "bot" : "player");
 }
 
 // Restores native bot identity and clears managed state before a level transition
@@ -175,8 +175,8 @@ HiderPlugin::HookStartChangeLevelPre(INetworkGameServer*,
     Manager().ReleaseAll();
     avatar::ProcessOverrides();
     BotInfo().ResetAssignments();
-    BH_LOG_INFO("[BOTHIDER] StartChangeLevel PRE restored=%d map='%s' landmark='%s'\n", restoredClients, mapName ? mapName : "?",
-                landmark ? landmark : "");
+    BH_LOG_DEBUG("StartChangeLevel PRE restored=%d map='%s' landmark='%s'\n", restoredClients, mapName ? mapName : "?",
+                 landmark ? landmark : "");
     return { KHook::Action::Ignore, nullptr };
 }
 
@@ -245,7 +245,7 @@ KHook::Return<void> HiderPlugin::HookGameFramePost(IServerGameDLL*, bool simulat
         // Changes the display-name source
         [this](bool useBotInfo) {
         SetUseBotInfoName(useBotInfo);
-        BH_LOG_INFO("[BOTHIDER] name source -> %s\n", useBotInfo ? "bot_info" : "botprofile");
+        BH_LOG_DEBUG("name source -> %s\n", useBotInfo ? "bot_info" : "botprofile");
     });
     avatar::ProcessOverrides();
     return { KHook::Action::Ignore };

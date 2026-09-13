@@ -50,7 +50,7 @@ void ClearAvatarOverride(INetworkStringTable* table, uint64_t steamId)
     SetStringUserDataRequest_t empty{};
     if (!table->SetStringUserData(index, &empty, true))
     {
-        BH_LOG_WARN("[BOTHIDER] warning: failed to clear avatar sid=%s index=%d\n", key, index);
+        BH_LOG_WARN("failed to clear avatar sid=%s index=%d\n", key, index);
     }
 }
 
@@ -117,7 +117,7 @@ bool EnsureReliableAvatarData()
     ConVarRefAbstract reliableAvatarData("sv_reliableavatardata");
     if (!reliableAvatarData.IsValidRef() || !reliableAvatarData.IsConVarDataAvailable())
     {
-        BH_LOG_ERROR("[BOTHIDER] avatar error: sv_reliableavatardata unavailable\n");
+        BH_LOG_ERROR("avatar: sv_reliableavatardata unavailable\n");
         return false;
     }
     if (!reliableAvatarData.GetBool())
@@ -125,7 +125,7 @@ bool EnsureReliableAvatarData()
         reliableAvatarData.SetBool(true);
         if (!reliableAvatarData.GetBool())
         {
-            BH_LOG_ERROR("[BOTHIDER] avatar error: failed to enable sv_reliableavatardata\n");
+            BH_LOG_ERROR("avatar: failed to enable sv_reliableavatardata\n");
             return false;
         }
     }
@@ -209,7 +209,7 @@ void ProcessOverrides()
 
         if (request.data.size() < sizeof(kPngSignature) || std::memcmp(request.data.data(), kPngSignature, sizeof(kPngSignature)) != 0)
         {
-            BH_LOG_INFO("[BOTHIDER] avatar rejected slot=%d: invalid PNG signature\n", slot);
+            BH_LOG_WARN("avatar rejected slot=%d: invalid PNG signature\n", slot);
             continue;
         }
         if (!EnsureReliableAvatarData()) continue;
@@ -218,14 +218,14 @@ void ProcessOverrides()
         char avatarError[128] = { 0 };
         if (!SetAvatarOverride(table, steamId, request.data, index, avatarError, sizeof(avatarError)))
         {
-            BH_LOG_INFO("[BOTHIDER] avatar rejected slot=%d sid=%llu: %s\n", slot, steamId, avatarError);
+            BH_LOG_WARN("avatar rejected slot=%d sid=%llu: %s\n", slot, steamId, avatarError);
             continue;
         }
 
         state.appliedSteamId = steamId;
         state.applied = true;
         Publisher().PublishAvatarState(slot, true, steamId);
-        BH_LOG_INFO("[BOTHIDER] avatar applied slot=%d sid=%llu bytes=%u index=%d\n", slot, steamId, request.length, index);
+        BH_LOG_DEBUG("avatar applied slot=%d sid=%llu bytes=%u index=%d\n", slot, steamId, request.length, index);
     }
 }
 

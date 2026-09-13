@@ -18,7 +18,7 @@ Settings Load(const char* baseDir)
         const nlohmann::json config = nlohmann::json::parse(configText, nullptr, false);
         if (config.is_discarded())
         {
-            BH_LOG_WARN("[BOTHIDER] warning: config.json parse error; using defaults\n");
+            BH_LOG_WARN("config.json parse error; using defaults\n");
         }
         else if (config.is_object())
         {
@@ -27,7 +27,7 @@ Settings Load(const char* baseDir)
                 const std::string mode = config["identity_mode"].get<std::string>();
                 if (mode == "bot") settings.botMode = true;
                 else if (mode != "player")
-                    BH_LOG_WARN("[BOTHIDER] warning: unsupported identity_mode='%s'; using player\n", mode.c_str());
+                    BH_LOG_WARN("unsupported identity_mode='%s'; using player\n", mode.c_str());
             }
 
             if (config.contains("fake_ping") && config["fake_ping"].is_object())
@@ -47,7 +47,7 @@ Settings Load(const char* baseDir)
                 }
                 else
                 {
-                    BH_LOG_WARN("[BOTHIDER] warning: invalid fake_ping range %d-%d; using 20-90\n", minimum, maximum);
+                    BH_LOG_WARN("invalid fake_ping range %d-%d; using 20-90\n", minimum, maximum);
                 }
             }
         }
@@ -69,7 +69,7 @@ Settings Load(const char* baseDir)
         }
         else
         {
-            BH_LOG_WARN("[BOTHIDER] warning: config.json missing and could not be created; using defaults\n");
+            BH_LOG_WARN("config.json missing and could not be created; using defaults\n");
         }
     }
 

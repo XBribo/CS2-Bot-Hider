@@ -35,7 +35,7 @@ void Prepare()
         nlohmann::json gamedata;
         if (!gameconfig::LoadGamedata(gdPath.c_str(), gamedata))
         {
-            BH_LOG_WARN("[BOTHIDER] warning: gamedata.json not loaded at '%s' — "
+            BH_LOG_WARN("gamedata.json not loaded at '%s' — "
                         "controller cleanup disabled\n",
                         gdPath.c_str());
         }
@@ -45,7 +45,7 @@ void Prepare()
             offsets::LoadFromGamedata(gamedata);
             if (offsets::g_vtableSlotClientSetName < 0)
             {
-                BH_LOG_WARN("[BOTHIDER] warning: CServerSideClient::SetName vtable slot missing - "
+                BH_LOG_WARN("CServerSideClient::SetName vtable slot missing - "
                             "name overwrite disabled\n");
             }
 
@@ -58,7 +58,7 @@ void Prepare()
     }
     if (!entity_access::UtilRemoveTarget())
     {
-        BH_LOG_WARN("[BOTHIDER] warning: UTIL_Remove signature unresolved — "
+        BH_LOG_WARN("UTIL_Remove signature unresolved — "
                     "controller cleanup disabled\n");
     }
 }

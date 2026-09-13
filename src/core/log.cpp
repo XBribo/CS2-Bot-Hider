@@ -25,8 +25,8 @@ bool Init(const char* baseDir, char* error, size_t maxlen)
         std::vector<spdlog::sink_ptr> sinks;
         sinks.emplace_back(std::make_shared<spdlog::sinks::stderr_color_sink_mt>());
         sinks.emplace_back(std::make_shared<spdlog::sinks::basic_file_sink_mt>((directory / "BotHider.log").string(), false));
-        sinks[0]->set_pattern("%^[%T.%e] %n: %v%$");
-        sinks[1]->set_pattern("[%Y-%m-%d %T.%e] [%l] %n: %v");
+        sinks[0]->set_pattern("%^[%T] [%l] %n: %v%$");
+        sinks[1]->set_pattern("[%Y-%m-%d %T] [%l] %n: %v");
         g_logger = std::make_shared<spdlog::logger>("BotHider", sinks.begin(), sinks.end());
         spdlog::register_logger(g_logger);
         g_logger->set_level(spdlog::level::info);

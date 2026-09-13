@@ -78,7 +78,7 @@ void ResolveUtilRemoveAndEntSys(const nlohmann::json& gamedata, const modules::M
     g_entitySystemGlobal = nullptr;
     if (!serverModule)
     {
-        BH_LOG_WARN("[BOTHIDER] warning: %s module unresolved for signature scan\n", offsets::kServerModuleName);
+        BH_LOG_WARN("%s module unresolved for signature scan\n", offsets::kServerModuleName);
         return;
     }
 
@@ -87,7 +87,7 @@ void ResolveUtilRemoveAndEntSys(const nlohmann::json& gamedata, const modules::M
     std::vector<bool> wildcards;
     if (signature.empty() || !modules::ParseSigString(signature, bytes, wildcards))
     {
-        BH_LOG_WARN("[BOTHIDER] warning: UTIL_Remove %s sig missing/malformed in gamedata.json\n", gameconfig::PlatformName());
+        BH_LOG_WARN("UTIL_Remove %s sig missing/malformed in gamedata.json\n", gameconfig::PlatformName());
         return;
     }
 
