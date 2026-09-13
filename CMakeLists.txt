@@ -158,7 +158,7 @@ set_target_properties(spdlog PROPERTIES
     VISIBILITY_INLINES_HIDDEN YES
 )
 
-set(NLOHMANN_JSON_INCLUDE "${CMAKE_SOURCE_DIR}/third_party")
+set(NLOHMANN_JSON_INCLUDE "${CMAKE_SOURCE_DIR}/libraries")
 
 set(SDK_SOURCES
     ${HL2SDK}/public/tier0/memoverride.cpp
@@ -186,7 +186,8 @@ add_library(
     src/features/identity/identity_state.cpp
     src/bridge/slot_publisher.cpp
     src/core/cs2_sdk/entity/entity_access.cpp
-    src/utils/sig_scan.cpp
+    src/core/memory_module.cpp
+    src/core/gameconfig.cpp
     src/core/cs2_sdk/schema.cpp
     ${PROTO_SRCS}
     ${SDK_SOURCES}
@@ -350,15 +351,6 @@ add_custom_command(
         "${CMAKE_BINARY_DIR}/package/addons/metamod"
     COMMAND ${CMAKE_COMMAND} -E make_directory
         "${CMAKE_BINARY_DIR}/package/addons/BotHider"
-    COMMAND ${CMAKE_COMMAND} -E make_directory
-        "${CMAKE_BINARY_DIR}/package/addons/BotHider/licenses"
-    COMMAND ${CMAKE_COMMAND} -E copy_if_different
-        "${CMAKE_SOURCE_DIR}/third_party/NOTICE"
-        "${CMAKE_SOURCE_DIR}/third_party/COPYING.GPL3"
-        "${CMAKE_BINARY_DIR}/package/addons/BotHider/licenses"
-    COMMAND ${CMAKE_COMMAND} -E copy_if_different
-        "${spdlog_SOURCE_DIR}/LICENSE"
-        "${CMAKE_BINARY_DIR}/package/addons/BotHider/licenses/spdlog-LICENSE"
     COMMAND ${CMAKE_COMMAND} -E copy_if_different
         "${CMAKE_BINARY_DIR}/BotHider.vdf"
         "${CMAKE_BINARY_DIR}/package/addons/metamod/BotHider.vdf"

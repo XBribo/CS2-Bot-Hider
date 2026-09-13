@@ -1,7 +1,7 @@
 #pragma once
 
 #include "plugin.h"
-#include "sig_scan.h"
+#include "core/memory_module.h"
 
 #include <array>
 #include <cstdint>
@@ -56,7 +56,7 @@ class PopulationTransactionScope
 };
 
 // Resolves and prepares every optional identity detour
-void PrepareAll(const nlohmann::json& gamedata, const sig::ModuleInfo& serverModule);
+void PrepareAll(const nlohmann::json& gamedata, const modules::ModuleInfo& serverModule);
 
 // Installs every successfully prepared identity detour
 void InstallPrepared();

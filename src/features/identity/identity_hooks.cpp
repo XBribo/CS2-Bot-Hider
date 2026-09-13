@@ -1,3 +1,4 @@
+#include "core/gameconfig.h"
 #include "core/log.h"
 #include "identity_hooks.h"
 
@@ -10,8 +11,8 @@
 #include "plugin.h"
 #include "serversideclient_ref.h"
 #include "core/cs2_sdk/schema.h"
-#include "sig_scan.h"
-#include "version_targets.h"
+#include "core/memory_module.h"
+#include "offsets.h"
 
 #include <cstdint>
 #include <array>
@@ -78,7 +79,7 @@ class ScopedNativeBotIdentityRestore
     void Capture()
     {
         if (ssc::g_userIdOffset < 0 || ssc::g_entityIndexOffset < 0 || ssc::g_netChannelOffset < 0 ||
-            ssc::g_connectionTypeFlagsOffset < 0 || ssc::g_fakePlayerOffset < 0 || targets::g_baseEntityFlagsOffset < 0)
+            ssc::g_connectionTypeFlagsOffset < 0 || ssc::g_fakePlayerOffset < 0 || offsets::g_baseEntityFlagsOffset < 0)
         {
             if (!g_identityInvalidOffsetWarned)
             {
@@ -143,14 +144,14 @@ class ScopedNativeBotIdentityRestore
             auto* entity = reinterpret_cast<CEntityInstance*>(snapshot.controller);
             snapshot.handle = static_cast<uint32_t>(entity->GetRefEHandle().ToInt());
             auto* flags =
-                reinterpret_cast<uint32_t*>(reinterpret_cast<unsigned char*>(snapshot.controller) + targets::g_baseEntityFlagsOffset);
+                reinterpret_cast<uint32_t*>(reinterpret_cast<unsigned char*>(snapshot.controller) + offsets::g_baseEntityFlagsOffset);
             snapshot.controllerFlags = *flags;
             snapshot.hasController = true;
             const uint32_t before = *flags;
             *flags |= 0x100U;
             if (*flags != before)
             {
-                entity_access::MarkEntityFieldChanged(snapshot.controller, static_cast<uint32_t>(targets::g_baseEntityFlagsOffset));
+                entity_access::MarkEntityFieldChanged(snapshot.controller, static_cast<uint32_t>(offsets::g_baseEntityFlagsOffset));
             }
         }
     }
@@ -191,11 +192,11 @@ class ScopedNativeBotIdentityRestore
                 continue;
             }
 
-            auto* flags = reinterpret_cast<uint32_t*>(reinterpret_cast<unsigned char*>(controller) + targets::g_baseEntityFlagsOffset);
+            auto* flags = reinterpret_cast<uint32_t*>(reinterpret_cast<unsigned char*>(controller) + offsets::g_baseEntityFlagsOffset);
             if (*flags != snapshot.controllerFlags)
             {
                 *flags = snapshot.controllerFlags;
-                entity_access::MarkEntityFieldChanged(controller, static_cast<uint32_t>(targets::g_baseEntityFlagsOffset));
+                entity_access::MarkEntityFieldChanged(controller, static_cast<uint32_t>(offsets::g_baseEntityFlagsOffset));
             }
         }
     }
@@ -428,18 +429,18 @@ void ClearBindings()
 }
 
 // Resolves and prepares the bot quota detour
-void PrepareQuotaHook(const nlohmann::json& gamedata, const sig::ModuleInfo& serverModule)
+void PrepareQuotaHook(const nlohmann::json& gamedata, const modules::ModuleInfo& serverModule)
 {
     if (!serverModule) return;
-    std::string signature = sig::FindPlatformSig(gamedata, "CCSBotManager::MaintainBotQuota");
+    std::string signature = gameconfig::FindPlatformSig(gamedata, "CCSBotManager::MaintainBotQuota");
     std::vector<uint8_t> bytes;
     std::vector<bool> wildcards;
-    if (signature.empty() || !sig::ParseSigString(signature, bytes, wildcards))
+    if (signature.empty() || !modules::ParseSigString(signature, bytes, wildcards))
     {
         BH_LOG_WARN("[BOTHIDER] warning: MaintainBotQuota sig missing — quota fix disabled\n");
         return;
     }
-    void* target = sig::FindPatternIn(serverModule, bytes, wildcards);
+    void* target = modules::FindPatternIn(serverModule, bytes, wildcards);
     if (!target)
     {
         BH_LOG_WARN("[BOTHIDER] warning: MaintainBotQuota sig not found — quota fix disabled\n");
@@ -449,19 +450,19 @@ void PrepareQuotaHook(const nlohmann::json& gamedata, const sig::ModuleInfo& ser
 }
 
 // Resolves and prepares the eligible-voter count detour
-void PrepareCountPotentialVotersHook(const nlohmann::json& gamedata, const sig::ModuleInfo& serverModule)
+void PrepareCountPotentialVotersHook(const nlohmann::json& gamedata, const modules::ModuleInfo& serverModule)
 {
     if (!serverModule) return;
-    std::string signature = sig::FindPlatformSig(gamedata, "CBaseIssue::CountPotentialVoters");
+    std::string signature = gameconfig::FindPlatformSig(gamedata, "CBaseIssue::CountPotentialVoters");
     std::vector<uint8_t> bytes;
     std::vector<bool> wildcards;
-    if (signature.empty() || !sig::ParseSigString(signature, bytes, wildcards))
+    if (signature.empty() || !modules::ParseSigString(signature, bytes, wildcards))
     {
         BH_LOG_WARN("[BOTHIDER] warning: CountPotentialVoters signature missing or malformed\n");
         return;
     }
 
-    std::vector<void*> matches = sig::FindPatternMatchesIn(serverModule, bytes, wildcards);
+    std::vector<void*> matches = modules::FindPatternMatchesIn(serverModule, bytes, wildcards);
     if (matches.size() != 1)
     {
         BH_LOG_WARN("[BOTHIDER] warning: CountPotentialVoters hook requires exactly one match\n");
@@ -473,19 +474,19 @@ void PrepareCountPotentialVotersHook(const nlohmann::json& gamedata, const sig::
 }
 
 // Resolves and prepares the team-join identity detour
-void PrepareHandleJoinTeamHook(const nlohmann::json& gamedata, const sig::ModuleInfo& serverModule)
+void PrepareHandleJoinTeamHook(const nlohmann::json& gamedata, const modules::ModuleInfo& serverModule)
 {
     if (!serverModule) return;
-    std::string signature = sig::FindPlatformSig(gamedata, "CCSPlayerController::HandleCommand_JoinTeam");
+    std::string signature = gameconfig::FindPlatformSig(gamedata, "CCSPlayerController::HandleCommand_JoinTeam");
     std::vector<uint8_t> bytes;
     std::vector<bool> wildcards;
-    if (signature.empty() || !sig::ParseSigString(signature, bytes, wildcards))
+    if (signature.empty() || !modules::ParseSigString(signature, bytes, wildcards))
     {
         BH_LOG_WARN("[BOTHIDER] warning: HandleCommand_JoinTeam signature missing or malformed\n");
         return;
     }
 
-    std::vector<void*> matches = sig::FindPatternMatchesIn(serverModule, bytes, wildcards);
+    std::vector<void*> matches = modules::FindPatternMatchesIn(serverModule, bytes, wildcards);
     if (matches.size() != 1)
     {
         BH_LOG_WARN("[BOTHIDER] warning: HandleCommand_JoinTeam hook requires exactly one match\n");
@@ -497,19 +498,19 @@ void PrepareHandleJoinTeamHook(const nlohmann::json& gamedata, const sig::Module
 }
 
 // Resolves and prepares the human-team restriction detour
-void PrepareHumanTeamRestrictionHook(const nlohmann::json& gamedata, const sig::ModuleInfo& serverModule)
+void PrepareHumanTeamRestrictionHook(const nlohmann::json& gamedata, const modules::ModuleInfo& serverModule)
 {
     if (!serverModule) return;
-    std::string signature = sig::FindPlatformSig(gamedata, "MpHumanTeam_ApplyRestriction");
+    std::string signature = gameconfig::FindPlatformSig(gamedata, "MpHumanTeam_ApplyRestriction");
     std::vector<uint8_t> bytes;
     std::vector<bool> wildcards;
-    if (signature.empty() || !sig::ParseSigString(signature, bytes, wildcards))
+    if (signature.empty() || !modules::ParseSigString(signature, bytes, wildcards))
     {
         BH_LOG_WARN("[BOTHIDER] warning: MpHumanTeam_ApplyRestriction signature missing or malformed\n");
         return;
     }
 
-    std::vector<void*> matches = sig::FindPatternMatchesIn(serverModule, bytes, wildcards);
+    std::vector<void*> matches = modules::FindPatternMatchesIn(serverModule, bytes, wildcards);
     if (matches.size() != 1)
     {
         BH_LOG_WARN("[BOTHIDER] warning: MpHumanTeam_ApplyRestriction hook requires exactly one match\n");
@@ -523,23 +524,23 @@ void PrepareHumanTeamRestrictionHook(const nlohmann::json& gamedata, const sig::
 // Resolves and prepares the entity-packing detour
 void PreparePackEntitiesHook(const nlohmann::json& gamedata)
 {
-    std::string signature = sig::FindPlatformSig(gamedata, "CNetworkGameServer::PackEntities");
+    std::string signature = gameconfig::FindPlatformSig(gamedata, "CNetworkGameServer::PackEntities");
     std::vector<uint8_t> bytes;
     std::vector<bool> wildcards;
-    if (signature.empty() || !sig::ParseSigString(signature, bytes, wildcards))
+    if (signature.empty() || !modules::ParseSigString(signature, bytes, wildcards))
     {
         BH_LOG_WARN("[BOTHIDER] warning: PackEntities signature missing or malformed\n");
         return;
     }
 
-    sig::ModuleInfo codeModule = sig::ModuleCodeFromName(targets::kEngineModuleName);
+    modules::ModuleInfo codeModule = modules::ModuleCodeFromName(offsets::kEngineModuleName);
     if (!codeModule)
     {
-        BH_LOG_WARN("[BOTHIDER] warning: %s code range unresolved - PackEntities hook disabled\n", targets::kEngineModuleName);
+        BH_LOG_WARN("[BOTHIDER] warning: %s code range unresolved - PackEntities hook disabled\n", offsets::kEngineModuleName);
         return;
     }
 
-    std::vector<void*> matches = sig::FindPatternMatchesIn(codeModule, bytes, wildcards);
+    std::vector<void*> matches = modules::FindPatternMatchesIn(codeModule, bytes, wildcards);
     if (matches.size() != 1)
     {
         BH_LOG_WARN("[BOTHIDER] warning: PackEntities hook requires exactly one match\n");
@@ -551,20 +552,20 @@ void PreparePackEntitiesHook(const nlohmann::json& gamedata)
 }
 
 // Resolves the state-machine entry and its Schema-controlled team-reset condition.
-void PrepareSameMapTeardownHook(const nlohmann::json& gamedata, const sig::ModuleInfo& serverModule)
+void PrepareSameMapTeardownHook(const nlohmann::json& gamedata, const modules::ModuleInfo& serverModule)
 {
     if (!serverModule) return;
     constexpr const char* kTargetName = "CCSGameRules::EndMatchState";
-    std::string signature = sig::FindPlatformSig(gamedata, kTargetName);
+    std::string signature = gameconfig::FindPlatformSig(gamedata, kTargetName);
     std::vector<uint8_t> bytes;
     std::vector<bool> wildcards;
-    if (signature.empty() || !sig::ParseSigString(signature, bytes, wildcards))
+    if (signature.empty() || !modules::ParseSigString(signature, bytes, wildcards))
     {
         BH_LOG_WARN("[BOTHIDER] warning: same-map teardown signature missing or malformed\n");
         return;
     }
 
-    std::vector<void*> matches = sig::FindPatternMatchesIn(serverModule, bytes, wildcards);
+    std::vector<void*> matches = modules::FindPatternMatchesIn(serverModule, bytes, wildcards);
     if (matches.size() != 1)
     {
         BH_LOG_WARN("[BOTHIDER] warning: same-map teardown hook requires exactly one match\n");
@@ -584,7 +585,7 @@ void PrepareSameMapTeardownHook(const nlohmann::json& gamedata, const sig::Modul
 } // namespace
 
 // Resolves and prepares every optional identity detour
-void PrepareAll(const nlohmann::json& gamedata, const sig::ModuleInfo& serverModule)
+void PrepareAll(const nlohmann::json& gamedata, const modules::ModuleInfo& serverModule)
 {
     PrepareQuotaHook(gamedata, serverModule);
     PrepareCountPotentialVotersHook(gamedata, serverModule);

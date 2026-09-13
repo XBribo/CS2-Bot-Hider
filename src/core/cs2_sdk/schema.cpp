@@ -3,7 +3,7 @@
 #include "core/cs2_sdk/schema.h"
 #include "schemasystem/schematypes.h"
 #include "platform.h"
-#include "version_targets.h"
+#include "offsets.h"
 
 #include <schemasystem/schemasystem.h>
 
@@ -71,11 +71,11 @@ bool Init()
     if (g_schema) return true;
 
 #ifdef _WIN32
-    HMODULE mod = GetModuleHandleA(targets::kSchemaSystemModuleName);
+    HMODULE mod = GetModuleHandleA(offsets::kSchemaSystemModuleName);
     if (!mod) return false;
     auto createIface = reinterpret_cast<CreateIfaceFn>(GetProcAddress(mod, "CreateInterface"));
 #else
-    void* mod = OpenLoadedModule(targets::kSchemaSystemModuleName);
+    void* mod = OpenLoadedModule(offsets::kSchemaSystemModuleName);
     if (!mod) return false;
     auto createIface = reinterpret_cast<CreateIfaceFn>(dlsym(mod, "CreateInterface"));
 #endif
@@ -91,7 +91,7 @@ namespace {
 CSchemaClassInfo* FindClass(const char* className)
 {
     static const char* kScopes[] = {
-        targets::kSchemaServerTypeScope,
+        offsets::kSchemaServerTypeScope,
         "server.dll",
         "libserver.so",
     };

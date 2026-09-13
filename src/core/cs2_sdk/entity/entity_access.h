@@ -1,6 +1,6 @@
 #pragma once
 
-#include "sig_scan.h"
+#include "core/memory_module.h"
 
 #include <cstddef>
 
@@ -21,7 +21,7 @@ void* GameResourceService();
 void LoadMemberOffsets(const nlohmann::json& gamedata);
 
 // Resolves UTIL_Remove and its entity-system reference
-void ResolveUtilRemoveAndEntSys(const nlohmann::json& gamedata, const sig::ModuleInfo& serverModule);
+void ResolveUtilRemoveAndEntSys(const nlohmann::json& gamedata, const modules::ModuleInfo& serverModule);
 
 // Returns the resolved UTIL_Remove target
 void* UtilRemoveTarget();

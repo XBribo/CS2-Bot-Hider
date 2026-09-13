@@ -9,7 +9,7 @@
 #include "identity_state.h"
 #include "personas.h"
 #include "serversideclient_ref.h"
-#include "version_targets.h"
+#include "offsets.h"
 
 #include <algorithm>
 #include <chrono>
@@ -35,7 +35,7 @@ bool IsSteamIdInUseByOther(uint64_t steamId, int exceptSlot)
     if (steamId == 0 || !g_pNetworkServerService) return false;
     auto* gameServer = g_pNetworkServerService->GetIGameServer();
     if (!gameServer) return false;
-    auto* clients = reinterpret_cast<CUtlVector<void*>*>(reinterpret_cast<unsigned char*>(gameServer) + targets::g_clientListOffset);
+    auto* clients = reinterpret_cast<CUtlVector<void*>*>(reinterpret_cast<unsigned char*>(gameServer) + offsets::g_clientListOffset);
     const int count = clients->Count();
     if (count < 0 || count > 256) return false;
 
@@ -145,7 +145,7 @@ bool IsControllerReferencedByClient(void* controller, uint16_t* userIdOut)
 ManagedControllerTrace TraceManagedController(void* controller)
 {
     ManagedControllerTrace trace;
-    if (!controller || targets::g_baseEntityFlagsOffset < 0)
+    if (!controller || offsets::g_baseEntityFlagsOffset < 0)
     {
         return trace;
     }
@@ -165,11 +165,11 @@ ManagedControllerTrace TraceManagedController(void* controller)
 
         trace.slot = slot;
         trace.handle = static_cast<uint32_t>(reinterpret_cast<CEntityInstance*>(resolved)->GetRefEHandle().ToInt());
-        trace.flags = *reinterpret_cast<uint32_t*>(reinterpret_cast<unsigned char*>(resolved) + targets::g_baseEntityFlagsOffset);
-        if (targets::g_controllerTeamOffset >= 0)
+        trace.flags = *reinterpret_cast<uint32_t*>(reinterpret_cast<unsigned char*>(resolved) + offsets::g_baseEntityFlagsOffset);
+        if (offsets::g_controllerTeamOffset >= 0)
         {
             trace.currentTeam =
-                *reinterpret_cast<unsigned char*>(reinterpret_cast<unsigned char*>(resolved) + targets::g_controllerTeamOffset);
+                *reinterpret_cast<unsigned char*>(reinterpret_cast<unsigned char*>(resolved) + offsets::g_controllerTeamOffset);
         }
         trace.managed = true;
         trace.hltv = ssc::IsHltv(client);
@@ -181,16 +181,16 @@ ManagedControllerTrace TraceManagedController(void* controller)
 // Clears FL_BOT for managed pawns during entity packing
 std::vector<BotPawnRef> ApplyBotFlagOverride()
 {
-    if (targets::g_baseEntityFlagsOffset < 0) return {};
+    if (offsets::g_baseEntityFlagsOffset < 0) return {};
     std::vector<BotPawnRef> pawns = CollectManagedBotPawns();
     std::vector<BotPawnRef> modified;
     modified.reserve(pawns.size());
     for (const BotPawnRef& pawn : pawns)
     {
-        auto* flags = reinterpret_cast<uint32_t*>(reinterpret_cast<unsigned char*>(pawn.instance) + targets::g_baseEntityFlagsOffset);
-        if ((*flags & targets::kEntityFlagBot) == 0) continue;
-        *flags &= ~targets::kEntityFlagBot;
-        entity_access::MarkEntityFieldChanged(pawn.instance, static_cast<uint32_t>(targets::g_baseEntityFlagsOffset));
+        auto* flags = reinterpret_cast<uint32_t*>(reinterpret_cast<unsigned char*>(pawn.instance) + offsets::g_baseEntityFlagsOffset);
+        if ((*flags & offsets::kEntityFlagBot) == 0) continue;
+        *flags &= ~offsets::kEntityFlagBot;
+        entity_access::MarkEntityFieldChanged(pawn.instance, static_cast<uint32_t>(offsets::g_baseEntityFlagsOffset));
         modified.push_back(pawn);
     }
     return modified;
@@ -199,7 +199,7 @@ std::vector<BotPawnRef> ApplyBotFlagOverride()
 // Restores FL_BOT on every still-current pawn
 void RestoreBotFlagOverride(const std::vector<BotPawnRef>& pawns)
 {
-    if (targets::g_baseEntityFlagsOffset < 0) return;
+    if (offsets::g_baseEntityFlagsOffset < 0) return;
     for (const BotPawnRef& pawn : pawns)
     {
         const int pawnIndex = static_cast<int>(pawn.handle & 0x7FFF);
@@ -215,8 +215,8 @@ void RestoreBotFlagOverride(const std::vector<BotPawnRef>& pawns)
             continue;
         }
 
-        auto* flags = reinterpret_cast<uint32_t*>(reinterpret_cast<unsigned char*>(currentPawn) + targets::g_baseEntityFlagsOffset);
-        *flags |= targets::kEntityFlagBot;
+        auto* flags = reinterpret_cast<uint32_t*>(reinterpret_cast<unsigned char*>(currentPawn) + offsets::g_baseEntityFlagsOffset);
+        *flags |= offsets::kEntityFlagBot;
     }
 }
 
@@ -228,7 +228,7 @@ int CountHumanClients()
     if (!g_pNetworkServerService) return 0;
     auto* gameServer = g_pNetworkServerService->GetIGameServer();
     if (!gameServer) return 0;
-    auto* clients = reinterpret_cast<CUtlVector<void*>*>(reinterpret_cast<unsigned char*>(gameServer) + targets::g_clientListOffset);
+    auto* clients = reinterpret_cast<CUtlVector<void*>*>(reinterpret_cast<unsigned char*>(gameServer) + offsets::g_clientListOffset);
     const int count = clients->Count();
     if (count < 0 || count > 256) return 0;
 
@@ -306,7 +306,7 @@ uint64_t MakeUniqueSteamId(int slot, uint64_t desired)
 // Synchronizes the controller fake-client bit for one slot
 bool SetControllerFakeClientFlag(int slot, bool fakeClient)
 {
-    if (targets::g_baseEntityFlagsOffset < 0) return false;
+    if (offsets::g_baseEntityFlagsOffset < 0) return false;
     void* client = entity_access::ResolveClientBySlot(slot);
     if (!client) return false;
 
@@ -319,14 +319,14 @@ bool SetControllerFakeClientFlag(int slot, bool fakeClient)
     }
 
     constexpr uint32_t kFakeClientBit = 0x100;
-    auto* flags = reinterpret_cast<uint32_t*>(reinterpret_cast<unsigned char*>(controller) + targets::g_baseEntityFlagsOffset);
+    auto* flags = reinterpret_cast<uint32_t*>(reinterpret_cast<unsigned char*>(controller) + offsets::g_baseEntityFlagsOffset);
     const uint32_t before = *flags;
     if (fakeClient) *flags |= kFakeClientBit;
     else
         *flags &= ~kFakeClientBit;
     if (*flags != before)
     {
-        entity_access::MarkEntityFieldChanged(controller, static_cast<uint32_t>(targets::g_baseEntityFlagsOffset));
+        entity_access::MarkEntityFieldChanged(controller, static_cast<uint32_t>(offsets::g_baseEntityFlagsOffset));
     }
     return true;
 }

@@ -1,10 +1,10 @@
-// version_targets.h
+// offsets.h
 
 #pragma once
 
 #include <cstdint>
 
-namespace cs2bh::targets {
+namespace cs2bh::offsets {
 
 // CNetworkGameServerBase::m_Clients — CUtlVector<CServerSideClient*>
 inline int g_clientListOffset = 584;
@@ -62,4 +62,4 @@ inline constexpr const char* kSchemaServerTypeScope = "libserver.so";
 // Interface version strings
 inline constexpr const char* kIfaceServerGameClients = "Source2GameClients001";
 
-} // namespace cs2bh::targets
+} // namespace cs2bh::offsets

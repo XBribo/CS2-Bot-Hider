@@ -1,6 +1,6 @@
 #include "core/log.h"
 // Metamod plugin entry and lifecycle orchestration
-// All constants (offsets, vtable slots, schema candidates) live in version_targets.h
+// All constants (offsets, vtable slots, schema candidates) live in offsets.h
 
 #include "plugin.h"
 #include "ISmmPlugin.h"
@@ -18,8 +18,8 @@
 #include "playerslot.h"
 #include "slot_publisher.h"
 #include "steam/steamtypes.h"
-#include "version_targets.h"
-#include "sig_scan.h"
+#include "offsets.h"
+#include "core/memory_module.h"
 #include "core/cs2_sdk/schema.h"
 #include "core/config.h"
 #include "core/interfaces.h"
@@ -181,11 +181,11 @@ bool HiderPlugin::Load(PluginId id, ISmmAPI* ismm, char* error, size_t maxlen, b
 
     // GameResourceServiceServer — needed to resolve CCSPlayerController by slot
     // Served by engine2.dll
-    void* gameResourceService = ismm->GetEngineFactory(false)(targets::kIfaceGameResourceServiceServer, nullptr);
+    void* gameResourceService = ismm->GetEngineFactory(false)(offsets::kIfaceGameResourceServiceServer, nullptr);
     entity_access::SetGameResourceService(gameResourceService);
     if (!gameResourceService)
     {
-        BH_LOG_WARN("[BOTHIDER] warning: %s unresolved — controller mgmt disabled\n", targets::kIfaceGameResourceServiceServer);
+        BH_LOG_WARN("[BOTHIDER] warning: %s unresolved — controller mgmt disabled\n", offsets::kIfaceGameResourceServiceServer);
     }
 
     gamedata::Prepare(g_SMAPI->GetBaseDir());
