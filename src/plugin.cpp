@@ -188,7 +188,7 @@ bool HiderPlugin::Load(PluginId id, ISmmAPI* ismm, char* error, size_t maxlen, b
         BH_LOG_WARN("[BOTHIDER] warning: %s unresolved — controller mgmt disabled\n", offsets::kIfaceGameResourceServiceServer);
     }
 
-    gamedata::Prepare(g_SMAPI->GetBaseDir());
+    gamedata::Prepare();
 
     g_pCVar = g_icvar;
 

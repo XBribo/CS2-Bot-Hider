@@ -6,16 +6,32 @@
 #include "identity_hooks.h"
 #include "offsets.h"
 #include "core/memory_module.h"
+#include "utils/platform.h"
+#include <filesystem>
 #include <string>
 namespace cs2bh::gamedata {
+namespace {
+// Resolves gamedata beside bin/, relative to this plugin module.
+std::string ComputeGamedataPath()
+{
+    std::filesystem::path path(platform::SelfModulePath());
+    if (path.empty()) return "";
+    for (int i = 0; i < 3; ++i)
+    {
+        path = path.parent_path();
+        if (path.empty()) return "";
+    }
+    return (path / "gamedata.json").string();
+}
+} // namespace
+
 // Resolves the existing gamedata entries and preserves optional-feature failures.
-void Prepare(const char* baseDir)
+void Prepare()
 {
     // Resolve UTIL_Remove
     // Required to destroy controllers on kick
     {
-        std::string gdPath = baseDir;
-        gdPath += "/addons/BotHider/gamedata.json";
+        const std::string gdPath = ComputeGamedataPath();
         nlohmann::json gamedata;
         if (!gameconfig::LoadGamedata(gdPath.c_str(), gamedata))
         {

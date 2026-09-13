@@ -187,6 +187,7 @@ add_library(
     src/bridge/slot_publisher.cpp
     src/core/cs2_sdk/entity/entity_access.cpp
     src/core/offsets.cpp
+    src/utils/platform.cpp
     src/core/memory_module.cpp
     src/core/gameconfig.cpp
     src/core/cs2_sdk/schema.cpp
