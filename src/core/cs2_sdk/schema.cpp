@@ -1,8 +1,6 @@
-// schema_resolver.cpp
-//
-// Resolves networked field offsets from the live ISchemaSystem at runtime.
+// Resolves registered field offsets from the live ISchemaSystem at runtime.
 
-#include "schema_resolver.h"
+#include "core/cs2_sdk/schema.h"
 #include "schemasystem/schematypes.h"
 #include "platform.h"
 #include "version_targets.h"
@@ -26,7 +24,8 @@ using CreateIfaceFn = void* (*)(const char*, int*);
 
 namespace {
 ISchemaSystem* g_schema = nullptr;
-std::unordered_map<std::string, int> g_offsetCache; // NOLINT(bugprone-throwing-static-initialization)
+using FieldMap = std::unordered_map<std::string, int>;
+std::unordered_map<std::string, FieldMap> g_classCache; // NOLINT(bugprone-throwing-static-initialization)
 
 #ifndef _WIN32
 const char* BaseName(const char* path)
@@ -80,9 +79,10 @@ bool Init()
     if (!mod) return false;
     auto createIface = reinterpret_cast<CreateIfaceFn>(dlsym(mod, "CreateInterface"));
 #endif
-    if (!createIface) return false;
-
-    g_schema = reinterpret_cast<ISchemaSystem*>(createIface(SCHEMASYSTEM_INTERFACE_VERSION, nullptr));
+    if (createIface) g_schema = reinterpret_cast<ISchemaSystem*>(createIface(SCHEMASYSTEM_INTERFACE_VERSION, nullptr));
+#ifndef _WIN32
+    dlclose(mod);
+#endif
     return g_schema != nullptr;
 }
 
@@ -113,29 +113,32 @@ CSchemaClassInfo* FindClass(const char* className)
 
 } // namespace
 
+// Caches all declared fields for a class without treating a miss as offset zero.
 int GetFieldOffset(const char* className, const char* fieldName)
 {
-    if (!className || !fieldName) return -1;
-    std::string key = std::string(className) + "::" + fieldName;
-    auto it = g_offsetCache.find(key);
-    if (it != g_offsetCache.end()) return it->second;
-    if (!g_schema) return -1;
-
-    CSchemaClassInfo* info = FindClass(className);
-    if (!info) return -1;
-
-    int offset = -1;
-    for (uint16 i = 0; i < info->m_nFieldCount; ++i)
+    if (!className || !fieldName || !g_schema) return -1;
+    auto table = g_classCache.find(className);
+    if (table == g_classCache.end())
     {
-        const SchemaClassFieldData_t& f = info->m_pFields[i];
-        if (f.m_pszName && std::strcmp(f.m_pszName, fieldName) == 0)
+        CSchemaClassInfo* info = FindClass(className);
+        if (!info) return -1;
+        FieldMap fields;
+        for (uint16 i = 0; i < info->m_nFieldCount; ++i)
         {
-            offset = f.m_nSingleInheritanceOffset;
-            break;
+            const auto& field = info->m_pFields[i];
+            if (field.m_pszName) fields.emplace(field.m_pszName, field.m_nSingleInheritanceOffset);
         }
+        table = g_classCache.emplace(className, std::move(fields)).first;
     }
-    g_offsetCache[key] = offset;
-    return offset;
+    const auto field = table->second.find(fieldName);
+    return field == table->second.end() ? -1 : field->second;
+}
+
+// Invalidates module pointers and field caches across plugin reloads.
+void Reset()
+{
+    g_classCache.clear();
+    g_schema = nullptr;
 }
 
 } // namespace cs2bh::schema

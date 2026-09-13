@@ -1,3 +1,4 @@
+#include "core/log.h"
 #include "identity_runtime.h"
 
 #include "ISmmPlugin.h"
@@ -354,7 +355,7 @@ bool QueueControllerRemovalForClient(void* client, int slot)
     if (!client) return false;
     if (!entity_access::UtilRemoveTarget())
     {
-        META_CONPRINTF("[BOTHIDER] deferred destroy unavailable: UTIL_Remove unresolved\n");
+        BH_LOG_INFO("[BOTHIDER] deferred destroy unavailable: UTIL_Remove unresolved\n");
         return false;
     }
 
@@ -363,16 +364,16 @@ bool QueueControllerRemovalForClient(void* client, int slot)
     void* controller = entity_access::ResolveEntityInstance(entityIndex, className, sizeof(className));
     if (!controller)
     {
-        META_CONPRINTF("[BOTHIDER] deferred destroy skipped: entity resolve failed "
-                       "entIdx=%d cls='%s' grs=%p (check kEntSys_* offsets)\n",
-                       entityIndex, className, entity_access::GameResourceService());
+        BH_LOG_INFO("[BOTHIDER] deferred destroy skipped: entity resolve failed "
+                    "entIdx=%d cls='%s' grs=%p (check kEntSys_* offsets)\n",
+                    entityIndex, className, entity_access::GameResourceService());
         return false;
     }
     if (std::strcmp(className, "cs_player_controller") != 0)
     {
-        META_CONPRINTF("[BOTHIDER] deferred destroy skipped entIdx=%d cls='%s' "
-                       "(not a controller)\n",
-                       entityIndex, className);
+        BH_LOG_INFO("[BOTHIDER] deferred destroy skipped entIdx=%d cls='%s' "
+                    "(not a controller)\n",
+                    entityIndex, className);
         return false;
     }
     if (entity_access::IsEntityBeingDeleted(controller)) return false;
@@ -417,10 +418,10 @@ void DrainPendingControllerRemovals()
         {
             if (currentUserId != item->userId)
             {
-                META_CONPRINTF("[BOTHIDER] deferred destroy abandoned slot=%d "
-                               "handle=0x%08x: controller was rebound to "
-                               "userid=%u\n",
-                               item->slot, item->handle, static_cast<unsigned int>(currentUserId));
+                BH_LOG_INFO("[BOTHIDER] deferred destroy abandoned slot=%d "
+                            "handle=0x%08x: controller was rebound to "
+                            "userid=%u\n",
+                            item->slot, item->handle, static_cast<unsigned int>(currentUserId));
                 item = pending.erase(item);
                 continue;
             }
@@ -465,7 +466,7 @@ bool ReleaseManagedHltvSlot(int slot, void* client)
     identity_state::ClearSlot(slot);
     Manager().ReleaseSlot(slot);
 
-    META_CONPRINTF("[BOTHIDER] slot=%d rejected: SourceTV/HLTV client\n", slot);
+    BH_LOG_INFO("[BOTHIDER] slot=%d rejected: SourceTV/HLTV client\n", slot);
     return true;
 }
 

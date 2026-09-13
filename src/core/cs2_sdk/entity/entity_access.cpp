@@ -1,11 +1,13 @@
+#include "core/log.h"
 #include "entity_access.h"
+#include "core/cs2_sdk/entity/player.h"
 
 #include "playerslot.h"
 #include "nlohmann/json.hpp"
 #include "ISmmPlugin.h"
 #include "entityidentity.h"
 #include "plugin.h" // NOLINT(misc-include-cleaner)
-#include "schema_resolver.h"
+#include "core/cs2_sdk/schema.h"
 #include "serversideclient_ref.h"
 #include "sig_scan.h"
 #include "version_targets.h"
@@ -42,6 +44,40 @@ int g_botPawnHandleOffset = -1;
 
 } // namespace
 
+// Resolves required identity fields before hooks can write to entities.
+bool InitSchema(char* error, size_t maxlen)
+{
+    // Require live entity offsets before any identity writes or hook preparation
+    const bool schemaReady = schema::Init();
+    targets::g_baseEntityFlagsOffset = schemaReady ? schema::GetFieldOffset("CBaseEntity", "m_fFlags") : -1;
+    targets::g_controllerTeamOffset = schemaReady ? schema::GetFieldOffset("CBaseEntity", "m_iTeamNum") : -1;
+    if (targets::g_baseEntityFlagsOffset < 0 || targets::g_controllerTeamOffset < 0)
+    {
+        std::snprintf(error, maxlen, "required CBaseEntity Schema offsets unavailable: m_fFlags=%d m_iTeamNum=%d; identity hooks disabled",
+                      targets::g_baseEntityFlagsOffset, targets::g_controllerTeamOffset);
+        BH_LOG_ERROR("[BOTHIDER] error: %s\n", error);
+        return false;
+    }
+    BH_LOG_INFO("[BOTHIDER] Schema CBaseEntity: m_fFlags=0x%x m_iTeamNum=0x%x\n", targets::g_baseEntityFlagsOffset,
+                targets::g_controllerTeamOffset);
+
+    // Resolve controller pawn and idle-timer schema offsets
+    if (schemaReady)
+    {
+        int pawnOff = schema::GetFieldOffset("CBasePlayerController", "m_hPawn");
+        int playerPawnOff = schema::GetFieldOffset("CCSPlayerController", "m_hPlayerPawn");
+        entity_access::SetBotPawnHandleOffset(playerPawnOff >= 0 ? playerPawnOff : pawnOff);
+        if (entity_access::BotPawnHandleOffset() < 0)
+            BH_LOG_WARN("[BOTHIDER] warning: bot pawn handle unresolved - FL_BOT override disabled\n");
+    }
+    else
+    {
+        entity_access::SetBotPawnHandleOffset(-1);
+        BH_LOG_WARN("[BOTHIDER] warning: SchemaSystem unresolved — idle-kick and FL_BOT overrides disabled\n");
+    }
+    return true;
+}
+
 // Stores the GameResourceService interface used for entity resolution
 void SetGameResourceService(void* gameResourceService) { g_gameResourceService = gameResourceService; }
 
@@ -77,7 +113,7 @@ void ResolveUtilRemoveAndEntSys(const nlohmann::json& gamedata, const sig::Modul
     g_entitySystemGlobal = nullptr;
     if (!serverModule)
     {
-        META_CONPRINTF("[BOTHIDER] warning: %s module unresolved for signature scan\n", targets::kServerModuleName);
+        BH_LOG_WARN("[BOTHIDER] warning: %s module unresolved for signature scan\n", targets::kServerModuleName);
         return;
     }
 
@@ -86,7 +122,7 @@ void ResolveUtilRemoveAndEntSys(const nlohmann::json& gamedata, const sig::Modul
     std::vector<bool> wildcards;
     if (signature.empty() || !sig::ParseSigString(signature, bytes, wildcards))
     {
-        META_CONPRINTF("[BOTHIDER] warning: UTIL_Remove %s sig missing/malformed in gamedata.json\n", sig::PlatformName());
+        BH_LOG_WARN("[BOTHIDER] warning: UTIL_Remove %s sig missing/malformed in gamedata.json\n", sig::PlatformName());
         return;
     }
 
@@ -300,10 +336,6 @@ void ResetIdleTimerForClient(void* client)
 {
     if (!client) return;
 
-    const int pawnOffset = schema::GetFieldOffset("CBasePlayerController", "m_hPawn");
-    const int idleOffset = schema::GetFieldOffset("CCSPlayerPawnBase", "m_flIdleTimeSinceLastAction");
-    if (pawnOffset < 0 || idleOffset < 0) return;
-
     const int entityIndex = *reinterpret_cast<int*>(reinterpret_cast<unsigned char*>(client) + ssc::g_entityIndexOffset);
     char className[64];
     void* controller = ResolveEntityInstance(entityIndex, className, sizeof(className));
@@ -312,13 +344,15 @@ void ResetIdleTimerForClient(void* client)
         return;
     }
 
-    const uint32_t pawnHandle = *reinterpret_cast<uint32_t*>(reinterpret_cast<unsigned char*>(controller) + pawnOffset);
+    const auto* handleField = sdk::PawnHandle(controller);
+    if (!handleField) return;
+    const uint32_t pawnHandle = *handleField;
     if (pawnHandle == 0xFFFFFFFF) return;
     const int pawnIndex = static_cast<int>(pawnHandle & 0x7FFF);
     void* pawn = ResolveEntityInstance(pawnIndex, nullptr, 0);
     if (!pawn) return;
 
-    *reinterpret_cast<float*>(reinterpret_cast<unsigned char*>(pawn) + idleOffset) = 0.0F;
+    if (auto* idleTime = sdk::IdleTime(pawn)) *idleTime = 0.0F;
 }
 
 // Updates the engine-side name for one client

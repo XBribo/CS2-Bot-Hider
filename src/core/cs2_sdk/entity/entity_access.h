@@ -8,6 +8,9 @@
 
 namespace cs2bh::entity_access {
 
+// Resolves and validates entity fields before identity hooks are prepared.
+bool InitSchema(char* error, size_t maxlen);
+
 // Stores the GameResourceService interface used for entity resolution
 void SetGameResourceService(void* gameResourceService);
 

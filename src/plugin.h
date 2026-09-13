@@ -121,9 +121,6 @@ class HiderPlugin : public ISmmPlugin, public IMetamodListener
     bool m_unloadPending = false;
     unsigned int m_tickCounter = 0; // throttles per-tick idle-timer reset
     IdentityMode m_identityMode = IdentityMode::Player;
-    bool m_fakePingEnabled = true;
-    int m_fakePingMin = 20;
-    int m_fakePingMax = 90;
 
     // Display-name source: false=botprofile name, true=bot_info.json name
     bool m_useBotInfoName = false;

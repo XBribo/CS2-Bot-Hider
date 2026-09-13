@@ -144,6 +144,20 @@ add_custom_command(
     VERBATIM
 )
 
+include(FetchContent)
+FetchContent_Declare(spdlog
+    GIT_REPOSITORY https://github.com/gabime/spdlog.git
+    GIT_TAG v1.x
+    GIT_SHALLOW TRUE
+)
+set(SPDLOG_BUILD_SHARED OFF CACHE BOOL "" FORCE)
+FetchContent_MakeAvailable(spdlog)
+set_target_properties(spdlog PROPERTIES
+    POSITION_INDEPENDENT_CODE ON
+    CXX_VISIBILITY_PRESET hidden
+    VISIBILITY_INLINES_HIDDEN YES
+)
+
 set(NLOHMANN_JSON_INCLUDE "${CMAKE_SOURCE_DIR}/third_party")
 
 set(SDK_SOURCES
@@ -155,24 +169,30 @@ set(SDK_SOURCES
 add_library(
     BotHider SHARED
     src/plugin.cpp
-    src/AvatarOverride/avatar_override.cpp
-    src/BotIdentity/personas.cpp
-    src/BotIdentity/steamid_provider.cpp
-    src/BotIdentity/ping_display.cpp
-    src/BotIdentity/fake_client_manager.cpp
-    src/BotIdentity/bot_info.cpp
-    src/BotIdentity/client_hooks.cpp
-    src/BotIdentity/command_hooks.cpp
-    src/BotIdentity/identity_hooks.cpp
-    src/BotIdentity/identity_runtime.cpp
-    src/BotIdentity/identity_state.cpp
-    src/SharedMemory/slot_publisher.cpp
-    src/common/entity_access.cpp
-    src/common/sig_scan.cpp
-    src/common/schema_resolver.cpp
+    src/core/log.cpp
+    src/core/config.cpp
+    src/core/interfaces.cpp
+    src/core/gamedata.cpp
+    src/features/avatar/avatar_override.cpp
+    src/features/identity/personas.cpp
+    src/features/identity/steamid_provider.cpp
+    src/features/ping/ping_display.cpp
+    src/features/identity/fake_client_manager.cpp
+    src/features/identity/bot_info.cpp
+    src/features/identity/client_hooks.cpp
+    src/features/identity/command_hooks.cpp
+    src/features/identity/identity_hooks.cpp
+    src/features/identity/identity_runtime.cpp
+    src/features/identity/identity_state.cpp
+    src/bridge/slot_publisher.cpp
+    src/core/cs2_sdk/entity/entity_access.cpp
+    src/utils/sig_scan.cpp
+    src/core/cs2_sdk/schema.cpp
     ${PROTO_SRCS}
     ${SDK_SOURCES}
 )
+
+target_link_libraries(BotHider PRIVATE spdlog::spdlog)
 
 if(ENABLE_FORMAT_CHECK)
     add_dependencies(BotHider format-check)
@@ -182,10 +202,13 @@ target_include_directories(
     BotHider
     PRIVATE
     src
-    src/AvatarOverride
-    src/BotIdentity
-    src/SharedMemory
-    src/common
+    src/features/avatar
+    src/features/identity
+    src/bridge
+    src/core
+    src/core/cs2_sdk/entity
+    src/features/ping
+    src/utils
     ${NLOHMANN_JSON_INCLUDE}
     ${GENERATED_DIR}
     ${HL2SDK}/thirdparty/protobuf-3.21.8/src
@@ -327,6 +350,15 @@ add_custom_command(
         "${CMAKE_BINARY_DIR}/package/addons/metamod"
     COMMAND ${CMAKE_COMMAND} -E make_directory
         "${CMAKE_BINARY_DIR}/package/addons/BotHider"
+    COMMAND ${CMAKE_COMMAND} -E make_directory
+        "${CMAKE_BINARY_DIR}/package/addons/BotHider/licenses"
+    COMMAND ${CMAKE_COMMAND} -E copy_if_different
+        "${CMAKE_SOURCE_DIR}/third_party/NOTICE"
+        "${CMAKE_SOURCE_DIR}/third_party/COPYING.GPL3"
+        "${CMAKE_BINARY_DIR}/package/addons/BotHider/licenses"
+    COMMAND ${CMAKE_COMMAND} -E copy_if_different
+        "${spdlog_SOURCE_DIR}/LICENSE"
+        "${CMAKE_BINARY_DIR}/package/addons/BotHider/licenses/spdlog-LICENSE"
     COMMAND ${CMAKE_COMMAND} -E copy_if_different
         "${CMAKE_BINARY_DIR}/BotHider.vdf"
         "${CMAKE_BINARY_DIR}/package/addons/metamod/BotHider.vdf"
