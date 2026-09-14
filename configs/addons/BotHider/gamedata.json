@@ -51,8 +51,8 @@
   "CCSGameRules::EndMatchState": {
     "signatures": {
       "library": "server",
-      "windows": "48 8B C4 55 41 57 48 8D A8 48 FC FF FF 48 81 EC A8 04 00 00 80 3D ? ? ? ? 00 4C 8B F9",
-      "linux": "55 48 89 E5 41 57 41 56 41 55 41 54 53 48 89 FB 48 81 EC A8 11 00 00 E8 ? ? ? ? 84 C0 0F 84 ? ? ? ? 83 BB E0 0D 00 00 09"
+      "windows": "48 8B C4 55 41 57 48 8D A8 ? ? ? ? 48 81 EC ? ? ? ? 80 3D",
+      "linux": "55 48 89 E5 41 57 41 56 41 55 41 54 53 48 89 FB 48 81 EC ? ? ? ? E8 ? ? ? ? 84 C0 0F 84 ? ? ? ? 83 BB"
     },
     "comment": "temporarily restores bot identity during end-match team resets"
   },
