@@ -7,7 +7,7 @@
 #include <vector>
 #include <spdlog/cfg/env.h>
 #include <spdlog/spdlog.h>
-#include <spdlog/sinks/basic_file_sink.h>
+#include <spdlog/sinks/daily_file_sink.h>
 #include <spdlog/sinks/stdout_color_sinks.h>
 
 namespace cs2bh::log {
@@ -24,7 +24,8 @@ bool Init(const char* baseDir, char* error, size_t maxlen)
         std::filesystem::create_directories(directory);
         std::vector<spdlog::sink_ptr> sinks;
         sinks.emplace_back(std::make_shared<spdlog::sinks::stderr_color_sink_mt>());
-        sinks.emplace_back(std::make_shared<spdlog::sinks::basic_file_sink_mt>((directory / "BotHider.log").string(), false));
+        // Rotate at local midnight and retain the latest 31 daily files.
+        sinks.emplace_back(std::make_shared<spdlog::sinks::daily_file_sink_mt>((directory / "BotHider.log").string(), 0, 0, false, 31));
         sinks[0]->set_pattern("%^[%T] [%l] %n: %v%$");
         sinks[1]->set_pattern("[%Y-%m-%d %T] [%l] %n: %v");
         g_logger = std::make_shared<spdlog::logger>("BotHider", sinks.begin(), sinks.end());
