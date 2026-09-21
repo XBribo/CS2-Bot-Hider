@@ -63,13 +63,6 @@
     },
     "comment": "updates the client display name"
   },
-  "GameResourceServiceServer::m_pEntitySystem": {
-    "offsets": {
-      "windows": 88,
-      "linux": 88
-    },
-    "comment": "resolves the game entity system"
-  },
   "CEntitySystem::m_EntityList": {
     "offsets": {
       "windows": 16,

@@ -179,15 +179,6 @@ bool HiderPlugin::Load(PluginId id, ISmmAPI* ismm, char* error, size_t maxlen, b
                     "custom avatars disabled\n");
     }
 
-    // GameResourceServiceServer — needed to resolve CCSPlayerController by slot
-    // Served by engine2.dll
-    void* gameResourceService = ismm->GetEngineFactory(false)(offsets::kIfaceGameResourceServiceServer, nullptr);
-    entity_access::SetGameResourceService(gameResourceService);
-    if (!gameResourceService)
-    {
-        BH_LOG_WARN("%s unresolved — controller mgmt disabled\n", offsets::kIfaceGameResourceServiceServer);
-    }
-
     gamedata::Prepare();
 
     g_pCVar = g_icvar;

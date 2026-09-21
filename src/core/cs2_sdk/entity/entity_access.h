@@ -8,20 +8,11 @@
 
 namespace cs2bh::entity_access {
 
-// Stores the GameResourceService interface used for entity resolution
-void SetGameResourceService(void* gameResourceService);
-
-// Returns the current GameResourceService interface
-void* GameResourceService();
-
 // Resolves UTIL_Remove and its entity-system reference
 void ResolveUtilRemoveAndEntSys(const nlohmann::json& gamedata, const modules::ModuleInfo& serverModule);
 
 // Returns the resolved UTIL_Remove target
 void* UtilRemoveTarget();
-
-// Returns the resolved entity-system global address
-void* EntitySystemGlobalAddress();
 
 // Removes one entity through the resolved engine function
 bool RemoveEntity(void* instance);

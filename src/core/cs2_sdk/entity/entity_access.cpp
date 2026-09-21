@@ -37,17 +37,10 @@ namespace {
 using UtilRemoveFn = void(CS2BH_FASTCALL*)(void*);
 using ClientSetNameFn = void(CS2BH_FASTCALL*)(void*, const char*);
 
-void* g_gameResourceService = nullptr;
 UtilRemoveFn g_utilRemove = nullptr;
 void** g_entitySystemGlobal = nullptr;
 
 } // namespace
-
-// Stores the GameResourceService interface used for entity resolution
-void SetGameResourceService(void* gameResourceService) { g_gameResourceService = gameResourceService; }
-
-// Returns the current GameResourceService interface
-void* GameResourceService() { return g_gameResourceService; }
 
 // Resolves one server-side client from its slot
 void* ResolveClientBySlot(int slot)
@@ -189,17 +182,15 @@ bool SafeReadString(const void* address, char* output, size_t capacity)
 void* ResolveEntityInstance(int entityIndex, char* classnameOut, size_t classnameCap)
 {
     if (classnameOut && classnameCap) classnameOut[0] = '\0';
-    if (!g_gameResourceService || entityIndex <= 0 || entityIndex >= 0x8000 || offsets::g_entitySystemOffsetInGameResourceService < 0 ||
-        offsets::g_entitySystemIdentityChunksOffset < 0 || offsets::g_entityIdentitySize <= 0 ||
+    if (!g_entitySystemGlobal || entityIndex <= 0 || entityIndex >= 0x8000 || offsets::g_entitySystemIdentityChunksOffset < 0 ||
+        offsets::g_entityIdentitySize <= 0 ||
         offsets::g_entityIdentityInstanceOffset < 0 || (classnameOut && classnameCap && offsets::g_entityIdentityClassNameOffset < 0))
     {
         return nullptr;
     }
 
     void* entitySystem = nullptr;
-    if (!SafeReadPointer(reinterpret_cast<unsigned char*>(g_gameResourceService) + offsets::g_entitySystemOffsetInGameResourceService,
-                         &entitySystem) ||
-        !entitySystem)
+    if (!SafeReadPointer(g_entitySystemGlobal, &entitySystem) || !entitySystem)
     {
         return nullptr;
     }
@@ -244,9 +235,6 @@ void MarkEntityFieldChanged(void* instance, unsigned int offset)
 
 // Returns the resolved UTIL_Remove target
 void* UtilRemoveTarget() { return reinterpret_cast<void*>(g_utilRemove); }
-
-// Returns the resolved entity-system global address
-void* EntitySystemGlobalAddress() { return reinterpret_cast<void*>(g_entitySystemGlobal); }
 
 // Removes one entity through the resolved engine function
 bool RemoveEntity(void* instance)
@@ -317,7 +305,6 @@ const char* SetEngineName(void* client, const char* newName)
 // Clears resolved interfaces and runtime targets
 void Reset()
 {
-    g_gameResourceService = nullptr;
     g_utilRemove = nullptr;
     g_entitySystemGlobal = nullptr;
     offsets::g_botPawnHandleOffset = -1;

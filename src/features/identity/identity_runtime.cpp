@@ -365,8 +365,8 @@ bool QueueControllerRemovalForClient(void* client, int slot)
     if (!controller)
     {
         BH_LOG_WARN("deferred destroy skipped: entity resolve failed "
-                    "entIdx=%d cls='%s' grs=%p (check kEntSys_* offsets)\n",
-                    entityIndex, className, entity_access::GameResourceService());
+                    "entIdx=%d cls='%s' (check entity-system signature and kEntSys_* offsets)\n",
+                    entityIndex, className);
         return false;
     }
     if (std::strcmp(className, "cs_player_controller") != 0)

@@ -39,8 +39,6 @@ inline constexpr int kSchemaFallbackMIPing = 2048; // 0x800
 
 // * UTIL_Remove(CEntityInstance*) in the server module
 
-inline constexpr const char* kIfaceGameResourceServiceServer = "GameResourceServiceServerV001";
-inline int g_entitySystemOffsetInGameResourceService = 0x58; // GameResourceService → CGameEntitySystem*
 inline int g_entitySystemIdentityChunksOffset = 0x10; // CEntitySystem → m_pIdentityChunks[]
 inline int g_entityIdentitySize = 0x70; // sizeof(CEntityIdentity) = 112
 inline int g_entityIdentityInstanceOffset = 0x00; // CEntityIdentity::m_pInstance

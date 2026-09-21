@@ -63,8 +63,6 @@ void LoadFromGamedata(const nlohmann::json& gamedata)
 
     offsets::g_clientListOffset = FindPlatformOffset(gamedata, "CNetworkGameServerBase::m_Clients", offsets::g_clientListOffset);
     offsets::g_vtableSlotClientSetName = FindPlatformOffset(gamedata, "CServerSideClient::SetName", offsets::g_vtableSlotClientSetName);
-    offsets::g_entitySystemOffsetInGameResourceService =
-        FindPlatformOffset(gamedata, "GameResourceServiceServer::m_pEntitySystem", offsets::g_entitySystemOffsetInGameResourceService);
     offsets::g_entitySystemIdentityChunksOffset =
         FindPlatformOffset(gamedata, "CEntitySystem::m_EntityList", offsets::g_entitySystemIdentityChunksOffset);
     offsets::g_entityIdentitySize = FindPlatformOffset(gamedata, "CEntityIdentity::Size", offsets::g_entityIdentitySize);
