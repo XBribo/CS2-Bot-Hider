@@ -21,8 +21,6 @@ struct ModuleInfo
 bool ParseSigString(const std::string& signature, std::vector<uint8_t>& bytes, std::vector<bool>& wildcards);
 // Finds the first pattern match across the module segments.
 void* FindPatternIn(const ModuleInfo& module, const std::vector<uint8_t>& pattern, const std::vector<bool>& wildcards);
-// Resolves a loaded module by its basename.
-ModuleInfo ModuleFromName(const char* moduleName);
 // Resolves a loaded module from an interface's vtable.
 ModuleInfo ModuleFromInterfacePtr(void* interfacePtr);
 // Resolves only executable code segments.

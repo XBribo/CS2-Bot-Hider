@@ -50,7 +50,6 @@ void Prepare()
             }
 
             modules::ModuleInfo serverModule = modules::ModuleFromInterfacePtr(g_gameclients);
-            if (!serverModule) serverModule = modules::ModuleFromName(offsets::kServerModuleName);
             entity_access::ResolveUtilRemoveAndEntSys(gamedata, serverModule);
 
             identity_hooks::PrepareAll(gamedata, serverModule);

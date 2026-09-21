@@ -280,18 +280,6 @@ std::vector<void*> FindPatternMatchesIn(const ModuleInfo& module, const std::vec
     return matches;
 }
 
-ModuleInfo ModuleFromName(const char* moduleName)
-{
-#ifdef _WIN32
-    return ModuleFromHandle(GetModuleHandleA(moduleName));
-#else
-    FindByNameCtx ctx{};
-    ctx.name = moduleName;
-    dl_iterate_phdr(FindByNameCallback, &ctx);
-    return ctx.Result;
-#endif
-}
-
 // Resolves executable code ranges from a loaded module
 ModuleInfo ModuleCodeFromName(const char* moduleName)
 {
