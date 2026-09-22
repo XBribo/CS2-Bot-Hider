@@ -4,11 +4,13 @@
 #include <eiface.h>
 class ICvar;
 class INetworkServerService;
+class ISchemaSystem;
 extern IVEngineServer* g_engine;
 extern ICvar* g_icvar;
 extern IServerGameClients* g_gameclients;
 extern IServerGameDLL* g_server;
 extern INetworkServerService* g_pNetworkServerService;
+extern ISchemaSystem* g_schemaSystem;
 namespace cs2bh::interfaces {
 // Acquires the interfaces required before hook preparation.
 bool Init(SourceMM::ISmmAPI* ismm, char* error, size_t maxlen);

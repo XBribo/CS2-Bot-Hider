@@ -1,6 +1,5 @@
 #include "core/gameconfig.h"
 #include "core/gamedata.h"
-#include "core/interfaces.h"
 #include "core/log.h"
 #include "entity_access.h"
 #include "identity_hooks.h"
@@ -49,7 +48,8 @@ void Prepare()
                             "name overwrite disabled\n");
             }
 
-            modules::ModuleInfo serverModule = modules::ModuleFromInterfacePtr(g_gameclients);
+            modules::Initialize();
+            const modules::ModuleInfo& serverModule = modules::server->Image();
             entity_access::ResolveUtilRemoveAndEntSys(gamedata, serverModule);
 
             identity_hooks::PrepareAll(gamedata, serverModule);

@@ -5,10 +5,12 @@
 #include <eiface.h>
 #include <iserver.h>
 #include <interfaces/interfaces.h>
+#include <schemasystem/schemasystem.h>
 IVEngineServer* g_engine = nullptr;
 ICvar* g_icvar = nullptr;
 IServerGameClients* g_gameclients = nullptr;
 IServerGameDLL* g_server = nullptr;
+ISchemaSystem* g_schemaSystem = nullptr;
 namespace cs2bh::interfaces {
 // Resolves required engine and server interfaces through Metamod.
 bool Init(ISmmAPI* ismm, char* error, size_t maxlen)
@@ -18,6 +20,7 @@ bool Init(ISmmAPI* ismm, char* error, size_t maxlen)
     GET_V_IFACE_ANY(GetServerFactory, g_gameclients, IServerGameClients, INTERFACEVERSION_SERVERGAMECLIENTS);
     GET_V_IFACE_ANY(GetServerFactory, g_server, IServerGameDLL, INTERFACEVERSION_SERVERGAMEDLL);
     GET_V_IFACE_ANY(GetEngineFactory, g_pNetworkServerService, INetworkServerService, NETWORKSERVERSERVICE_INTERFACE_VERSION);
+    GET_V_IFACE_ANY(GetEngineFactory, g_schemaSystem, ISchemaSystem, SCHEMASYSTEM_INTERFACE_VERSION);
 
     return true;
 }

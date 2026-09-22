@@ -533,12 +533,14 @@ void PreparePackEntitiesHook(const nlohmann::json& gamedata)
         return;
     }
 
-    modules::ModuleInfo codeModule = modules::ModuleCodeFromName(offsets::kEngineModuleName);
-    if (!codeModule)
+    modules::Initialize();
+    if (!modules::engine || !modules::engine->Code())
     {
         BH_LOG_WARN("%s code range unresolved - PackEntities hook disabled\n", offsets::kEngineModuleName);
         return;
     }
+
+    const modules::ModuleInfo& codeModule = modules::engine->Code();
 
     std::vector<void*> matches = modules::FindPatternMatchesIn(codeModule, bytes, wildcards);
     if (matches.size() != 1)

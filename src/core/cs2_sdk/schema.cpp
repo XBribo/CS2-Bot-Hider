@@ -1,88 +1,26 @@
 // Resolves registered field offsets from the live ISchemaSystem at runtime.
 
 #include "core/cs2_sdk/schema.h"
+#include "core/interfaces.h"
 #include "schemasystem/schematypes.h"
-#include "platform.h"
 #include "offsets.h"
 
 #include <schemasystem/schemasystem.h>
 
-#ifdef _WIN32
-#include <libloaderapi.h>
-#include <minwindef.h>
-#else
-#include <dlfcn.h>
-#include <link.h>
-#endif
-
-#include <cstring>
 #include <string>
 #include <unordered_map>
 
 namespace cs2bh::schema {
-using CreateIfaceFn = void* (*)(const char*, int*);
-
 namespace {
 ISchemaSystem* g_schema = nullptr;
 using FieldMap = std::unordered_map<std::string, int>;
 std::unordered_map<std::string, FieldMap> g_classCache; // NOLINT(bugprone-throwing-static-initialization)
-
-#ifndef _WIN32
-const char* BaseName(const char* path)
-{
-    if (!path) return "";
-    const char* slash = std::strrchr(path, '/');
-    return slash ? slash + 1 : path;
-}
-
-struct FindModuleCtx
-{
-    const char* name = nullptr;
-    const char* Path = nullptr;
-};
-
-int FindModuleCallback(dl_phdr_info* info, size_t, void* data)
-{
-    auto* ctx = static_cast<FindModuleCtx*>(data);
-    if (info->dlpi_name && std::strcmp(BaseName(info->dlpi_name), ctx->name) == 0)
-    {
-        ctx->Path = info->dlpi_name;
-        return 1;
-    }
-    return 0;
-}
-
-void* OpenLoadedModule(const char* moduleName)
-{
-    void* mod = dlopen(moduleName, RTLD_NOW | RTLD_NOLOAD);
-    if (mod) return mod;
-
-    FindModuleCtx ctx{};
-    ctx.name = moduleName;
-    dl_iterate_phdr(FindModuleCallback, &ctx);
-    if (ctx.Path && ctx.Path[0]) return dlopen(ctx.Path, RTLD_NOW | RTLD_NOLOAD);
-    return nullptr;
-}
-#endif
 } // namespace
 
 bool Init()
 {
     if (g_schema) return true;
-
-#ifdef _WIN32
-    HMODULE mod = GetModuleHandleA(offsets::kSchemaSystemModuleName);
-    if (!mod) return false;
-    auto createIface = reinterpret_cast<CreateIfaceFn>(GetProcAddress(mod, "CreateInterface"));
-#else
-    void* mod = OpenLoadedModule(offsets::kSchemaSystemModuleName);
-    if (!mod) return false;
-    auto createIface = reinterpret_cast<CreateIfaceFn>(dlsym(mod, "CreateInterface"));
-#endif
-    if (createIface) g_schema = reinterpret_cast<ISchemaSystem*>(createIface(SCHEMASYSTEM_INTERFACE_VERSION, nullptr));
-#ifndef _WIN32
-    dlclose(mod);
-#endif
+    g_schema = g_schemaSystem;
     return g_schema != nullptr;
 }
 

@@ -1,8 +1,19 @@
 // Module lookup and signature scanning.
 
+#ifndef _WIN32
+#ifndef _GNU_SOURCE
+#define _GNU_SOURCE
+#endif
+#endif
+
 #include "core/memory_module.h"
-#include <vector>
+
+#include <algorithm>
 #include <cstdint>
+#include <cstdlib>
+#include <cstring>
+#include <string>
+#include <vector>
 
 #ifdef _WIN32
 #ifdef _M_AMD64
@@ -11,77 +22,64 @@
 #endif
 #endif
 #include <libloaderapi.h>
-#include <memoryapi.h>
-#include <minwindef.h>
 #include <processthreadsapi.h>
 #include <psapi.h>
 #include <winnt.h>
 #else
 #include <dlfcn.h>
+#include <elf.h>
+#include <fcntl.h>
 #include <link.h>
-#include <strings.h>
+#include <sys/mman.h>
+#include <sys/stat.h>
+#include <unistd.h>
 #endif
 
-#include <algorithm> // NOLINT(misc-include-cleaner)
-#include <cstdio>
-#include <cstdlib>
-#include <cstring>
-#include <string>
+#include <tier0/platform.h>
+#include "metamod_oslink.h"
 
 namespace cs2bh::modules {
 namespace {
-const char* BaseName(const char* path)
-{
-    if (!path) return "";
-    const char* slash = std::strrchr(path, '/');
-    const char* backslash = std::strrchr(path, '\\');
-    const char* base = slash ? slash : backslash;
-    if (backslash && (!base || backslash > base)) base = backslash;
-    return base ? base + 1 : path;
-}
-
 #ifdef _WIN32
-ModuleInfo ModuleFromHandle(HMODULE handle)
+// Resolves the complete mapped PE image for one loaded module.
+ModuleInfo ModuleFromHandle(HINSTANCE handle)
 {
     ModuleInfo out;
     if (!handle) return out;
 
-    MODULEINFO mi{};
-    if (!GetModuleInformation(GetCurrentProcess(), handle, &mi, sizeof(mi))) return out;
+    MODULEINFO moduleInfo{};
+    if (!GetModuleInformation(GetCurrentProcess(), handle, &moduleInfo, sizeof(moduleInfo))) return out;
 
-    out.base = static_cast<unsigned char*>(mi.lpBaseOfDll);
-    out.size = static_cast<size_t>(mi.SizeOfImage);
+    out.base = static_cast<unsigned char*>(moduleInfo.lpBaseOfDll);
+    out.size = static_cast<size_t>(moduleInfo.SizeOfImage);
     out.segments.push_back({ .base = out.base, .size = out.size });
     return out;
 }
 
-// Resolves one mapped PE section and retains the full image bounds
-ModuleInfo ModuleSectionFromHandle(HMODULE handle, const char* sectionName)
+// Resolves the executable PE section used by code-only signature scans.
+ModuleInfo ModuleCodeFromHandle(HINSTANCE handle)
 {
     ModuleInfo out;
-    if (!handle || !sectionName) return out;
+    if (!handle) return out;
 
-    ModuleInfo image = ModuleFromHandle(handle);
+    const ModuleInfo image = ModuleFromHandle(handle);
     if (!image) return out;
 
-    auto* dos = reinterpret_cast<IMAGE_DOS_HEADER*>(image.base);
-    if (dos->e_magic != IMAGE_DOS_SIGNATURE || dos->e_lfanew <= 0) return out;
+    auto* dosHeader = reinterpret_cast<IMAGE_DOS_HEADER*>(image.base);
+    if (dosHeader->e_magic != IMAGE_DOS_SIGNATURE || dosHeader->e_lfanew <= 0) return out;
 
-    auto* nt = reinterpret_cast<IMAGE_NT_HEADERS*>(image.base + dos->e_lfanew);
-    if (nt->Signature != IMAGE_NT_SIGNATURE) return out;
+    auto* ntHeader = reinterpret_cast<IMAGE_NT_HEADERS*>(image.base + dosHeader->e_lfanew);
+    if (ntHeader->Signature != IMAGE_NT_SIGNATURE) return out;
 
-    const size_t nameLength = std::strlen(sectionName);
-    if (nameLength == 0 || nameLength > IMAGE_SIZEOF_SHORT_NAME) return out;
-
-    IMAGE_SECTION_HEADER* section = IMAGE_FIRST_SECTION(nt);
-    for (WORD i = 0; i < nt->FileHeader.NumberOfSections; ++i, ++section)
+    IMAGE_SECTION_HEADER* section = IMAGE_FIRST_SECTION(ntHeader);
+    for (WORD i = 0; i < ntHeader->FileHeader.NumberOfSections; ++i, ++section)
     {
         char name[IMAGE_SIZEOF_SHORT_NAME + 1] = {};
         std::memcpy(name, section->Name, IMAGE_SIZEOF_SHORT_NAME);
-        if (std::strcmp(name, sectionName) != 0) continue;
+        if (std::strcmp(name, ".text") != 0) continue;
 
-        auto sectionSize = static_cast<size_t>(section->Misc.VirtualSize);
-        auto sectionOffset = static_cast<size_t>(section->VirtualAddress);
+        const size_t sectionSize = static_cast<size_t>(section->Misc.VirtualSize);
+        const size_t sectionOffset = static_cast<size_t>(section->VirtualAddress);
         if (sectionSize == 0 || sectionOffset >= image.size || sectionSize > image.size - sectionOffset) return out;
 
         out.base = image.base;
@@ -92,109 +90,117 @@ ModuleInfo ModuleSectionFromHandle(HMODULE handle, const char* sectionName)
     return out;
 }
 #else
-bool NameMatches(const char* loadedPath, const char* moduleName)
+// Adds one mapped ELF segment and updates the module bounds.
+void AddSegment(ModuleInfo& module, uintptr_t address, size_t size)
 {
-    if (!loadedPath || !loadedPath[0] || !moduleName || !moduleName[0]) return false;
-    const char* loadedBase = BaseName(loadedPath);
-    const char* wantBase = BaseName(moduleName);
-    return std::strcmp(loadedBase, wantBase) == 0;
+    if (size == 0) return;
+
+    auto* base = reinterpret_cast<unsigned char*>(address);
+    module.segments.push_back({ .base = base, .size = size });
+
+    if (!module.base || address < reinterpret_cast<uintptr_t>(module.base)) module.base = base;
+
+    const uintptr_t end = address + size;
+    const uintptr_t currentEnd = reinterpret_cast<uintptr_t>(module.base) + module.size;
+    if (end > currentEnd) module.size = static_cast<size_t>(end - reinterpret_cast<uintptr_t>(module.base));
 }
 
-void FillModuleFromPhdr(dl_phdr_info* info, ModuleInfo& out)
+// Resolves ELF load segments directly from the handle's link_map.
+bool FillModuleFromHandle(HINSTANCE handle, ModuleInfo& image, ModuleInfo& code)
 {
-    uintptr_t minAddr = UINTPTR_MAX;
-    uintptr_t maxAddr = 0;
-    out.segments.clear();
+    if (!handle) return false;
 
-    for (int i = 0; i < info->dlpi_phnum; ++i)
+    link_map* linkMap = nullptr;
+    if (dlinfo(handle, RTLD_DI_LINKMAP, &linkMap) != 0 || !linkMap || !linkMap->l_name || !linkMap->l_name[0]) return false;
+
+    const int fileDescriptor = open(linkMap->l_name, O_RDONLY);
+    if (fileDescriptor == -1) return false;
+
+    struct stat fileStatus{};
+    if (fstat(fileDescriptor, &fileStatus) != 0 || fileStatus.st_size <= 0)
     {
-        const ElfW(Phdr) & ph = info->dlpi_phdr[i];
-        if (ph.p_type != PT_LOAD || ph.p_memsz == 0) continue;
-
-        auto* segBase = reinterpret_cast<unsigned char*>(info->dlpi_addr + ph.p_vaddr);
-        size_t segSize = static_cast<size_t>(ph.p_memsz);
-        out.segments.push_back({ segBase, segSize });
-
-        uintptr_t start = reinterpret_cast<uintptr_t>(segBase);
-        uintptr_t end = start + segSize;
-        minAddr = std::min(minAddr, start);
-        maxAddr = std::max(maxAddr, end);
+        close(fileDescriptor);
+        return false;
     }
 
-    if (minAddr != UINTPTR_MAX && maxAddr > minAddr)
+    const size_t fileSize = static_cast<size_t>(fileStatus.st_size);
+    void* mappedFile = mmap(nullptr, fileSize, PROT_READ, MAP_PRIVATE, fileDescriptor, 0);
+    if (mappedFile == MAP_FAILED)
     {
-        out.base = reinterpret_cast<unsigned char*>(minAddr);
-        out.size = static_cast<size_t>(maxAddr - minAddr);
+        close(fileDescriptor);
+        return false;
     }
-}
 
-// Collects executable load segments from one ELF module
-void FillCodeModuleFromPhdr(dl_phdr_info* info, ModuleInfo& out)
-{
-    FillModuleFromPhdr(info, out);
-    out.segments.clear();
-    for (int i = 0; i < info->dlpi_phnum; ++i)
+    if (fileSize < sizeof(ElfW(Ehdr)))
     {
-        const ElfW(Phdr) & ph = info->dlpi_phdr[i];
-        if (ph.p_type != PT_LOAD || ph.p_memsz == 0 || (ph.p_flags & PF_X) == 0) continue;
-
-        auto* segmentBase = reinterpret_cast<unsigned char*>(info->dlpi_addr + ph.p_vaddr);
-        out.segments.push_back({ segmentBase, static_cast<size_t>(ph.p_memsz) });
+        munmap(mappedFile, fileSize);
+        close(fileDescriptor);
+        return false;
     }
-    if (out.segments.empty()) out = {};
-}
 
-struct FindByNameCtx
-{
-    const char* name = nullptr;
-    ModuleInfo Result;
-};
-
-int FindByNameCallback(dl_phdr_info* info, size_t, void* data)
-{
-    auto* ctx = static_cast<FindByNameCtx*>(data);
-    if (!NameMatches(info->dlpi_name, ctx->name)) return 0;
-
-    FillModuleFromPhdr(info, ctx->Result);
-    return ctx->Result ? 1 : 0;
-}
-
-// Resolves executable segments for a module basename
-int FindCodeByNameCallback(dl_phdr_info* info, size_t, void* data)
-{
-    auto* ctx = static_cast<FindByNameCtx*>(data);
-    if (!NameMatches(info->dlpi_name, ctx->name)) return 0;
-
-    FillCodeModuleFromPhdr(info, ctx->Result);
-    return ctx->Result ? 1 : 0;
-}
-
-struct FindByAddressCtx
-{
-    uintptr_t Address = 0;
-    ModuleInfo Result;
-};
-
-int FindByAddressCallback(dl_phdr_info* info, size_t, void* data)
-{
-    auto* ctx = static_cast<FindByAddressCtx*>(data);
-    for (int i = 0; i < info->dlpi_phnum; ++i)
+    auto* elfHeader = static_cast<ElfW(Ehdr)*>(mappedFile);
+    const size_t programHeaderOffset = static_cast<size_t>(elfHeader->e_phoff);
+    const size_t programHeaderSize = static_cast<size_t>(elfHeader->e_phnum) * elfHeader->e_phentsize;
+    const bool validElf = std::memcmp(elfHeader->e_ident, ELFMAG, SELFMAG) == 0 &&
+                          elfHeader->e_ident[EI_CLASS] == ELFCLASS64 &&
+                          programHeaderOffset <= fileSize && programHeaderSize <= fileSize - programHeaderOffset;
+    if (!validElf)
     {
-        const ElfW(Phdr) & ph = info->dlpi_phdr[i];
-        if (ph.p_type != PT_LOAD || ph.p_memsz == 0) continue;
-
-        uintptr_t start = info->dlpi_addr + ph.p_vaddr;
-        uintptr_t end = start + ph.p_memsz;
-        if (ctx->Address >= start && ctx->Address < end)
-        {
-            FillModuleFromPhdr(info, ctx->Result);
-            return ctx->Result ? 1 : 0;
-        }
+        munmap(mappedFile, fileSize);
+        close(fileDescriptor);
+        return false;
     }
-    return 0;
+
+    auto* programHeaders = reinterpret_cast<ElfW(Phdr)*>(static_cast<unsigned char*>(mappedFile) + programHeaderOffset);
+    for (int i = 0; i < elfHeader->e_phnum; ++i)
+    {
+        const ElfW(Phdr)& programHeader = programHeaders[i];
+        if (programHeader.p_type != PT_LOAD || programHeader.p_memsz == 0) continue;
+
+        const uintptr_t address = static_cast<uintptr_t>(linkMap->l_addr + programHeader.p_vaddr);
+        const size_t size = static_cast<size_t>(programHeader.p_memsz);
+        AddSegment(image, address, size);
+        if ((programHeader.p_flags & PF_X) != 0) AddSegment(code, address, size);
+    }
+
+    munmap(mappedFile, fileSize);
+    close(fileDescriptor);
+    return static_cast<bool>(image);
 }
 #endif
 } // namespace
+
+CModule::CModule(const char* relativeDirectory, const char* moduleName)
+{
+    if (!relativeDirectory || !moduleName || !moduleName[0]) return;
+
+    const char* gameDirectory = Plat_GetGameDirectory();
+    if (!gameDirectory || !gameDirectory[0]) return;
+
+    m_path = std::string(gameDirectory) + relativeDirectory + kModulePrefix + moduleName + kModuleExtension;
+    m_hModule = dlmount(m_path.c_str());
+    if (!m_hModule) return;
+
+#ifdef _WIN32
+    m_image = ModuleFromHandle(reinterpret_cast<HMODULE>(m_hModule));
+    m_code = ModuleCodeFromHandle(reinterpret_cast<HMODULE>(m_hModule));
+#else
+    if (!FillModuleFromHandle(static_cast<HINSTANCE>(m_hModule), m_image, m_code))
+    {
+        dlclose(m_hModule);
+        m_hModule = nullptr;
+    }
+#endif
+}
+
+CModule* engine = nullptr;
+CModule* server = nullptr;
+
+void Initialize()
+{
+    if (!engine) engine = new CModule(kRootBin, "engine2");
+    if (!server) server = new CModule(kGameBin, "server");
+}
 
 bool ParseSigString(const std::string& sigStr, std::vector<uint8_t>& outBytes, std::vector<bool>& outWild)
 {
@@ -217,9 +223,9 @@ bool ParseSigString(const std::string& sigStr, std::vector<uint8_t>& outBytes, s
             continue;
         }
         char* end = nullptr;
-        const uint64_t v = std::strtoull(p, &end, 16);
-        if (end == p || end - p > 2 || v > 0xFF) return false;
-        outBytes.push_back(static_cast<uint8_t>(v));
+        const uint64_t value = std::strtoull(p, &end, 16);
+        if (end == p || end - p > 2 || value > 0xFF) return false;
+        outBytes.push_back(static_cast<uint8_t>(value));
         outWild.push_back(false);
         p = end;
     }
@@ -230,15 +236,15 @@ void* FindPatternIn(const ModuleInfo& module, const std::vector<uint8_t>& patter
 {
     if (!module || pattern.empty() || pattern.size() != wild.size()) return nullptr;
 
-    const size_t plen = pattern.size();
+    const size_t patternLength = pattern.size();
     for (const ModuleSegment& segment : module.segments)
     {
-        if (!segment.base || segment.size < plen) continue;
+        if (!segment.base || segment.size < patternLength) continue;
 
-        for (size_t i = 0; i + plen <= segment.size; ++i)
+        for (size_t i = 0; i + patternLength <= segment.size; ++i)
         {
             bool match = true;
-            for (size_t j = 0; j < plen; ++j)
+            for (size_t j = 0; j < patternLength; ++j)
             {
                 if (!wild[j] && segment.base[i + j] != pattern[j])
                 {
@@ -252,7 +258,7 @@ void* FindPatternIn(const ModuleInfo& module, const std::vector<uint8_t>& patter
     return nullptr;
 }
 
-// Finds every pattern match in the selected module segments
+// Finds every pattern match across the selected module segments.
 std::vector<void*> FindPatternMatchesIn(const ModuleInfo& module, const std::vector<uint8_t>& pattern, const std::vector<bool>& wild)
 {
     std::vector<void*> matches;
@@ -278,38 +284,6 @@ std::vector<void*> FindPatternMatchesIn(const ModuleInfo& module, const std::vec
         }
     }
     return matches;
-}
-
-// Resolves executable code ranges from a loaded module
-ModuleInfo ModuleCodeFromName(const char* moduleName)
-{
-#ifdef _WIN32
-    return ModuleSectionFromHandle(GetModuleHandleA(moduleName), ".text");
-#else
-    FindByNameCtx ctx{};
-    ctx.name = moduleName;
-    dl_iterate_phdr(FindCodeByNameCallback, &ctx);
-    return ctx.Result;
-#endif
-}
-
-ModuleInfo ModuleFromInterfacePtr(void* interfacePtr)
-{
-    if (!interfacePtr) return {};
-    void* vtable = *reinterpret_cast<void**>(interfacePtr);
-    if (!vtable) return {};
-
-#ifdef _WIN32
-    MEMORY_BASIC_INFORMATION mbi{};
-    if (!VirtualQuery(vtable, &mbi, sizeof(mbi))) return {};
-    if (mbi.Type != MEM_IMAGE) return {};
-    return ModuleFromHandle(reinterpret_cast<HMODULE>(mbi.AllocationBase));
-#else
-    FindByAddressCtx ctx{};
-    ctx.Address = reinterpret_cast<uintptr_t>(vtable);
-    dl_iterate_phdr(FindByAddressCallback, &ctx);
-    return ctx.Result;
-#endif
 }
 
 } // namespace cs2bh::modules
