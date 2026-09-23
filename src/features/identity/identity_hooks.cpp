@@ -360,7 +360,11 @@ KHook::Return<void> PackPost(void*, void*, int, void*, void*) noexcept
 }
 
 // Restores native identity only while the end-match state machine can reset teams.
+#if defined(__linux__)
+KHook::Return<bool> EndMatchPre(void* gameRules, const char*) noexcept
+#else
 KHook::Return<bool> EndMatchPre(void* gameRules) noexcept
+#endif
 {
     const bool enabled = g_plugin.IsDisguiseEnabled() && gameRules && g_pickNewTeamsOnResetOffset >= 0 &&
                          *(static_cast<const uint8_t*>(gameRules) + g_pickNewTeamsOnResetOffset) != 0;
@@ -369,7 +373,11 @@ KHook::Return<bool> EndMatchPre(void* gameRules) noexcept
 }
 
 // Redisguises surviving clients after the engine finishes its end-match work.
+#if defined(__linux__)
+KHook::Return<bool> EndMatchPost(void*, const char*) noexcept
+#else
 KHook::Return<bool> EndMatchPost(void*) noexcept
+#endif
 {
     EndPopulationFrame(g_teardownFrames);
     return { KHook::Action::Ignore };
@@ -394,7 +402,11 @@ using VotersHook = NativeHook<int, void*>;
 using HumanTeamHook = NativeHook<int64_t>;
 using JoinTeamHook = NativeHook<int64_t, void*, unsigned int, bool>;
 using PackHook = NativeHook<void, void*, void*, int, void*, void*>;
+#if defined(__linux__)
+using EndMatchHook = NativeHook<bool, void*, const char*>;
+#else
 using EndMatchHook = NativeHook<bool, void*>;
+#endif
 std::unique_ptr<QuotaHook> g_quotaHook;
 std::unique_ptr<VotersHook> g_votersHook;
 std::unique_ptr<HumanTeamHook> g_humanTeamHook;

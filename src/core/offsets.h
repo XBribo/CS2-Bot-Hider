@@ -15,7 +15,7 @@ bool LoadFromSchema(char* error, size_t maxlen);
 void LoadFromGamedata(const nlohmann::json& gamedata);
 
 // CNetworkGameServerBase::m_Clients — CUtlVector<CServerSideClient*>
-inline int g_clientListOffset = 584;
+inline int g_clientListOffset = 616;
 
 // CServerSideClient::m_bFakePlayer
 inline int g_fakePlayerOffset = 160;
