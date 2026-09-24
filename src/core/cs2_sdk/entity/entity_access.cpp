@@ -1,3 +1,4 @@
+#include <tier0/platform.h>
 #include "core/gameconfig.h"
 #include "core/log.h"
 #include "entity_access.h"
@@ -55,12 +56,15 @@ void* ResolveClientBySlot(int slot)
 }
 
 // Publishes changed userinfo for one client slot
+uint64_t g_userInfoPublications = 0;
+uint64_t UserInfoPublications() { return g_userInfoPublications; }
 bool RefreshClientUserInfo(int slot)
 {
     if (!g_pNetworkServerService || slot < 0 || slot >= 64) return false;
     auto* gameServer = g_pNetworkServerService->GetIGameServer();
     if (!gameServer) return false;
     gameServer->UserInfoChanged(CPlayerSlot(slot));
+    ++g_userInfoPublications;
     return true;
 }
 
@@ -183,8 +187,8 @@ void* ResolveEntityInstance(int entityIndex, char* classnameOut, size_t classnam
 {
     if (classnameOut && classnameCap) classnameOut[0] = '\0';
     if (!g_entitySystemGlobal || entityIndex <= 0 || entityIndex >= 0x8000 || offsets::g_entitySystemIdentityChunksOffset < 0 ||
-        offsets::g_entityIdentitySize <= 0 ||
-        offsets::g_entityIdentityInstanceOffset < 0 || (classnameOut && classnameCap && offsets::g_entityIdentityClassNameOffset < 0))
+        offsets::g_entityIdentitySize <= 0 || offsets::g_entityIdentityInstanceOffset < 0 ||
+        (classnameOut && classnameCap && offsets::g_entityIdentityClassNameOffset < 0))
     {
         return nullptr;
     }

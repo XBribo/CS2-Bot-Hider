@@ -2,6 +2,10 @@
 
 **Make Bot Vivid Again**
 
+> Integration candidate: upstream hooks plus a shared presentation lease provider.
+> See [TECH.md](TECH.md) for compatibility and acceptance steps and
+> [MAINTENANCE.md](MAINTENANCE.md) for provenance. This is not an upstream release.
+
 > For developer, see [TECH.md](TECH.md).
 
 ## Your stars⭐ are my motivation to keep updating
@@ -30,6 +34,12 @@ The packaged `addons/BotHider/config.json` selects the identity mode and fake-pi
 ------------------------------------------------------------------------
 
 ## Console Commands
+
+`auto_respawn` now defaults to `false`; enable it only if BotHider should respawn
+bots at round start. `external_avatars` defaults to `false` for ordinary servers.
+For DemoTracer set it to `true` and keep `auto_respawn=false` (see
+`configs/examples/demotracer.json`). Restart after changing these options.
+Preserve your configuration and install the matched native/managed package.
 
 | Command | Description |
 | --------- | ------------- |

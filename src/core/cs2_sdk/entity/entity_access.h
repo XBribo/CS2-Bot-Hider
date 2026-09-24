@@ -3,6 +3,7 @@
 #include "core/memory_module.h"
 
 #include <cstddef>
+#include <cstdint>
 
 #include <nlohmann/json.hpp>
 
@@ -25,6 +26,7 @@ void* ResolveClientBySlot(int slot);
 
 // Publishes changed userinfo for one client slot
 bool RefreshClientUserInfo(int slot);
+uint64_t UserInfoPublications();
 
 // Resolves one entity instance and optionally copies its class name
 void* ResolveEntityInstance(int entityIndex, char* classnameOut, size_t classnameCap);

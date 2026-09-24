@@ -135,9 +135,14 @@ foreach(p ${PROTO_FILES})
     list(APPEND PROTO_INPUTS "${PROTO_DIR}/${p}")
 endforeach()
 
+set(PROTOBUF_IMPORT_DIR "${HL2SDK}/thirdparty/protobuf-3.21.8/src" CACHE PATH "Protobuf well-known proto imports")
+set(PROTO_IMPORT_ARGS "--proto_path=${PROTO_DIR}")
+if(EXISTS "${PROTOBUF_IMPORT_DIR}/google/protobuf/descriptor.proto")
+    list(APPEND PROTO_IMPORT_ARGS "--proto_path=${PROTOBUF_IMPORT_DIR}")
+endif()
 add_custom_command(
     OUTPUT ${PROTO_SRCS}
-    COMMAND "${PROTOC_EXE}" --cpp_out=${GENERATED_DIR} --proto_path=${PROTO_DIR} ${PROTO_FILES}
+    COMMAND "${PROTOC_EXE}" --cpp_out=${GENERATED_DIR} ${PROTO_IMPORT_ARGS} ${PROTO_FILES}
     DEPENDS ${PROTO_INPUTS}
     WORKING_DIRECTORY "${PROTO_DIR}"
     COMMENT "protoc ${PROTO_FILES}"
@@ -163,6 +168,7 @@ set(NLOHMANN_JSON_INCLUDE "${CMAKE_SOURCE_DIR}/libraries")
 set(SDK_SOURCES
     ${HL2SDK}/public/tier0/memoverride.cpp
     ${HL2SDK}/tier1/keyvalues3.cpp
+    ${HL2SDK}/tier1/generichash.cpp
     ${HL2SDK}/tier1/convar.cpp
 )
 
@@ -185,6 +191,7 @@ add_library(
     src/features/identity/identity_runtime.cpp
     src/features/identity/identity_state.cpp
     src/bridge/slot_publisher.cpp
+    src/bridge/presentation_api.cpp
     src/core/cs2_sdk/entity/entity_access.cpp
     src/core/offsets.cpp
     src/utils/platform.cpp

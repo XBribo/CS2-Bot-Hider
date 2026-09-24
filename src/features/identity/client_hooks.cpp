@@ -1,3 +1,4 @@
+#include <tier0/platform.h>
 #include "network_connection.pb.h"
 #include "playerslot.h"
 #include "plugin.h"

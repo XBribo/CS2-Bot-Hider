@@ -10,7 +10,7 @@ void SetStringTableContainer(INetworkStringTableContainer* container);
 // Resets all per-slot avatar bookkeeping and published states
 void ResetRuntime();
 
-// Applies pending shared-memory avatar requests on the game thread
+// Applies pending in-process avatar requests on the game thread
 void ProcessOverrides();
 
 } // namespace cs2bh::avatar

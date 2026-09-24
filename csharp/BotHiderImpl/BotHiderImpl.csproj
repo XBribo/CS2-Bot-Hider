@@ -20,10 +20,13 @@
     <PackageReference Include="Lib.Harmony" Version="2.4.2" GeneratePathProperty="true">
       <Private>false</Private>
     </PackageReference>
+    <ProjectReference Include="../DemoTracerBotHiderApi/BotHiderApi.csproj"><Private>false</Private></ProjectReference>
     <ProjectReference Include="..\BotHiderApi\BotHiderApi.csproj">
       <Private>false</Private>
     </ProjectReference>
   </ItemGroup>
+
+  <ItemGroup><InternalsVisibleTo Include="BotHider.Tests" /></ItemGroup>
 
   <Target Name="CopyHarmony" AfterTargets="Build;Publish">
     <Copy SourceFiles="$(PkgLib_Harmony)\lib\net10.0\0Harmony.dll"

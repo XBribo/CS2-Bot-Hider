@@ -57,6 +57,29 @@ inline void WriteSteamId(void* client, uint64_t steamId)
     std::memcpy(raw + g_steamIdMirrorOffset, &steamId, sizeof(steamId));
 }
 
+// Return whether persistent client identity actually changed. Temporary quota
+// scopes restore their snapshot before this runs; those no-op passes must not
+// republish every bot's userinfo (including during the team introduction).
+inline bool ReconcileIdentity(void* client, bool disguised, uint64_t steamId)
+{
+    auto* raw = static_cast<unsigned char*>(client);
+    const auto oldFlags = raw[g_connectionTypeFlagsOffset];
+    const auto oldFake = raw[g_fakePlayerOffset];
+    if (disguised) ClearFakePlayer(client);
+    else
+        SetFakePlayer(client);
+    bool changed = oldFlags != raw[g_connectionTypeFlagsOffset] || oldFake != raw[g_fakePlayerOffset];
+    uint64_t primary = 0, mirror = 0;
+    std::memcpy(&primary, raw + g_steamIdOffset, sizeof(primary));
+    std::memcpy(&mirror, raw + g_steamIdMirrorOffset, sizeof(mirror));
+    if (steamId != 0 && (primary != steamId || mirror != steamId))
+    {
+        WriteSteamId(client, steamId);
+        changed = true;
+    }
+    return changed;
+}
+
 // Checks whether the client has the fake-player flag
 inline bool IsFakePlayerSet(const void* client)
 {

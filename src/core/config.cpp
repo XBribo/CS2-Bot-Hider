@@ -22,6 +22,10 @@ Settings Load(const char* baseDir)
         }
         else if (config.is_object())
         {
+            if (config.contains("auto_respawn") && config["auto_respawn"].is_boolean())
+                settings.autoRespawn = config["auto_respawn"].get<bool>();
+            if (config.contains("external_avatars") && config["external_avatars"].is_boolean())
+                settings.externalAvatars = config["external_avatars"].get<bool>();
             if (config.contains("identity_mode") && config["identity_mode"].is_string())
             {
                 const std::string mode = config["identity_mode"].get<std::string>();
@@ -60,6 +64,8 @@ Settings Load(const char* baseDir)
         {
             defaultConfig << "{\n"
                              "    \"identity_mode\": \"player\",\n"
+                             "    \"auto_respawn\": false,\n"
+                             "    \"external_avatars\": false,\n"
                              "    \"fake_ping\": {\n"
                              "        \"enabled\": true,\n"
                              "        \"min\": 20,\n"

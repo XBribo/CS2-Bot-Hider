@@ -1,10 +1,10 @@
 {
     "identity_mode": "player",
+    "auto_respawn": false,
+    "external_avatars": true,
     "fake_ping": {
         "enabled": true,
         "min": 20,
         "max": 90
-    },
-    "auto_respawn": false,
-    "external_avatars": false
+    }
 }

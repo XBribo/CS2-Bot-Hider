@@ -180,7 +180,7 @@ HiderPlugin::HookStartChangeLevelPre(INetworkGameServer*,
     return { KHook::Action::Ignore, nullptr };
 }
 
-// Drives deferred cleanup and shared-memory commands each frame
+// Drives deferred cleanup and avatar requests each frame
 KHook::Return<void> HiderPlugin::HookGameFramePost(IServerGameDLL*, bool simulating, bool /*firstTick*/, bool /*lastTick*/) noexcept
 {
     const hooks::CallbackScope callbackScope;
@@ -209,44 +209,6 @@ KHook::Return<void> HiderPlugin::HookGameFramePost(IServerGameDLL*, bool simulat
         }
     }
 
-    Publisher().DrainCommands(
-        // Updates both engine SteamID fields and userinfo
-        [this](int slot, uint64_t steamId) {
-        if (!Manager().IsManaged(slot)) return;
-        void* client = entity_access::ResolveClientBySlot(slot);
-        if (!client) return;
-        const uint64_t uniqueSteamId = identity_runtime::MakeUniqueSteamId(slot, steamId);
-        if (IsDisguiseEnabled())
-        {
-            ssc::ClearFakePlayer(client);
-            identity_runtime::SetControllerFakeClientFlag(slot, false);
-        }
-        ssc::WriteSteamId(client, uniqueSteamId);
-        Manager().SetSyntheticSid(slot, uniqueSteamId);
-        Publisher().UpdateSyntheticSid(slot, uniqueSteamId);
-        entity_access::RefreshClientUserInfo(slot);
-    },
-        // Updates the engine and published persona name
-        [this](int slot, const char* name) {
-        if (!Manager().IsManaged(slot) || !name || !name[0])
-        {
-            return;
-        }
-        void* client = entity_access::ResolveClientBySlot(slot);
-        if (!client) return;
-        entity_access::SetEngineName(client, name);
-        Personas().MarkSlotManaged(slot, name);
-        Publisher().UpdatePersonaName(slot, name);
-    },
-        // Changes the global identity mode
-        [this](bool botMode) {
-        SetIdentityMode(botMode ? IdentityMode::Bot : IdentityMode::Player);
-    },
-        // Changes the display-name source
-        [this](bool useBotInfo) {
-        SetUseBotInfoName(useBotInfo);
-        BH_LOG_DEBUG("name source -> %s\n", useBotInfo ? "bot_info" : "botprofile");
-    });
     avatar::ProcessOverrides();
     return { KHook::Action::Ignore };
 }

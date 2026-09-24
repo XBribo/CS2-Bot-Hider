@@ -1,286 +1,179 @@
-# BotHider
+# BotHider developer guide
 
-> This document contains build instructions, API references, and developer integration guides.
-> For general usage and installation, see [README.md](README.md).
+The native plugin and managed provider must be upgraded together. See
+[README.md](README.md) for usage and [MAINTENANCE.md](MAINTENANCE.md) for provenance.
 
-------------------------------------------------------------------------
+## Build and test
 
-## Overview
-
-`BotHider` is a **Metamod:Source & CounterStrikeSharp plugin** that removes the `BOT` tag from fake clients and assigns them realistic player identities.  
-It exposes `IBotHiderApi`, consumable from any other C# plugin, allowing full read/write control over bot identities at runtime.
-
-When the engine spawns a fake client, BotHider:
-
-- Strips the `BOT` scoreboard label
-- Assigns a synthetic **SteamID64**
-- Renames the bot to a curated **persona name**
-- Applies a **jittered ping** and a **crosshair share-code**
-- Applies a **scoreboard flair** via `CCSPlayerController_InventoryServices.m_rank`
-- Applies an optional **custom PNG avatar** through `ServerAvatarOverrides`
-- Patches `CCSPlayerController.IsBot` to report `true` for managed bots (preserving compatibility with other plugins)
-
-------------------------------------------------------------------------
-
-## How to Build
-
-### Prerequisites
-
-- **Windows**: `HL2SDKCS2`, `MMSOURCE_DEV`, `CSGO_PROTO` environment variables set; `protoc` 3.21.x on PATH.
-- **Linux (WSL)**: A WSL distro (e.g., `Ubuntu-24.04`) with `g++`, `cmake`, and `protobuf-compiler` installed.
-- **C#**: .NET SDK compatible with CounterStrikeSharp.
-
-### One-click build (Windows host, all targets)
+Use .NET 10, an x64 C++20 compiler, CMake 3.20+, and protoc 3.21.x.
+Set HL2SDKCS2 to the CS2 HL2SDK checkout and MMSOURCE_DEV to Metamod with its KHook
+submodule. CSGO_PROTO optionally selects the proto directory; PROTOC selects
+the compiler executable. PROTOBUF_IMPORT_DIR is a CMake cache override for
+well-known proto imports.
 
 ```powershell
-./build.ps1            # Build everything (Windows, Linux via WSL, and C# plugins)
-./build.ps1 -Windows   # Windows only
-./build.ps1 -Linux     # Linux only (via WSL)
-./build.ps1 -CSharp    # C# plugins only
-./build.ps1 -Clean     # Clean build all
+./build.ps1 -Windows -CSharp
+cmake -S tests/native -B build/tests -A x64
+cmake --build build/tests --config Release
+ctest --test-dir build/tests -C Release --output-on-failure
+dotnet test tests/managed/BotHider.Tests.csproj -c Release
 ```
 
-Output packages appear in `dist/windows/` and `dist/linux/`.
+For Linux, configure the native project in SteamRT3 with
+`cmake -S . -B build -DCMAKE_BUILD_TYPE=Release`, then build with
+`cmake --build build`. Configure the portable tests without `-A x64`.
+The manually dispatched Build workflow tests/builds both platforms.
+Leave its release option disabled for candidates.
 
-### Manual Build
+## Installation boundaries
 
-**C++ (Metamod plugin) — Windows:**
+Install exactly one BotHider native binary and one BotHiderImpl CSS provider.
+Remove duplicate provider folders such as BotHider or DemoTracerBotHider.
+Packages include shared/BotHiderApi, shared/DemoTracerBotHiderApi and
+shared/0Harmony beneath addons/counterstrikesharp.
 
-```
-cmake -B build -G "Visual Studio 18 2026" -A x64
-cmake --build build --config Release
-```
+Preserve config.json and bot_info.json when upgrading. Restart after replacing
+native binaries, shared assemblies or config. CSS hot reload cannot safely
+replace the shared contracts.
 
-**C++ (Metamod plugin) — Linux:**
+The native ABI is **4** (slot size 172 bytes, signature size 40 bytes).
+It replaces upstream shared memory; direct SHM consumers must migrate.
+It rejects the older DemoTracer native ABI 3. Managed API compatibility does
+not permit mixing native/provider versions.
 
-```
-cmake -B build -DCMAKE_BUILD_TYPE=Release
-cmake --build build -j$(nproc)
-```
+## Configuration and avatars
 
-**C# (CSS plugins):**
-
-```
-dotnet build csharp/BotHiderImpl/BotHiderImpl.csproj -c Release
-dotnet build csharp/BotHiderApi/BotHiderApi.csproj -c Release
-```
-
-------------------------------------------------------------------------
-
-## Configuration File (bot_info.json)
-
-Located in `/game/csgo/addons/BotHider/bot_info.json`.
-Maps a persona name to a **32-bit Steam account ID**, optional crosshair share code, and optional scoreboard flair defidx.
+Configuration is read at native load:
 
 ```json
 {
-    "s1mple": {
-        "steamid": 73936547,
-        "crosshair_code": "CSGO-pE5f8-6RQvk-HLpdN-KW3J6-BQwLA",
-        "scoreboard_flair": 874
-    }
+  "identity_mode": "player",
+  "auto_respawn": false,
+  "external_avatars": false,
+  "fake_ping": { "enabled": true, "min": 20, "max": 90 }
 }
 ```
 
-On spawn, BotHider selects an entry from this file (preferring one matching the engine's proposed bot name, otherwise random unused entry).
-The selected entry supplies the **SteamID**, **crosshair**, **scoreboard flair**, and **ping** for the bot.
-Display name is controlled separately by `bh_namesource`.
+identity_mode selects player disguise or native bot flags. Fake ping stays in
+the configured inclusive range. auto_respawn opts into the upstream round-start
+team assignment/respawn behavior; leased bots are skipped.
 
-`scoreboard_flair` is a CS2 item definition index. Missing, invalid, or `0` values are treated as clear/no flair. Use [unicbm/cs2-econ-id-index](https://github.com/unicbm/cs2-econ-id-index) to look up valid scoreboard flair item definition IDs.
+**For DemoTracer set external_avatars=true and auto_respawn=false**. See
+configs/examples/demotracer.json. This disables BotHider avatar-table writes and
+rejects avatar setters, leaving BotController responsible for replay avatars.
+Restart when changing modes; this is not a live ownership handoff protocol.
+Only one publisher may own ServerAvatarOverrides.
 
-## Identity Mode (config.json)
+In ordinary mode, SetBotAvatar validates PNG signature and size (8 bytes through
+16 KiB), copies bytes into native storage, and returns request acceptance.
+Native frame processing updates ServerAvatarOverrides; HasBotAvatar reports
+applied state. This is not a client rendering ACK or a full PNG decoder.
+Requests carry slot incarnation so replacement bots cannot inherit them.
+SteamID changes rebind avatars; disconnect/map teardown clears them.
+The compact HUD can retain its engine cache after the scoreboard updates.
 
-Located in `/game/csgo/addons/BotHider/config.json`:
+bot_info.json maps persona names to steamid (32-bit account ID), optional
+crosshair_code and scoreboard_flair (0 through 65535). Missing/zero flair clears
+it. bh_namesource chooses whether future bots use the selected persona name.
 
-```json
-{
-    "identity_mode": "player",
-    "fake_ping": {
-        "enabled": true,
-        "min": 20,
-        "max": 90
-    }
-}
-```
+## Managed APIs
 
-`player` is the default and enables the synthetic-player presentation. `bot` leaves the client/controller fake flags under Valve's native BotManager while BotHider continues to manage names, SteamIDs, and custom avatar presentation. `fake_ping.enabled` controls ping generation, and `min`/`max` are inclusive bounds for the final displayed value. The configuration is read when the Metamod plugin loads.
+All API calls and owner lifetime cancellation run on the server thread.
+Reference shared assemblies with Private=false; do not package private copies.
 
-------------------------------------------------------------------------
+| Capability | Contract | Purpose |
+| --- | --- | --- |
+| bothider:api | BotHiderApi.IBotHiderApi | Existing upstream getters/setters |
+| bothider:presentation:v1 | BotHiderApi.IBotHiderPresentationApi | Neutral lease API v1 |
+| demotracer:bot-hider:v2 | DemoTracerBotHiderApi.IBotHiderApi | Existing DemoTracer API v2 |
 
-## Exposed Interface (C#)
+All three use one service and lease registry. The compatibility adapter maps
+DTOs, not state. Native sessions, map/provider epochs and slot incarnations
+invalidate stale requests.
 
-```csharp
-public enum BotIdentityMode
-{
-    Player = 0,
-    Bot = 1
-}
-
-public interface IBotHiderApi
-{
-    // --- read ---
-    bool     IsManagedBot(int slot);        // is this one of ours?
-    ulong    GetBotSteamId(int slot);        // assigned SteamID64 (0 if none)
-    int[]    GetManagedSlots();             // all managed bot slots
-    string   GetPersonaName(int slot);      // assigned display name
-    int      GetPing(int slot);             // current jittered ping (ms)
-    string   GetCrosshairCode(int slot);    // assigned crosshair share-code
-    bool     HasBotAvatar(int slot);        // native override is active for the current SteamID
-    uint     GetScoreboardFlair(int slot);  // assigned scoreboard flair defidx
-    (string Name, ulong Addr)[] GetSignatures();
-
-    // --- write (applied on the next server frame) ---
-    bool     SetBotSteamId(int slot, ulong steamId64);
-    bool     SetCrosshairCode(int slot, string code); // empty or "0" to clear
-    bool     SetBotAvatar(int slot, string pngPath);  // valid PNG up to 16 KiB, or "0" to clear
-    bool     SetPersonaName(int slot, string name);     // visible graphemes, maximum 31 UTF-8 bytes
-    bool     SetScoreboardFlair(int slot, uint itemDefIndex);
-
-    // --- global toggles ---
-    bool     SetIdentityMode(BotIdentityMode mode);
-    bool     SetNameSource(bool useBotInfo); // true=bot_info name, false=botprofile name
-}
-```
-
-`slot` is the engine player slot (`CCSPlayerController.Slot.Value`).
-
-------------------------------------------------------------------------
-
-## Getting the API (C# Integration)
-
-1. Add a reference to `BotHiderApi.dll` in your plugin's `.csproj`:
-
-```xml
-<ItemGroup>
-  <Reference Include="BotHiderApi">
-    <HintPath>libs/BotHiderApi.dll</HintPath>
-  </Reference>
-</ItemGroup>
-```
-
-1. Resolve the capability after all plugins are loaded:
+### Lease API
 
 ```csharp
 using BotHiderApi;
 using CounterStrikeSharp.API.Core.Capabilities;
+private static readonly PluginCapability<IBotHiderPresentationApi> Cap =
+    new(BotHiderPresentationContract.Capability);
+private readonly CancellationTokenSource lifetime = new();
 
-private static readonly PluginCapability<IBotHiderApi> Cap = new("bothider:api");
-private IBotHiderApi? _api;
-
-public override void OnAllPluginsLoaded(bool hotReload) => _api = Cap.Get();
-```
-
-------------------------------------------------------------------------
-
-## Reading Bot State
-
-| Check | Result for managed bots |
-|-------|--------------------------|
-| `player.IsBot` | `true` |
-| `_api.IsManagedBot(slot)` | `true` |
-
-```csharp
-foreach (int slot in _api.GetManagedSlots())
+// On server thread, after all plugins load:
+var api = Cap.Get();
+if (api != null && api.TryGetManagedSlot(slot, out var state))
 {
-    Console.WriteLine(
-        $"slot={slot} sid={_api.GetBotSteamId(slot)} " +
-        $"name='{_api.GetPersonaName(slot)}' ping={_api.GetPing(slot)}");
+    var result = api.AcquirePresentationLease("my-plugin", [
+        new BotHiderPresentationOverride {
+            Slot = slot, Incarnation = state.Incarnation,
+            PlayerName = "Replay player", SteamId = uniqueSteamId,
+            CrosshairCode = "", ScoreboardFlair = 0
+        }
+    ], lifetime.Token);
+    // Keep result.LeaseToken if result.Ok; release it when finished.
 }
+// On consumer unload, on the server thread:
+lifetime.Cancel();
+lifetime.Dispose();
 ```
 
-Use `_api.IsManagedBot(slot)` when you need a guarantee independent of Harmony.
+Acquire/Replace succeeds after native identity and requested controller fields
+pass synchronous readback; this is not a remote client ACK. Requested IDs are
+exact: conflicts are rejected, not substituted. Batches may permute identities
+across their managed slots. Failure reverts lease ownership and attempts to
+restore previous presentation; engine failure can still prevent restoration
+and is logged. Null fields inherit base values; an empty crosshair clears it.
 
-------------------------------------------------------------------------
+Release restores current base presentation. Disconnect removes only the affected
+slot, preserving surviving lease slots. Empty leases are revoked. Native/provider
+reload and map boundaries invalidate old ownership. ProviderChanged subscribers
+must unsubscribe on unload and defer engine work until a frame.
+No heartbeat is required.
 
-## Overriding Identity at Runtime
+### Legacy setters
 
-`SetBotSteamId` and `SetPersonaName` queue a command to the C++ side. Always re-query after applying.
+The original BotHiderApi.IBotHiderApi and bothider:api capability remain.
+Identity/crosshair/flair setters pass through lease validation/publication and
+then commit a new base persona. They return synchronous success/failure rather
+than queue acceptance. Leased/unavailable slots, duplicate IDs and failed
+publication return false. Identity-mode changes are rejected while leases exist.
+Name normalization preserves upstream Unicode text elements and the 31-byte
+UTF-8 limit. Avatar setters still return asynchronous acceptance.
 
-```csharp
-ulong steamId64 = 76561197960287930;
+## Publication and intro performance
 
-if (_api.SetBotSteamId(3, steamId64))
-    Console.WriteLine("SteamID queued");
+Native changes and player events coalesce into at most one pending full
+presentation pass per frame. Ping events target changed slots unless a full
+pass is pending. The two-second repeating pass and 0.25-second intro retry loop
+are removed. Fields publish only changes or required first-controller repairs.
 
-if (_api.SetPersonaName(3, "ZywOo"))
-    Console.WriteLine("Name queued");
-```
+After a population transaction restores its temporary identity snapshot,
+ApplyManagedDisguise now refreshes userinfo only if fake flags or SteamID
+mirrors changed. Previously every such pass refreshed all managed bots.
+The native regression covers 1,280 unchanged passes, mirror repair and mode
+transitions.
 
-`SetPersonaName` also immediately updates the scoreboard via the controller schema.
+bh_status reports leases, writes, repairs, userinfo_refreshes and the two new
+options. userinfo_refreshes counts explicit successful RefreshClientUserInfo
+calls since native load; it excludes engine-internal SetName publication and
+does not measure frame time.
 
-Names are normalized inside BotHider before they enter the 32-byte shared-memory field. Control and format-only text elements are removed, leading and trailing whitespace is discarded, and the remaining name is truncated to `BotHiderContract.MaxPlayerNameUtf8Bytes` (31) at a complete Unicode text-element boundary. A name whose normalized result is empty is rejected.
+## Runtime acceptance
 
-------------------------------------------------------------------------
+Compare matched game/Metamod/CSS builds, maps and bot counts:
 
-## Custom Avatar Pipeline
+1. Check bh_status hooks/managed slots and all legacy setters.
+2. Compare repeated team intros: client/server frame time and counter deltas.
+3. Exercise late human/HLTV joins, quota changes, kick/re-add slot reuse, team
+   changes, map restart and map change.
+4. Acquire/replace/release leases, cancel owners, unload consumers/providers;
+   check restoration and stale-request rejection.
+5. With DemoTracer's external-avatar config, test play, pause, stop, natural
+   finish and replay replacement; verify names, IDs, crosshairs and avatars.
+6. For rollback, stop the server and restore the previous matched native/managed
+   bundle and saved config.
 
-`SetBotAvatar` is implemented by the managed/native bridge:
-
-1. `BotHiderImpl` resolves the server-local path and rejects missing, empty, non-PNG, or larger-than-16-KiB files before reading the complete file.
-2. The PNG bytes, byte length, request sequence, and current slot incarnation are written to a per-slot shared-memory region. An odd/even seqlock prevents native code from consuming a partially written PNG.
-3. The native plugin processes changed requests on the game thread, enables `sv_reliableavatardata`, and finds the `ServerAvatarOverrides` network string table.
-4. The bot's final SteamID64 is used as the string-table key and the PNG bytes are stored as its user data. Index `0` is reserved as an empty sentinel because player avatar data must use a nonzero index.
-5. Applied state and the applied SteamID64 are published back to C#, which is what `HasBotAvatar` and `bh_status` report.
-
-Avatar requests are bound to the current native slot incarnation. A disconnected bot therefore cannot leak its avatar to a new bot that later occupies the same slot. If the managed bot's SteamID changes, native code clears the old SteamID entry and reapplies the same PNG under the final new SteamID. A recreated map string table also forces reapplication.
-
-```csharp
-if (_api.SetBotAvatar(slot, @"E:\avatars\player.png"))
-    Console.WriteLine("Avatar queued");
-
-// SetBotAvatar reports that the request was accepted; native applies it next frame
-bool applied = _api.HasBotAvatar(slot);
-
-_api.SetBotAvatar(slot, "0");
-```
-
-Console equivalents:
-
-```text
-bh_setavatar <slot> <png_path|0>
-```
-
-Use `0` in place of `png_path` to clear the avatar. The command accepts server console/RCON callers and clients with CounterStrikeSharp `@css/root`.
-
-------------------------------------------------------------------------
-
-## Scoreboard Flair
-
-Default flair selection happens in the C++ plugin:
-
-1. `BotInfoStore` reads `scoreboard_flair` from `bot_info.json`.
-2. Missing, invalid, or `0` values are kept as clear/no flair.
-3. The selected value is published through shared memory at `kOff_ScoreboardFlair`.
-4. The C# plugin reads that value and writes every entry in `InventoryServices.Rank`.
-
-Runtime overrides stay in C#:
-
-```csharp
-uint current = _api.GetScoreboardFlair(3);
-
-if (_api.SetScoreboardFlair(3, 4974))
-    Console.WriteLine("Scoreboard flair applied");
-```
-
-The console equivalent is:
-
-```text
-bh_setflair <slot> <item_def_index>
-```
-
-Use `0` to clear the flair.
-
-------------------------------------------------------------------------
-
-## License
-
-CS2-Bot-Hider is licensed under the GNU Affero General Public License version 3 (AGPL-3.0).
-Commercial use involving closed-source distribution or hosted services may require a separate license.
-See the LICENSE file for details.
-
-------------------------------------------------------------------------
-
-## Author
-
-- **XBribo**
-- Other contributors
+Offline regressions do not prove intro performance or current-game compatibility.
+DemoTracer's installer/version manifest requires separate integration work after
+acceptance.

@@ -252,23 +252,9 @@ void ApplyManagedDisguise(bool disguised)
         void* client = entity_access::ResolveClientBySlot(slot);
         if (!client) continue;
 
-        if (disguised)
-        {
-            ssc::ClearFakePlayer(client);
-            SetControllerFakeClientFlag(slot, false);
-            const uint64_t steamId = Manager().GetSyntheticSid(slot);
-            if (steamId != 0) ssc::WriteSteamId(client, steamId);
-        }
-        else
-        {
-            ssc::SetFakePlayer(client);
-            SetControllerFakeClientFlag(slot, true);
-            // Bot mode keeps Valve's bot flags but retains the managed
-            // SteamID used by BotHider's presentation and avatar override.
-            const uint64_t steamId = Manager().GetSyntheticSid(slot);
-            if (steamId != 0) ssc::WriteSteamId(client, steamId);
-        }
-        entity_access::RefreshClientUserInfo(slot);
+        const bool changed = ssc::ReconcileIdentity(client, disguised, Manager().GetSyntheticSid(slot));
+        SetControllerFakeClientFlag(slot, !disguised);
+        if (changed) entity_access::RefreshClientUserInfo(slot);
     }
 }
 

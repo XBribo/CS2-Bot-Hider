@@ -166,7 +166,7 @@ bool HiderPlugin::Load(PluginId id, ISmmAPI* ismm, char* error, size_t maxlen, b
         return false;
     }
 
-    const auto settings = config::Load(g_SMAPI->GetBaseDir());
+    const auto settings = config::Current = config::Load(g_SMAPI->GetBaseDir());
     m_identityMode = settings.botMode ? IdentityMode::Bot : IdentityMode::Player;
     Manager().ConfigureFakePing(settings.fakePingEnabled, settings.fakePingMin, settings.fakePingMax);
 
@@ -187,9 +187,9 @@ bool HiderPlugin::Load(PluginId id, ISmmAPI* ismm, char* error, size_t maxlen, b
 
     Manager().Init();
 
-    // Open the shared-memory bridge
-    const bool sharedMemoryReady = Publisher().Init();
-    if (sharedMemoryReady)
+    // Open the in-process presentation bridge
+    const bool presentationReady = Publisher().Init();
+    if (presentationReady)
     {
         // Publish resolved hook/sig addresses for bh_status (0 = unresolved)
         Publisher().PublishSignature("UTIL_Remove", entity_access::UtilRemoveTarget());
@@ -202,7 +202,7 @@ bool HiderPlugin::Load(PluginId id, ISmmAPI* ismm, char* error, size_t maxlen, b
     }
     else
     {
-        BH_LOG_WARN("shared memory init failed — CSS bridge disabled\n");
+        BH_LOG_WARN("presentation init failed — CSS bridge disabled\n");
     }
 
     // Load bot identity data from JSON config
@@ -232,11 +232,12 @@ bool HiderPlugin::Load(PluginId id, ISmmAPI* ismm, char* error, size_t maxlen, b
     if (identity_hooks::HandleJoinTeamTarget()) ++installedHooks;
     if (identity_hooks::HumanTeamRestrictionTarget()) ++installedHooks;
     if (identity_hooks::SameMapTeardownTarget()) ++installedHooks;
+    g_engine->ServerCommand("bh_native_ready\n");
     BH_LOG_INFO("Loaded %s\n", GetVersion());
-    BH_LOG_DEBUG("config mode=%s fake_ping=%s range=%d-%d identities=%zu hooks=%d/6 util_remove=%s schema=%s shm=%s avatar=%s\n",
+    BH_LOG_DEBUG("config mode=%s fake_ping=%s range=%d-%d identities=%zu hooks=%d/6 util_remove=%s schema=%s presentation=%s avatar=%s\n",
                  IsBotMode() ? "bot" : "player", settings.fakePingEnabled ? "on" : "off", settings.fakePingMin, settings.fakePingMax,
                  BotInfo().Count(), installedHooks, entity_access::UtilRemoveTarget() ? "ok" : "fail", "ok",
-                 sharedMemoryReady ? "ok" : "fail", networkStringTables ? "ok" : "fail");
+                 presentationReady ? "ok" : "fail", networkStringTables ? "ok" : "fail");
     return true;
 }
 

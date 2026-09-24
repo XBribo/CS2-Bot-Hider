@@ -125,6 +125,10 @@ function Build-Dist([string]$nativePkg, [string]$csharpOut, [string]$destRoot) {
         Copy-Item -Destination $plugDir -Force
         Get-ChildItem "$csharpOut/BotHiderApi.*" -File |
         Copy-Item -Destination $apiDir -Force
+        $compatDir = Join-Path $sharedDir "DemoTracerBotHiderApi"
+        New-Item -ItemType Directory -Force $compatDir | Out-Null
+        Get-ChildItem "$csharpOut/DemoTracerBotHiderApi.*" -File |
+        Copy-Item -Destination $compatDir -Force
         if (Test-Path "$csharpOut/shared") {
             Copy-Item -Recurse -Force "$csharpOut/shared/*" $sharedDir
         }
@@ -146,7 +150,6 @@ Write-Step "Done"
 if ($Windows) { Write-Ok "Windows -> dist/windows/" }
 if ($Linux) { Write-Ok "Linux   -> dist/linux/" }
 if ($CSharp -and -not ($Windows -or $Linux)) { Write-Ok "C#      -> build/csharp/" }
-
 
 
 

@@ -1,4 +1,5 @@
 #include "core/log.h"
+#include "core/config.h"
 #include "avatar_override.h"
 
 #include "ISmmPlugin.h"
@@ -146,10 +147,10 @@ void ResetRuntime()
         Publisher().PublishAvatarState(slot, false, 0);
 }
 
-// Applies pending shared-memory avatar requests on the game thread
+// Applies pending in-process avatar requests on the game thread
 void ProcessOverrides()
 {
-    if (!g_networkStringTables) return;
+    if (config::Current.externalAvatars || !g_networkStringTables) return;
     INetworkStringTable* table = g_networkStringTables->FindTable("ServerAvatarOverrides");
     if (!table) return;
 
