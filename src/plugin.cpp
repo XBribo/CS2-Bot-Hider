@@ -287,7 +287,7 @@ bool HiderPlugin::Unload(char* error, size_t maxlen)
 // Returns plugin author metadata.
 const char* HiderPlugin::GetAuthor() { return "XBribo(๑•.•๑)"; }
 // Returns the plugin name.
-const char* HiderPlugin::GetName() { return "CS2-Bot-Hider"; }
+const char* HiderPlugin::GetName() { return "BotHider"; }
 // Returns the plugin description.
 const char* HiderPlugin::GetDescription() { return "Bot persona/steamid/ping/crosshair/avatar hider"; }
 // Returns the plugin project URL.

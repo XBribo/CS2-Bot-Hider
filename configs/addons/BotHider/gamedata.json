@@ -2,7 +2,7 @@
   "UTIL_Remove": {
     "signatures": {
       "library": "server",
-      "windows": "48 85 C9 74 ? 48 8B D1 48 8B 0D",
+      "windows": "48 85 C9 74 ? 48 8B D1 48 8B 0D ? ? ? ?",
       "linux": "48 89 FE 48 85 FF 74 ? 48 8D 05 ? ? ? ? 48"
     },
     "comment": "destroys leftover bot controllers"
