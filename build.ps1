@@ -136,7 +136,7 @@ function Build-Dist([string]$nativePkg, [string]$csharpOut, [string]$destRoot) {
 $winPkg = $null; $linPkg = $null; $csOut = $null
 if ($Windows) { $winPkg = Build-Windows }
 if ($Linux) { $linPkg = Build-Linux }
-if ($CSharp) { $csOut = Build-CSharp }
+if ($CSharp -or $Windows) { $csOut = Build-CSharp }
 
 Write-Step "Dist"
 if ($Windows) { Build-Dist $winPkg $csOut $DistWin }
@@ -146,7 +146,6 @@ Write-Step "Done"
 if ($Windows) { Write-Ok "Windows -> dist/windows/" }
 if ($Linux) { Write-Ok "Linux   -> dist/linux/" }
 if ($CSharp -and -not ($Windows -or $Linux)) { Write-Ok "C#      -> build/csharp/" }
-
 
 
 
