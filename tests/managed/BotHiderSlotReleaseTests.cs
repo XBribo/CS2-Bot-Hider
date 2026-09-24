@@ -23,7 +23,7 @@ public sealed class BotHiderSlotReleaseTests
             Slot = 2, Incarnation = 22, PlayerName = "demo teammate", SteamId = 1234
         };
         var lease = new BotHiderPresentationService.PresentationLease(
-            "token", "demotracer", new()
+            "token", "consumer", new()
             {
                 [1] = new() { Slot = 1, Incarnation = 11, PlayerName = "leaving bot" },
                 [2] = retained
@@ -57,7 +57,7 @@ public sealed class BotHiderSlotReleaseTests
         using var nextOwner = new CancellationTokenSource();
         var publications = 0;
         var service = new BotHiderPresentationService(client, () => publications++);
-        service.AddLease(new("token", "demotracer", new()
+        service.AddLease(new("token", "consumer", new()
         {
             [1] = new() { Slot = 1, Incarnation = 11, PlayerName = "first" },
             [2] = new() { Slot = 2, Incarnation = 22, PlayerName = "second" }
@@ -89,7 +89,7 @@ public sealed class BotHiderSlotReleaseTests
         using var owner = new CancellationTokenSource();
         var service = new BotHiderPresentationService(client, () => { });
         service.ObserveSlot(1, 7, 0x8005, 20);
-        service.AddLease(new("token", "demotracer", new()
+        service.AddLease(new("token", "consumer", new()
         {
             [1] = new() { Slot = 1, Incarnation = 1, PlayerName = "first" },
             [2] = new() { Slot = 2, Incarnation = 22, PlayerName = "second" }

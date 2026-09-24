@@ -7,7 +7,7 @@ namespace BotHiderImpl;
 // no process-global mapping or queued writes can survive a slot replacement.
 public sealed unsafe partial class NativePresentationClient : IDisposable
 {
-    public const int NativeAbi = 4;
+    public const int NativeAbi = 1;
     public const int SlotByteSize = 172;
     private bool _disposed;
     private ulong _listeningSession;

@@ -86,7 +86,6 @@ jobs:
         run: |
           test -f build/csharp/BotHiderImpl.dll
           test -f build/csharp/BotHiderApi.dll
-          test -f build/csharp/DemoTracerBotHiderApi.dll
           test -f build/csharp/shared/0Harmony/0Harmony.dll
 
       - name: Upload managed files
@@ -152,10 +151,9 @@ jobs:
         shell: bash
         run: |
           css=build/package/addons/counterstrikesharp
-          mkdir -p "$css/plugins/BotHiderImpl" "$css/shared/BotHiderApi" "$css/shared/DemoTracerBotHiderApi"
+          mkdir -p "$css/plugins/BotHiderImpl" "$css/shared/BotHiderApi"
           cp build/csharp/BotHiderImpl.* "$css/plugins/BotHiderImpl/"
           cp build/csharp/BotHiderApi.* "$css/shared/BotHiderApi/"
-          cp build/csharp/DemoTracerBotHiderApi.* "$css/shared/DemoTracerBotHiderApi/"
           cp -r build/csharp/shared/. "$css/shared/"
 
       - name: Verify package
@@ -164,7 +162,6 @@ jobs:
           test -f build/package/addons/BotHider/bin/win64/BotHider.dll
           test -f build/package/addons/counterstrikesharp/plugins/BotHiderImpl/BotHiderImpl.dll
           test -f build/package/addons/counterstrikesharp/shared/BotHiderApi/BotHiderApi.dll
-          test -f build/package/addons/counterstrikesharp/shared/DemoTracerBotHiderApi/DemoTracerBotHiderApi.dll
           test -f build/package/addons/counterstrikesharp/shared/0Harmony/0Harmony.dll
 
       - name: Upload package
@@ -230,10 +227,9 @@ jobs:
       - name: Stage managed files
         run: |
           css=build/package/addons/counterstrikesharp
-          mkdir -p "$css/plugins/BotHiderImpl" "$css/shared/BotHiderApi" "$css/shared/DemoTracerBotHiderApi"
+          mkdir -p "$css/plugins/BotHiderImpl" "$css/shared/BotHiderApi"
           cp build/csharp/BotHiderImpl.* "$css/plugins/BotHiderImpl/"
           cp build/csharp/BotHiderApi.* "$css/shared/BotHiderApi/"
-          cp build/csharp/DemoTracerBotHiderApi.* "$css/shared/DemoTracerBotHiderApi/"
           cp -r build/csharp/shared/. "$css/shared/"
 
       - name: Verify package
@@ -242,7 +238,6 @@ jobs:
           test -f "$binary"
           test -f build/package/addons/counterstrikesharp/plugins/BotHiderImpl/BotHiderImpl.dll
           test -f build/package/addons/counterstrikesharp/shared/BotHiderApi/BotHiderApi.dll
-          test -f build/package/addons/counterstrikesharp/shared/DemoTracerBotHiderApi/DemoTracerBotHiderApi.dll
           test -f build/package/addons/counterstrikesharp/shared/0Harmony/0Harmony.dll
           max_glibc=$(readelf --version-info "$binary" \
             | grep -oE 'GLIBC_[0-9]+(\.[0-9]+)+' \

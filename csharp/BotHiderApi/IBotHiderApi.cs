@@ -1,10 +1,5 @@
 namespace BotHiderApi;
 
-public static class BotHiderContract
-{
-    public const int MaxPlayerNameUtf8Bytes = 31;
-}
-
 public enum BotIdentityMode
 {
     Player = 0,
@@ -14,7 +9,40 @@ public enum BotIdentityMode
 // Slot is the engine player slot (CCSPlayerController.Slot.Value)
 public interface IBotHiderApi
 {
+    int ApiVersion { get; }
+
+    BotHiderProviderInfo GetProviderInfo();
+
     bool IsManagedBot(int slot);
+
+    bool TryGetManagedSlot(int slot, out BotHiderManagedSlot state);
+
+    // Acquisition/replacement commits lease ownership only after native identity
+    // and requested controller fields confirm success; this is not a client ACK.
+    // All operations, including ownerLifetime cancellation, are main-thread only.
+    // The owner must cancel on unload; no heartbeat or expiration is required.
+    // A disconnected or reused slot leaves
+    // the lease without revoking surviving slots. An empty lease is revoked.
+    BotHiderPresentationLeaseResult AcquirePresentationLease(
+        string owner,
+        BotHiderPresentationOverride[] overrides,
+        CancellationToken ownerLifetime);
+
+    BotHiderPresentationLeaseResult ReplacePresentationLease(
+        string leaseToken,
+        BotHiderPresentationOverride[] overrides);
+
+    bool ReleasePresentationLease(string leaseToken);
+
+    int ReleasePresentationLeasesByOwner(string owner);
+
+    BotHiderDiagnostics GetDiagnostics();
+    // Server publication with readback; may also target real player SteamIDs.
+    // Callers own cleanup and must not mix direct overrides with slot avatars.
+    bool TryPublishAvatarOverride(ulong steamId, byte[] png, out string error);
+    bool TryClearAvatarOverride(ulong steamId, out string error);
+    void ClearAvatarOverrides();
+    string GetAvatarStatus();
 
     ulong GetBotSteamId(int slot);
 

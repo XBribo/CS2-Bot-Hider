@@ -125,10 +125,6 @@ function Build-Dist([string]$nativePkg, [string]$csharpOut, [string]$destRoot) {
         Copy-Item -Destination $plugDir -Force
         Get-ChildItem "$csharpOut/BotHiderApi.*" -File |
         Copy-Item -Destination $apiDir -Force
-        $compatDir = Join-Path $sharedDir "DemoTracerBotHiderApi"
-        New-Item -ItemType Directory -Force $compatDir | Out-Null
-        Get-ChildItem "$csharpOut/DemoTracerBotHiderApi.*" -File |
-        Copy-Item -Destination $compatDir -Force
         if (Test-Path "$csharpOut/shared") {
             Copy-Item -Recurse -Force "$csharpOut/shared/*" $sharedDir
         }

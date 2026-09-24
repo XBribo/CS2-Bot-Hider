@@ -10,6 +10,7 @@
 #include <string>
 namespace cs2bh::gamedata {
 namespace {
+nlohmann::json g_data;
 // Resolves gamedata beside bin/, relative to this plugin module.
 std::string ComputeGamedataPath()
 {
@@ -31,7 +32,7 @@ void Prepare()
     // Required to destroy controllers on kick
     {
         const std::string gdPath = ComputeGamedataPath();
-        nlohmann::json gamedata;
+        nlohmann::json& gamedata = g_data;
         if (!gameconfig::LoadGamedata(gdPath.c_str(), gamedata))
         {
             BH_LOG_WARN("gamedata.json not loaded at '%s' — "
@@ -61,4 +62,5 @@ void Prepare()
                     "controller cleanup disabled\n");
     }
 }
+const nlohmann::json& Data() { return g_data; }
 } // namespace cs2bh::gamedata

@@ -2,9 +2,23 @@ using BotHiderApi;
 
 namespace BotHiderImpl;
 
-// Compatibility façade. No independent writes or presentation state live here.
-internal sealed class LegacyBotHiderApi(NativePresentationClient client, BotHiderPresentationService service) : IBotHiderApi
+// Public facade; the presentation service owns every identity lease.
+internal sealed class BotHiderApiProvider(NativePresentationClient client, BotHiderPresentationService service) : IBotHiderApi
 {
+    public int ApiVersion => BotHiderContract.ApiVersion;
+    public BotHiderProviderInfo GetProviderInfo() => service.GetProviderInfo();
+    public bool TryGetManagedSlot(int slot, out BotHiderManagedSlot state) => service.TryGetManagedSlot(slot, out state);
+    public BotHiderPresentationLeaseResult AcquirePresentationLease(string owner, BotHiderPresentationOverride[] overrides, CancellationToken ownerLifetime)
+        => service.AcquirePresentationLease(owner, overrides, ownerLifetime);
+    public BotHiderPresentationLeaseResult ReplacePresentationLease(string token, BotHiderPresentationOverride[] overrides)
+        => service.ReplacePresentationLease(token, overrides);
+    public bool ReleasePresentationLease(string token) => service.ReleasePresentationLease(token);
+    public int ReleasePresentationLeasesByOwner(string owner) => service.ReleasePresentationLeasesByOwner(owner);
+    public BotHiderDiagnostics GetDiagnostics() => service.GetDiagnostics();
+    public bool TryPublishAvatarOverride(ulong steamId, byte[] png, out string error) => client.TryPublishAvatarOverride(steamId, png, out error);
+    public bool TryClearAvatarOverride(ulong steamId, out string error) => client.TryClearAvatarOverride(steamId, out error);
+    public void ClearAvatarOverrides() => client.ClearAvatarOverrides();
+    public string GetAvatarStatus() => client.GetAvatarStatus();
     public bool IsManagedBot(int slot) => service.IsManagedBot(slot);
     public int[] GetManagedSlots() => Enumerable.Range(0, 64).Where(IsManagedBot).ToArray();
     public ulong GetBotSteamId(int slot) => client.GetPublishedSteamId(slot);
@@ -30,12 +44,12 @@ internal sealed class LegacyBotHiderApi(NativePresentationClient client, BotHide
         var request = new BotHiderPresentationOverride { Slot = slot, Incarnation = state.Incarnation };
         change(request);
         using var owner = new CancellationTokenSource();
-        var lease = service.AcquirePresentationLease("bothider:legacy", [request], owner.Token);
+        var lease = service.AcquirePresentationLease("bothider:setter", [request], owner.Token);
         if (!lease.Ok) return false;
         try
         {
             // The same validation/readback/rollback as the lease API happens
-            // before the legacy setter commits a new base persona.
+            // before the setter commits a new base persona.
             return client.SetBase(slot, native,
                 request.SteamId ?? native.BaseSteamId,
                 request.PlayerName?.Trim() ?? native.ReadBaseName(),
@@ -61,7 +75,6 @@ internal sealed class LegacyBotHiderApi(NativePresentationClient client, BotHide
     {
         error = "";
         if (!IsManagedBot(slot) || service.IsLeased(slot)) { error = "slot_unavailable_or_leased"; return false; }
-        if (client.ExternalAvatars) { error = "external_avatar_publisher"; return false; }
         try
         {
             byte[] png = [];

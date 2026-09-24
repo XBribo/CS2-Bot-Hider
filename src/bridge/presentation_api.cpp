@@ -1,13 +1,13 @@
 // In-process presentation ABI. All entry points are server-thread only.
-// Ported from the DemoTracer maintained BotHider derivative, AGPL-3.0-only.
+// Copyright (c) 2026 unicbm. AGPL-3.0-only.
 #include "slot_publisher.h"
+#include "avatar_publisher.h"
 #include "plugin.h"
 #include "entity_access.h"
 #include "serversideclient_ref.h"
 #include "fake_client_manager.h"
 #include "identity_runtime.h"
 #include "personas.h"
-#include "core/config.h"
 #include "core/cs2_sdk/schema.h"
 #include <entity2/entityinstance.h>
 #include <algorithm>
@@ -132,14 +132,8 @@ BH_EXPORT int BotHider_SetOption(uint64_t session, int option, int value)
         return -1;
     return 0;
 }
-BH_EXPORT int BotHider_GetOptions(uint64_t session)
-{
-    if (!session || cs2bh::Publisher().Session() != session) return -1;
-    return (cs2bh::config::Current.autoRespawn ? 1 : 0) | (cs2bh::config::Current.externalAvatars ? 2 : 0);
-}
 BH_EXPORT int BotHider_SetAvatar(int slot, uint64_t session, uint64_t incarnation, const unsigned char* data, int length)
 {
-    if (cs2bh::config::Current.externalAvatars) return -1;
     try
     {
         return LiveClient(slot, session, incarnation) && cs2bh::Publisher().SetAvatar(slot, session, incarnation, data, length) ? 0 : -1;
@@ -159,4 +153,56 @@ BH_EXPORT int BotHider_GetAvatarState(int slot, uint64_t session, uint64_t incar
 BH_EXPORT uint64_t BotHider_GetUserInfoPublications()
 {
     return cs2bh::Publisher().Active() ? cs2bh::entity_access::UserInfoPublications() : 0;
+}
+
+BH_EXPORT int BotHider_PublishAvatarOverride(uint64_t session, uint64_t steamId, const unsigned char* png, int length)
+{
+    if (!session || cs2bh::Publisher().Session() != session) return -1;
+    try
+    {
+        return cs2bh::avatar::Publish(steamId, png, length);
+    }
+    catch (...)
+    {
+        return -1;
+    }
+}
+BH_EXPORT int BotHider_ClearAvatarOverride(uint64_t session, uint64_t steamId)
+{
+    if (!session || cs2bh::Publisher().Session() != session) return -1;
+    try
+    {
+        return cs2bh::avatar::Clear(steamId);
+    }
+    catch (...)
+    {
+        return -1;
+    }
+}
+BH_EXPORT int BotHider_ClearAvatarOverrides(uint64_t session)
+{
+    if (!session || cs2bh::Publisher().Session() != session) return -1;
+    try
+    {
+        cs2bh::avatar::ClearAll();
+        return 0;
+    }
+    catch (...)
+    {
+        return -1;
+    }
+}
+BH_EXPORT int BotHider_ReadAvatarStatus(uint64_t session, char* buffer, int length)
+{
+    if (!session || cs2bh::Publisher().Session() != session || !buffer || length < 1) return -1;
+    try
+    {
+        std::snprintf(buffer, length, "%s", cs2bh::avatar::Status());
+        return 0;
+    }
+    catch (...)
+    {
+        buffer[0] = 0;
+        return -1;
+    }
 }

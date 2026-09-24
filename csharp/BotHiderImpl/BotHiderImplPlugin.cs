@@ -17,10 +17,10 @@ public sealed partial class BotHiderImplPlugin : BasePlugin
     public override string ModuleDescription =>
         "Bot identity, presentation leases and avatars.";
 
-    public static PluginCapability<IBotHiderPresentationApi> Capability { get; } =
-        new(BotHiderPresentationContract.Capability);
+    public static PluginCapability<IBotHiderApi> Capability { get; } =
+        new(BotHiderContract.Capability);
 
-    private LegacyBotHiderApi? _legacy;
+    private BotHiderApiProvider? _api;
     private NativePresentationClient? _client;
     private BotHiderPresentationService? _presentation;
     private bool _applyPending;
@@ -33,18 +33,13 @@ public sealed partial class BotHiderImplPlugin : BasePlugin
     public override void Load(bool hotReload)
     {
         _unloaded = false;
-        WarnIfLegacyBotHiderPluginIsPresent();
         _client = new NativePresentationClient(OnNativePresentationChanged);
         _presentation = new BotHiderPresentationService(_client);
         _client.TryConnect();
-        Capabilities.RegisterPluginCapability(Capability, () => _presentation);
 
-        _legacy = new LegacyBotHiderApi(_client, _presentation);
-        Capabilities.RegisterPluginCapability(new PluginCapability<BotHiderApi.IBotHiderApi>("bothider:api"), () => _legacy);
-        var compatibility = new DemoTracerCompatibilityApi(_presentation);
-        Capabilities.RegisterPluginCapability(new PluginCapability<DemoTracerBotHiderApi.IBotHiderApi>(DemoTracerBotHiderApi.DemoTracerBotHiderContract.Capability), () => compatibility);
-        BotHiderPresentationContract.ProviderChanged += DemoTracerBotHiderApi.DemoTracerBotHiderContract.NotifyProviderChanged;
-        IsBotPatch.Api = _legacy;
+        _api = new BotHiderApiProvider(_client, _presentation);
+        Capabilities.RegisterPluginCapability(Capability, () => _api);
+        IsBotPatch.Api = _api;
         _harmony = new Harmony("org.bothider.isbot");
         _harmony.PatchAll(typeof(BotHiderImplPlugin).Assembly);
 
@@ -53,7 +48,7 @@ public sealed partial class BotHiderImplPlugin : BasePlugin
         RegisterListener<Listeners.OnClientDisconnect>(OnClientDisconnect);
         ScheduleApply();
         Server.PrintToConsole(
-            $"[BotHider] loaded api={BotHiderPresentationContract.ApiVersion} " +
+            $"[BotHider] loaded api={BotHiderContract.ApiVersion} " +
             $"provider_epoch={_presentation.GetProviderInfo().ProviderEpoch} " +
             "crosshair_writer=networked_on_demand");
     }
@@ -61,7 +56,7 @@ public sealed partial class BotHiderImplPlugin : BasePlugin
     public override void Unload(bool hotReload)
     {
         _unloaded = true;
-        _legacy = null;
+        _api = null;
         IsBotPatch.Api = null;
         _applyPending = false;
         _mapGeneration++;
@@ -78,10 +73,16 @@ public sealed partial class BotHiderImplPlugin : BasePlugin
                 _presentation = null;
                 // Never leave a managed callback in native code after unload,
                 // including when another cleanup step failed.
-                _client?.Dispose();
-                _client = null;
-                BotHiderPresentationContract.NotifyProviderChanged();
-                BotHiderPresentationContract.ProviderChanged -= DemoTracerBotHiderApi.DemoTracerBotHiderContract.NotifyProviderChanged;
+                try { _client?.ClearAvatarOverrides(); }
+                finally
+                {
+                    try { _client?.Dispose(); }
+                    finally
+                    {
+                        _client = null;
+                        BotHiderContract.NotifyProviderChanged();
+                    }
+                }
             }
         }
     }
@@ -90,7 +91,7 @@ public sealed partial class BotHiderImplPlugin : BasePlugin
     {
         _client?.TryConnect();
         ScheduleApply();
-        BotHiderPresentationContract.NotifyProviderChanged();
+        BotHiderContract.NotifyProviderChanged();
     }
 
     [ConsoleCommand("bh_native_ready", "Rebind the native BotHider presentation lifecycle")]
@@ -106,7 +107,7 @@ public sealed partial class BotHiderImplPlugin : BasePlugin
         if (reason == 1)
         {
             ScheduleApply();
-            BotHiderPresentationContract.NotifyProviderChanged();
+            BotHiderContract.NotifyProviderChanged();
         }
         else if (reason == 2 && slot is >= 0 and < 64)
         {
@@ -137,44 +138,10 @@ public sealed partial class BotHiderImplPlugin : BasePlugin
     private void OnClientDisconnect(int slot)
         => _presentation?.HandleClientDisconnect(slot);
 
-    private void WarnIfLegacyBotHiderPluginIsPresent()
-    {
-        try
-        {
-            var pluginsDirectory = Directory.GetParent(ModuleDirectory)?.FullName;
-            if (string.IsNullOrWhiteSpace(pluginsDirectory))
-                return;
-
-            foreach (var legacyDirectoryName in new[] { "BotHiderImpl", "BotHider", "DemoTracerBotHider" })
-            {
-                var legacyDirectory = Path.Combine(pluginsDirectory, legacyDirectoryName);
-                if (string.Equals(Path.GetFullPath(legacyDirectory).TrimEnd(Path.DirectorySeparatorChar),
-                    Path.GetFullPath(ModuleDirectory).TrimEnd(Path.DirectorySeparatorChar), StringComparison.OrdinalIgnoreCase))
-                    continue;
-                if (!Directory.Exists(legacyDirectory) ||
-                    !Directory.EnumerateFiles(legacyDirectory, "*.dll").Any())
-                    continue;
-                Server.PrintToConsole(
-                    "[BotHider] ERROR: another BotHider CSS plugin directory is present: " +
-                    $"{legacyDirectoryName}. Remove it before runtime testing; multiple presentation writers are unsupported.");
-            }
-        }
-        catch (Exception ex)
-        {
-            Server.PrintToConsole(
-                $"[BotHider] legacy plugin check failed: {ex.Message}");
-        }
-    }
-
     [GameEventHandler]
     public HookResult OnRoundStart(EventRoundStart @event, GameEventInfo info)
     {
         ScheduleApply();
-        if (_client?.AutoRespawn == true)
-        {
-            var generation = _mapGeneration;
-            AddTimer(0.3f, () => { if (!_unloaded && generation == _mapGeneration) RespawnDeadManagedBots(); }, CounterStrikeSharp.API.Modules.Timers.TimerFlags.STOP_ON_MAPCHANGE);
-        }
         return HookResult.Continue;
     }
 
@@ -182,7 +149,7 @@ public sealed partial class BotHiderImplPlugin : BasePlugin
     public HookResult OnPlayerConnectFull(EventPlayerConnectFull @event, GameEventInfo info)
     {
         if (@event.Userid is { IsValid: true } player)
-            SchedulePresentationReconcile(player.Slot);
+            ScheduleApply();
         return HookResult.Continue;
     }
 
@@ -190,7 +157,7 @@ public sealed partial class BotHiderImplPlugin : BasePlugin
     public HookResult OnPlayerSpawn(EventPlayerSpawn @event, GameEventInfo info)
     {
         if (@event.Userid is { IsValid: true } player)
-            SchedulePresentationReconcile(player.Slot);
+            ScheduleApply();
         return HookResult.Continue;
     }
 
@@ -198,11 +165,9 @@ public sealed partial class BotHiderImplPlugin : BasePlugin
     public HookResult OnPlayerDeath(EventPlayerDeath @event, GameEventInfo info)
     {
         if (@event.Userid is { IsValid: true } player)
-            SchedulePresentationReconcile(player.Slot);
+            ScheduleApply();
         return HookResult.Continue;
     }
-
-    private void SchedulePresentationReconcile(int slot) => ScheduleApply();
 
     private void ScheduleApply()
     {

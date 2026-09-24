@@ -180,6 +180,7 @@ add_library(
     src/core/interfaces.cpp
     src/core/gamedata.cpp
     src/features/avatar/avatar_override.cpp
+    src/features/avatar/avatar_publisher.cpp
     src/features/identity/personas.cpp
     src/features/identity/steamid_provider.cpp
     src/features/ping/ping_display.cpp

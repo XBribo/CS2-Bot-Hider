@@ -5,7 +5,7 @@
 #include <vector>
 
 namespace cs2bh {
-inline constexpr int kNativePresentationAbi = 4;
+inline constexpr int kNativePresentationAbi = 1;
 using PresentationChanged = void (*)(uint32_t reason, int slot);
 inline constexpr uint32_t kPresentationRosterChanged = 1, kPresentationPingChanged = 2;
 #pragma pack(push, 4)

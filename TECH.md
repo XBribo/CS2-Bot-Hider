@@ -1,106 +1,61 @@
 # BotHider developer guide
 
-The native plugin and managed provider must be upgraded together. See
-[README.md](README.md) for usage and [MAINTENANCE.md](MAINTENANCE.md) for provenance.
+BotHider owns identity, crosshair, flair and avatar presentation. It never assigns
+teams or respawns players. Install the native plugin and managed provider together.
 
 ## Build and test
 
-Use .NET 10, an x64 C++20 compiler, CMake 3.20+, and protoc 3.21.x.
-Set HL2SDKCS2 to the CS2 HL2SDK checkout and MMSOURCE_DEV to Metamod with its KHook
-submodule. CSGO_PROTO optionally selects the proto directory; PROTOC selects
-the compiler executable. PROTOBUF_IMPORT_DIR is a CMake cache override for
-well-known proto imports.
+Requirements: .NET 10, an x64 C++20 compiler, CMake 3.20+, protoc 3.21.x,
+HL2SDKCS2 and MMSOURCE_DEV (including the KHook submodule). CSGO_PROTO and PROTOC
+can override the proto directory and compiler. PROTOBUF_IMPORT_DIR selects the
+well-known proto import directory when needed.
 
 ```powershell
 ./build.ps1 -Windows -CSharp
+dotnet test tests/managed/BotHider.Tests.csproj -c Release
 cmake -S tests/native -B build/tests -A x64
 cmake --build build/tests --config Release
 ctest --test-dir build/tests -C Release --output-on-failure
-dotnet test tests/managed/BotHider.Tests.csproj -c Release
 ```
 
-For Linux, configure the native project in SteamRT3 with
-`cmake -S . -B build -DCMAKE_BUILD_TYPE=Release`, then build with
-`cmake --build build`. Configure the portable tests without `-A x64`.
-The manually dispatched Build workflow tests/builds both platforms.
-Leave its release option disabled for candidates.
+Linux uses SteamRT3: configure with -DCMAKE_BUILD_TYPE=Release and omit -A x64.
+The Build workflow also builds/tests and packages both platforms.
 
-## Installation boundaries
+## Installation and configuration
 
-Install exactly one BotHider native binary and one BotHiderImpl CSS provider.
-Remove duplicate provider folders such as BotHider or DemoTracerBotHider.
-Packages include shared/BotHiderApi, shared/DemoTracerBotHiderApi and
-shared/0Harmony beneath addons/counterstrikesharp.
+Install one native BotHider and one CSS BotHiderImpl. The only API assembly is
+shared/BotHiderApi/BotHiderApi.dll; Harmony is shared/0Harmony/0Harmony.dll.
+Preserve config.json and bot_info.json on upgrade. Restart after replacing native
+binaries, API assemblies or configuration.
 
-Preserve config.json and bot_info.json when upgrading. Restart after replacing
-native binaries, shared assemblies or config. CSS hot reload cannot safely
-replace the shared contracts.
+Native ABI and managed API versions are both **1**. Native slots are 172 bytes
+and signature entries 40 bytes. The old internal shared-memory transport has
+been replaced by in-process calls; native/provider files must match.
 
-The native ABI is **4** (slot size 172 bytes, signature size 40 bytes).
-It replaces upstream shared memory; direct SHM consumers must migrate.
-It rejects the older DemoTracer native ABI 3. Managed API compatibility does
-not permit mixing native/provider versions.
+config.json supports identity_mode (player or bot) and fake_ping
+(enabled/min/max). bot_info.json maps persona names to steamid (32-bit account ID),
+optional crosshair_code and scoreboard_flair (0 through 65535). A missing or zero
+flair clears it. bh_namesource controls the name source for future bots.
+Managed commands require the server console or CSS root permission.
 
-## Configuration and avatars
+## One managed API
 
-Configuration is read at native load:
+Reference BotHiderApi with Private=false. Resolve
+PluginCapability<IBotHiderApi>("bothider:api") after all plugins load.
+BotHiderContract.ApiVersion is 1. Calls and owner cancellation must run on the
+server thread. Do not package private copies of the shared assembly.
 
-```json
-{
-  "identity_mode": "player",
-  "auto_respawn": false,
-  "external_avatars": false,
-  "fake_ping": { "enabled": true, "min": 20, "max": 90 }
-}
-```
-
-identity_mode selects player disguise or native bot flags. Fake ping stays in
-the configured inclusive range. auto_respawn opts into the upstream round-start
-team assignment/respawn behavior; leased bots are skipped.
-
-**For DemoTracer set external_avatars=true and auto_respawn=false**. See
-configs/examples/demotracer.json. This disables BotHider avatar-table writes and
-rejects avatar setters, leaving BotController responsible for replay avatars.
-Restart when changing modes; this is not a live ownership handoff protocol.
-Only one publisher may own ServerAvatarOverrides.
-
-In ordinary mode, SetBotAvatar validates PNG signature and size (8 bytes through
-16 KiB), copies bytes into native storage, and returns request acceptance.
-Native frame processing updates ServerAvatarOverrides; HasBotAvatar reports
-applied state. This is not a client rendering ACK or a full PNG decoder.
-Requests carry slot incarnation so replacement bots cannot inherit them.
-SteamID changes rebind avatars; disconnect/map teardown clears them.
-The compact HUD can retain its engine cache after the scoreboard updates.
-
-bot_info.json maps persona names to steamid (32-bit account ID), optional
-crosshair_code and scoreboard_flair (0 through 65535). Missing/zero flair clears
-it. bh_namesource chooses whether future bots use the selected persona name.
-
-## Managed APIs
-
-All API calls and owner lifetime cancellation run on the server thread.
-Reference shared assemblies with Private=false; do not package private copies.
-
-| Capability | Contract | Purpose |
-| --- | --- | --- |
-| bothider:api | BotHiderApi.IBotHiderApi | Existing upstream getters/setters |
-| bothider:presentation:v1 | BotHiderApi.IBotHiderPresentationApi | Neutral lease API v1 |
-| demotracer:bot-hider:v2 | DemoTracerBotHiderApi.IBotHiderApi | Existing DemoTracer API v2 |
-
-All three use one service and lease registry. The compatibility adapter maps
-DTOs, not state. Native sessions, map/provider epochs and slot incarnations
-invalidate stale requests.
-
-### Lease API
+Existing getters and setters, presentation leases and direct avatar overrides
+are all members of IBotHiderApi. The facade shares one presentation service.
 
 ```csharp
 using BotHiderApi;
 using CounterStrikeSharp.API.Core.Capabilities;
-private static readonly PluginCapability<IBotHiderPresentationApi> Cap =
-    new(BotHiderPresentationContract.Capability);
+private static readonly PluginCapability<IBotHiderApi> Cap =
+    new(BotHiderContract.Capability);
 private readonly CancellationTokenSource lifetime = new();
 
-// On server thread, after all plugins load:
+// On the server thread:
 var api = Cap.Get();
 if (api != null && api.TryGetManagedSlot(slot, out var state))
 {
@@ -111,69 +66,77 @@ if (api != null && api.TryGetManagedSlot(slot, out var state))
             CrosshairCode = "", ScoreboardFlair = 0
         }
     ], lifetime.Token);
-    // Keep result.LeaseToken if result.Ok; release it when finished.
+    // Release result.LeaseToken when finished.
 }
-// On consumer unload, on the server thread:
+// On consumer unload, also on the server thread:
 lifetime.Cancel();
 lifetime.Dispose();
 ```
 
-Acquire/Replace succeeds after native identity and requested controller fields
-pass synchronous readback; this is not a remote client ACK. Requested IDs are
-exact: conflicts are rejected, not substituted. Batches may permute identities
-across their managed slots. Failure reverts lease ownership and attempts to
-restore previous presentation; engine failure can still prevent restoration
-and is logged. Null fields inherit base values; an empty crosshair clears it.
+Acquire/Replace reports synchronous native/controller readback, not a remote
+client ACK. Conflicting IDs are rejected rather than substituted. Null fields
+inherit the current base; empty crosshair explicitly clears it. Release restores
+the current base. Failed writes revert ownership and attempt restoration.
 
-Release restores current base presentation. Disconnect removes only the affected
-slot, preserving surviving lease slots. Empty leases are revoked. Native/provider
-reload and map boundaries invalidate old ownership. ProviderChanged subscribers
-must unsubscribe on unload and defer engine work until a frame.
-No heartbeat is required.
+Disconnect releases only that slot; surviving lease slots remain. Map, native
+session and provider changes invalidate stale requests. Subscribe to
+BotHiderContract.ProviderChanged, defer engine work to the next frame, and
+unsubscribe on unload. No heartbeat is required.
 
-### Legacy setters
+Individual setters commit new base values through the same validation.
+They reject leased/unavailable slots and report synchronous success, except
+SetBotAvatar, which queues a slot-bound avatar request.
+Names retain complete Unicode text elements within 31 UTF-8 bytes.
 
-The original BotHiderApi.IBotHiderApi and bothider:api capability remain.
-Identity/crosshair/flair setters pass through lease validation/publication and
-then commit a new base persona. They return synchronous success/failure rather
-than queue acceptance. Leased/unavailable slots, duplicate IDs and failed
-publication return false. Identity-mode changes are rejected while leases exist.
-Name normalization preserves upstream Unicode text elements and the 31-byte
-UTF-8 limit. Avatar setters still return asynchronous acceptance.
+## Avatar publisher
 
-## Publication and intro performance
+Both bh_setavatar/SetBotAvatar and the direct SteamID API use the same native
+publisher and its restoration records. PNGs must have a PNG signature and be
+8 bytes through 16 KiB. This is a signature/size check, not a PNG decoder.
 
-Native changes and player events coalesce into at most one pending full
-presentation pass per frame. Ping events target changed slots unless a full
-pass is pending. The two-second repeating pass and 0.25-second intro retry loop
-are removed. Fields publish only changes or required first-controller repairs.
+```csharp
+if (!api.TryPublishAvatarOverride(steamId, pngBytes, out var error))
+    Console.WriteLine(error);
+// On stop/unload:
+api.TryClearAvatarOverride(steamId, out error);
+```
 
-After a population transaction restores its temporary identity snapshot,
-ApplyManagedDisguise now refreshes userinfo only if fake flags or SteamID
-mirrors changed. Previously every such pass refreshed all managed bots.
-The native regression covers 1,280 unchanged passes, mirror repair and mode
-transitions.
+The direct API can target bots or real players without changing their identity.
+ClearAvatarOverrides clears direct overrides only; consumers must coordinate
+their use of this shared direct API. It does not clear slot-owned avatars.
+A direct override and a slot-bound request cannot own the same SteamID at once;
+conflicts return -7. Clear an existing override before changing its source.
 
-bh_status reports leases, writes, repairs, userinfo_refreshes and the two new
-options. userinfo_refreshes counts explicit successful RefreshClientUserInfo
-calls since native load; it excludes engine-internal SetName publication and
+The publisher snapshots prior data and restores it only if its own bytes remain.
+A later writer's data is preserved. Updates retain the original restoration
+value. Slot incarnations prevent stale requests from following slot reuse;
+changing the bot SteamID releases its old avatar before publishing the new one.
+Native unload and map teardown drain publication state.
+
+On supported Windows listen servers, a validated local client hook observes the
+replicated bytes and dispatches Valve's asynchronous ReloadAvatarImage event.
+Only matching publication evidence triggers refresh, once per revision/client
+table epoch. Failed dispatch can retry. No remote client commands or JavaScript
+are sent. Missing/ambiguous signatures disable only local HUD refresh.
+Dedicated servers and Linux retain server publication without this local bridge.
+
+GetAvatarStatus/bh_status reports the bridge, refresh count and tracked entries.
+Error codes: -1 invalid input/session, -2 table unavailable, -3 unreadable prior
+data, -4 capacity, -5 write/readback failure, -6 reliable-avatar cvar unavailable,
+-7 ownership conflict, -8 wrong thread.
+
+## Publication and validation
+
+Player/native lifecycle events coalesce full presentation work per frame; ping
+events target changed slots. There is no repeating intro repair timer.
+After population transactions, unchanged fake flags/SteamID mirrors no longer
+trigger redundant userinfo refreshes.
+
+bh_status userinfo_refreshes counts explicit successful RefreshClientUserInfo
+calls since native load. It excludes engine-internal SetName publication and
 does not measure frame time.
 
-## Runtime acceptance
-
-Compare matched game/Metamod/CSS builds, maps and bot counts:
-
-1. Check bh_status hooks/managed slots and all legacy setters.
-2. Compare repeated team intros: client/server frame time and counter deltas.
-3. Exercise late human/HLTV joins, quota changes, kick/re-add slot reuse, team
-   changes, map restart and map change.
-4. Acquire/replace/release leases, cancel owners, unload consumers/providers;
-   check restoration and stale-request rejection.
-5. With DemoTracer's external-avatar config, test play, pause, stop, natural
-   finish and replay replacement; verify names, IDs, crosshairs and avatars.
-6. For rollback, stop the server and restore the previous matched native/managed
-   bundle and saved config.
-
-Offline regressions do not prove intro performance or current-game compatibility.
-DemoTracer's installer/version manifest requires separate integration work after
-acceptance.
+Regression tests cover slot/session isolation, encoding, identity publication,
+lease cleanup, and avatar arrival/restoration evidence. Runtime acceptance must
+also cover intro frame time, quota changes, human/HLTV joins, slot reuse, map
+changes, consumer/provider unload, avatar replacement and restoration.

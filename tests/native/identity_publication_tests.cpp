@@ -1,6 +1,5 @@
 #include "serversideclient_ref.h"
 #include "slot_publisher.h"
-#include "core/config.h"
 #include <array>
 #include <cstring>
 
@@ -22,7 +21,6 @@ int main()
     if (!ssc::ReconcileIdentity(client.data(), false, 123)) return 5;
     if (ssc::ReconcileIdentity(client.data(), false, 123)) return 6;
     if (!ssc::ReconcileIdentity(client.data(), true, 456)) return 7;
-    if (config::Settings{}.autoRespawn || config::Settings{}.externalAvatars) return 8;
 
     SlotPublisher state;
     state.Init();

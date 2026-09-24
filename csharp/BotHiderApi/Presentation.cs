@@ -2,10 +2,10 @@ using System.Text;
 
 namespace BotHiderApi;
 
-public static class BotHiderPresentationContract
+public static class BotHiderContract
 {
     public const int ApiVersion = 1;
-    public const string Capability = "bothider:presentation:v1";
+    public const string Capability = "bothider:api";
     public const int MaxPlayerNameUtf8Bytes = 31;
     public const int MaxCrosshairCodeUtf8Bytes = 63;
 
@@ -29,38 +29,6 @@ public static class BotHiderPresentationContract
         normalized = null;
         return false;
     }
-}
-
-public interface IBotHiderPresentationApi
-{
-    int ApiVersion { get; }
-
-    BotHiderProviderInfo GetProviderInfo();
-
-    bool IsManagedBot(int slot);
-
-    bool TryGetManagedSlot(int slot, out BotHiderManagedSlot state);
-
-    // Acquisition/replacement commits lease ownership only after native identity
-    // and requested controller fields confirm success; this is not a client ACK.
-    // All operations, including ownerLifetime cancellation, are main-thread only.
-    // The owner must cancel on unload; no heartbeat or expiration is required.
-    // A disconnected or reused slot leaves
-    // the lease without revoking surviving slots. An empty lease is revoked.
-    BotHiderPresentationLeaseResult AcquirePresentationLease(
-        string owner,
-        BotHiderPresentationOverride[] overrides,
-        CancellationToken ownerLifetime);
-
-    BotHiderPresentationLeaseResult ReplacePresentationLease(
-        string leaseToken,
-        BotHiderPresentationOverride[] overrides);
-
-    bool ReleasePresentationLease(string leaseToken);
-
-    int ReleasePresentationLeasesByOwner(string owner);
-
-    BotHiderDiagnostics GetDiagnostics();
 }
 
 public sealed class BotHiderProviderInfo

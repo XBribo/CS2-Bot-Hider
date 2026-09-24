@@ -6,7 +6,7 @@ using BotHiderApi;
 
 namespace BotHiderImpl;
 
-internal sealed class BotHiderPresentationService : IBotHiderPresentationApi, IDisposable
+internal sealed class BotHiderPresentationService : IDisposable
 {
     private const int MaxSlots = 64;
     private const int MaxOwnerLength = 64;
@@ -37,7 +37,7 @@ internal sealed class BotHiderPresentationService : IBotHiderPresentationApi, ID
     internal bool IsLeased(int slot) => _leaseBySlot.ContainsKey(slot);
     internal bool HasLeases => _leases.Count != 0;
 
-    public int ApiVersion => BotHiderPresentationContract.ApiVersion;
+    public int ApiVersion => BotHiderContract.ApiVersion;
 
     public BotHiderProviderInfo GetProviderInfo()
     {
@@ -272,7 +272,7 @@ internal sealed class BotHiderPresentationService : IBotHiderPresentationApi, ID
         return true;
     }
 
-    // IsBot is queried by DTR and other plugins on their hot paths. Observe
+    // IsBot is queried by consumers on their hot paths. Observe
     // ownership here without allocating presentation DTOs or decoding strings.
     private bool TryReadManagedNativeSlot(int slot, out NativePresentationClient.Slot native,
         out CCSPlayerController player)
@@ -367,7 +367,7 @@ internal sealed class BotHiderPresentationService : IBotHiderPresentationApi, ID
             var playerName = requested.PlayerName?.Trim();
             if (playerName != null &&
                 (playerName.Length == 0 || playerName.Contains('\0') ||
-                 Encoding.UTF8.GetByteCount(playerName) > BotHiderPresentationContract.MaxPlayerNameUtf8Bytes))
+                 Encoding.UTF8.GetByteCount(playerName) > BotHiderContract.MaxPlayerNameUtf8Bytes))
             {
                 reason = $"invalid_name:{requested.Slot}";
                 return false;
@@ -383,7 +383,7 @@ internal sealed class BotHiderPresentationService : IBotHiderPresentationApi, ID
                 return false;
             }
 
-            if (!BotHiderPresentationContract.TryNormalizeCrosshairCode(
+            if (!BotHiderContract.TryNormalizeCrosshairCode(
                     requested.CrosshairCode,
                     out var crosshair))
             {
@@ -502,7 +502,6 @@ internal sealed class BotHiderPresentationService : IBotHiderPresentationApi, ID
         var steamId = presentationOverride?.SteamId ?? native.BaseSteamId;
         var crosshair = presentationOverride?.CrosshairCode ?? native.ReadCrosshair();
         var flair = presentationOverride?.ScoreboardFlair ?? native.ScoreboardFlair;
-        var effectiveScoreboardFlairManaged = presentationOverride?.ScoreboardFlair.HasValue == true;
         var forceCrosshairPublication = _slots[slot].NeedsCrosshairPublication(player.EntityHandle.Raw);
         try
         {
@@ -572,7 +571,6 @@ internal sealed class BotHiderPresentationService : IBotHiderPresentationApi, ID
 
                 if (scoreboardFlairSynchronized)
                 {
-                    _slots[slot].FlairManaged = effectiveScoreboardFlairManaged;
                     _slots[slot].FlairPending = false;
                 }
                 else
@@ -927,7 +925,7 @@ internal sealed class BotHiderPresentationService : IBotHiderPresentationApi, ID
         public int UserId;
         public ulong Incarnation, NativeIncarnation;
         public uint Controller, PublishedController;
-        public bool CrosshairPending, FlairManaged, FlairPending;
+        public bool CrosshairPending, FlairPending;
         public DateTime NextFailureLogUtc;
         public int SuppressedFailures;
 
