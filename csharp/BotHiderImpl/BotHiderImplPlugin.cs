@@ -366,7 +366,7 @@ public class BotHiderImplPlugin : BasePlugin
         return true;
     }
 
-    // Applies scoreboard flair and marks changed rank entries on their component
+    // Applies scoreboard flair and marks the rank array once on its component
     private static bool TryApplyScoreboardFlair(int slot, uint itemDefIndex)
     {
         var player = Utilities.GetPlayerFromSlot(slot);
@@ -378,13 +378,18 @@ public class BotHiderImplPlugin : BasePlugin
             var ranks = inventory.Rank;
             if (ranks.Length == 0) return false;
             var flair = (MedalRank_t)itemDefIndex;
-            int rankOffset = Schema.GetSchemaOffset("CCSPlayerController_InventoryServices", "m_rank");
+            bool changed = false;
             for (int i = 0; i < ranks.Length; i++)
             {
                 if (ranks[i] == flair) continue;
                 ranks[i] = flair;
+                changed = true;
+            }
+            if (changed)
+            {
+                int rankOffset = Schema.GetSchemaOffset("CCSPlayerController_InventoryServices", "m_rank");
                 NativeAPI.SchemaNetworkStateChanged(inventory.__m_pChainEntity.Handle,
-                    (uint)(rankOffset + i * sizeof(uint)), uint.MaxValue, uint.MaxValue);
+                    (uint)rankOffset, uint.MaxValue, uint.MaxValue);
             }
             return true;
         }
