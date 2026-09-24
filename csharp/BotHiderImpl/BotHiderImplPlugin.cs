@@ -366,7 +366,7 @@ public class BotHiderImplPlugin : BasePlugin
         return true;
     }
 
-    // Apply the scoreboard flair rank span for one player
+    // Applies scoreboard flair and marks changed rank entries on their component
     private static bool TryApplyScoreboardFlair(int slot, uint itemDefIndex)
     {
         var player = Utilities.GetPlayerFromSlot(slot);
@@ -377,41 +377,21 @@ public class BotHiderImplPlugin : BasePlugin
             if (inventory == null) return false;
             var ranks = inventory.Rank;
             if (ranks.Length == 0) return false;
+            var flair = (MedalRank_t)itemDefIndex;
+            int rankOffset = Schema.GetSchemaOffset("CCSPlayerController_InventoryServices", "m_rank");
             for (int i = 0; i < ranks.Length; i++)
-                SetScoreboardFlairRank(player, ranks, i, itemDefIndex);
-            TrySetScoreboardStateChanged(player, "CCSPlayerController", "m_pInventoryServices");
+            {
+                if (ranks[i] == flair) continue;
+                ranks[i] = flair;
+                NativeAPI.SchemaNetworkStateChanged(inventory.__m_pChainEntity.Handle,
+                    (uint)(rankOffset + i * sizeof(uint)), uint.MaxValue, uint.MaxValue);
+            }
             return true;
         }
         catch (Exception e)
         {
             Server.PrintToConsole($"[BotHider] scoreboard flair write failed slot={slot}: {e.Message}");
             return false;
-        }
-    }
-
-    // Writes one rank entry and marks that offset dirty
-    private static void SetScoreboardFlairRank(CCSPlayerController player, Span<MedalRank_t> ranks,
-                                               int index, uint itemDefIndex)
-    {
-        ranks[index] = (MedalRank_t)itemDefIndex;
-        TrySetScoreboardStateChanged(
-            player,
-            "CCSPlayerController_InventoryServices",
-            "m_rank",
-            index * sizeof(uint));
-    }
-
-    // Calls SetStateChanged while tolerating schema differences
-    private static void TrySetScoreboardStateChanged(CBaseEntity entity, string className,
-                                                     string fieldName, int extraOffset = 0)
-    {
-        try
-        {
-            Utilities.SetStateChanged(entity, className, fieldName, extraOffset);
-        }
-        catch
-        {
-            // Scoreboard fields vary across game/CSS builds
         }
     }
 
