@@ -43,8 +43,8 @@
   "CNetworkGameServer::PackEntities": {
     "signatures": {
       "library": "engine2",
-      "windows": "4D 8B FC 0F 1F 44 00 ? 4E 8B 34 FE 41 83 BE ? ? ? ? ? 7E ? 8B 53",
-      "linux": "41 8B 5F ? 45 31 E4 85 DB 75 ? 41 0F B6 47 ? 3C ? 76 ? 3C ? 77 ? 41 0F B6 5F"
+      "windows": "4C 89 4C 24 ? 44 89 44 24 ? 48 89 54 24 ? 48 89 4C 24 ? 55 53 56 57 41 54 41 55 41 56 41 57 48 8D AC 24 ? ? ? ? B8 ? ? ? ? E8 ? ? ? ? 48 2B E0 4C 8B E9",
+      "linux": "55 48 89 E5 41 57 49 89 D7 41 56 49 89 FE 41 55 41 54 53 89 CB 48 81 EC"
     },
     "comment": "packs network entities for clients"
   },
