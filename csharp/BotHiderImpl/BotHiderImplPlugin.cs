@@ -28,8 +28,6 @@ public class BotHiderImplPlugin : BasePlugin
     private readonly string[] _appliedCrosshair = new string[64];
     private readonly uint[] _appliedScoreboardFlair = new uint[64];
     private readonly ulong[] _observedIncarnations = new ulong[64];
-    private CounterStrikeSharp.API.Modules.Timers.Timer? _fastApplyTimer;
-    private int _fastApplyRemaining;
     private Harmony? _harmony;
 
     public override void Load(bool hotReload)
@@ -55,7 +53,7 @@ public class BotHiderImplPlugin : BasePlugin
         RegisterListener<Listeners.OnMapEnd>(OnMapEnd);
         RegisterListener<Listeners.OnClientDisconnect>(OnClientDisconnect);
         AddTimer(2.0f, ApplyManagedSlots, TimerFlags.REPEAT);
-        StartFastApplyWindow();
+        ApplyManagedSlots();
     }
 
     public override void Unload(bool hotReload)
@@ -65,8 +63,6 @@ public class BotHiderImplPlugin : BasePlugin
         _harmony = null;
         IsBotPatch.Api = null;
         _api = null;
-        _fastApplyTimer?.Kill();
-        _fastApplyTimer = null;
         _client?.Dispose();
     }
 
@@ -74,7 +70,7 @@ public class BotHiderImplPlugin : BasePlugin
     private void OnMapStart(string mapName)
     {
         ResetAppliedState();
-        StartFastApplyWindow();
+        ApplyManagedSlots();
     }
 
     // Clears presentation caches when the current map ends
@@ -93,32 +89,32 @@ public class BotHiderImplPlugin : BasePlugin
     [GameEventHandler]
     public HookResult OnRoundStart(EventRoundStart @event, GameEventInfo info)
     {
-        StartFastApplyWindow();
+        ApplyManagedSlots();
         AddTimer(0.3f, RespawnDeadManagedBots);
         return HookResult.Continue;
     }
 
-    // Player connect full — start early retries while controllers settle
+    // Player connect full — apply visible fields once when the controller becomes available
     [GameEventHandler]
     public HookResult OnPlayerConnectFull(EventPlayerConnectFull @event, GameEventInfo info)
     {
-        StartFastApplyWindow();
+        ApplyManagedSlots();
         return HookResult.Continue;
     }
 
-    // Player spawn — retry visible fields during freeze time
+    // Player spawn — reapply visible fields after spawn
     [GameEventHandler]
     public HookResult OnPlayerSpawn(EventPlayerSpawn @event, GameEventInfo info)
     {
-        StartFastApplyWindow();
+        ApplyManagedSlots();
         return HookResult.Continue;
     }
 
-    // Player death — retry fields that engine lifecycle code may overwrite
+    // Player death — reapply fields that engine lifecycle code may overwrite
     [GameEventHandler]
     public HookResult OnPlayerDeath(EventPlayerDeath @event, GameEventInfo info)
     {
-        StartFastApplyWindow();
+        ApplyManagedSlots();
         return HookResult.Continue;
     }
 
@@ -226,24 +222,6 @@ public class BotHiderImplPlugin : BasePlugin
             if (TryApplyScoreboardFlair(slot, itemDefIndex))
                 _appliedScoreboardFlair[slot] = itemDefIndex;
         });
-    }
-
-    // Opens a short high-frequency apply window for early-round fields
-    private void StartFastApplyWindow()
-    {
-        _fastApplyRemaining = Math.Max(_fastApplyRemaining, 80);
-        if (_fastApplyTimer != null) return;
-        _fastApplyTimer = AddTimer(0.25f, RunFastApplyTick, TimerFlags.REPEAT | TimerFlags.STOP_ON_MAPCHANGE);
-    }
-
-    // Runs one early apply retry tick
-    private void RunFastApplyTick()
-    {
-        ApplyManagedSlots();
-        _fastApplyRemaining--;
-        if (_fastApplyRemaining > 0) return;
-        _fastApplyTimer?.Kill();
-        _fastApplyTimer = null;
     }
 
     // Clears all cached presentation values
