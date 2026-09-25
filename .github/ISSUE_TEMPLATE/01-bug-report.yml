@@ -63,10 +63,10 @@ body:
     id: log
     attributes:
       label: BotHider log
-      description: Paste the relevant log output here. Log files are in `game\csgo\addons\BotHider\logs`. If the log is too long, attach the complete log file and paste the relevant section.
+      description: Optional. Paste the relevant log output here. Log files are in `game\csgo\addons\BotHider\logs`. If the log is too long, attach the complete log file and paste the relevant section.
       placeholder: Paste the relevant BotHider log output here.
     validations:
-      required: true
+      required: false
 
   - type: textarea
     id: evidence
