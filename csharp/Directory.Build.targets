@@ -14,7 +14,7 @@
       <_PluginBuildLine Include="public const string Version = &quot;$(PluginVersion)&quot;%3B" />
       <_PluginBuildLine Include="public const string GitSha = &quot;$(_PluginGitSha)&quot;%3B" />
       <_PluginBuildLine Include="public const string BuildTime = &quot;$(_PluginBuildTime)&quot;%3B" />
-      <_PluginBuildLine Include="public const string DisplayVersion = Version + &quot;+&quot; + GitSha%3B" />
+      <_PluginBuildLine Include="public static readonly string DisplayVersion = &quot;v&quot; + Version + &quot; @ &quot; + (GitSha.Length &gt; 7 ? GitSha.Substring(0, 7) : GitSha)%3B" />
       <_PluginBuildLine Include="}" />
     </ItemGroup>
     <WriteLinesToFile File="$(_PluginBuildInfo)" Lines="@(_PluginBuildLine)" Overwrite="true" WriteOnlyWhenDifferent="true" Encoding="UTF-8" />
