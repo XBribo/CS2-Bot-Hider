@@ -10,10 +10,10 @@ body:
         Please report only one problem per issue and check existing issues before submitting.
 
   - type: dropdown
-    id: operating-system
+    id: server-operating-system
     attributes:
-      label: Operating system
-      description: Which operating system are you using?
+      label: CS2 server operating system
+      description: Select the operating system of the machine running the CS2 server. For a local game hosted from the CS2 client, use the host computer's operating system, not a connecting player's.
       options:
         - Windows
         - Linux
@@ -24,10 +24,10 @@ body:
   - type: dropdown
     id: host-type
     attributes:
-      label: How are you running the game?
-      description: Select the option that best matches your setup.
+      label: How is the CS2 game server hosted?
+      description: Select whether the game is hosted by a CS2 client or runs as a dedicated server.
       options:
-        - Local game hosted from the CS2 client
+        - Listen server hosted by a CS2 client
         - Dedicated server
         - Not sure
     validations:
@@ -50,19 +50,28 @@ body:
   - type: dropdown
     id: problem-origin
     attributes:
-      label: Does this appear to be a built-in CS2 bot limitation or a plugin-related problem?
-      description: If possible, try the same situation after disabling the plugin or related module.
+      label: Does the problem also happen when BotHider is disabled?
+      description: If possible, reproduce the same situation once with BotHider disabled. Choose "I have not tested this or I am not sure" if you cannot check.
       options:
-        - It still happens without the plugin (probably a built-in bot limitation)
-        - It only happens with the plugin enabled (probably plugin-related)
+        - Yes, it also happens with BotHider disabled
+        - No, it only happens with BotHider enabled
         - I have not tested this or I am not sure
+    validations:
+      required: true
+
+  - type: textarea
+    id: log
+    attributes:
+      label: BotHider log
+      description: Paste the relevant log output here. Log files are in `game\csgo\addons\BotHider\logs`. If the log is too long, attach the complete log file and paste the relevant section.
+      placeholder: Paste the relevant BotHider log output here.
     validations:
       required: true
 
   - type: textarea
     id: evidence
     attributes:
-      label: Screenshots, video, or logs
-      description: Optional. Attach anything that makes the problem easier to understand or reproduce.
+      label: Additional screenshots or video
+      description: Optional. Attach anything else that makes the problem easier to understand or reproduce. The BotHider log is required above.
     validations:
       required: false

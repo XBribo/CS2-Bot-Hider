@@ -28,10 +28,11 @@ body:
   - type: dropdown
     id: plugin-scope
     attributes:
-      label: Is this related to the plugin or to the built-in CS2 bots?
+      label: Which behavior should this request change?
+      description: Choose the closest match. Select "I am not sure" if you cannot tell whether BotHider or CS2 controls it.
       options:
-        - The plugin could reasonably improve this
-        - This seems to be a built-in CS2 bot limitation
+        - BotHider plugin behavior
+        - Built-in CS2 bot behavior
         - I am not sure
     validations:
       required: true
