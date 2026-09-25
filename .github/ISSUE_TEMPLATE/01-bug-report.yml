@@ -72,6 +72,6 @@ body:
     id: evidence
     attributes:
       label: Additional screenshots or video
-      description: Optional. Attach anything else that makes the problem easier to understand or reproduce. The BotHider log is required above.
+      description: Optional. Attach anything else that makes the problem easier to understand or reproduce.
     validations:
       required: false
