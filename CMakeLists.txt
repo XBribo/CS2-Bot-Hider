@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.20)
-project(BotHider VERSION 0.5.0 LANGUAGES CXX)
+project(BotHider VERSION 0.5.1 LANGUAGES CXX)
 
 # The base version lives here; -DPLUGIN_VERSION overrides it for a build.
 if(NOT DEFINED PLUGIN_VERSION)
