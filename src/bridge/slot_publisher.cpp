@@ -148,6 +148,16 @@ uint32_t* SlotPublisher::ScoreboardFlairPtr(int slot) const
     return reinterpret_cast<uint32_t*>(m_view + shm::kOffScoreboardFlair + (slot * sizeof(uint32_t)));
 }
 
+uint32_t* SlotPublisher::ClanGroupIdPtr(int slot) const
+{
+    return reinterpret_cast<uint32_t*>(m_view + shm::kOffClanGroupId + (slot * sizeof(uint32_t)));
+}
+
+char* SlotPublisher::ClanTagPtr(int slot) const
+{
+    return reinterpret_cast<char*>(m_view + shm::kOffClanTag + (slot * shm::kClanTagLen));
+}
+
 // Returns the native avatar application flag for one slot
 unsigned char* SlotPublisher::AvatarAppliedPtr(int slot) const { return m_view + shm::kOffAvatarApplied + slot; }
 
@@ -174,7 +184,8 @@ void SlotPublisher::BumpGen()
 // Data-region writers
 
 void SlotPublisher::PublishAdopt(
-    int slot, uint64_t syntheticSid, const char* personaName, const char* crosshairCode, uint32_t scoreboardFlair)
+    int slot, uint64_t syntheticSid, const char* personaName, const char* crosshairCode,
+    uint32_t scoreboardFlair, const char* clanTag, uint32_t clanGroupId)
 {
     if (!m_view || slot < 0 || slot >= shm::kMaxSlots) return;
     *SidPtr(slot) = syntheticSid;
@@ -195,6 +206,10 @@ void SlotPublisher::PublishAdopt(
         std::strncpy(cross, crosshairCode, shm::kCrosshairLen - 1);
     }
     *ScoreboardFlairPtr(slot) = scoreboardFlair;
+    *ClanGroupIdPtr(slot) = clanGroupId;
+    char* tag = ClanTagPtr(slot);
+    std::memset(tag, 0, shm::kClanTagLen);
+    if (clanTag) std::strncpy(tag, clanTag, shm::kClanTagLen - 1);
     *AvatarAppliedPtr(slot) = 0;
     *AvatarAppliedSidPtr(slot) = 0;
     *PingPtr(slot) = 0;
@@ -213,6 +228,8 @@ void SlotPublisher::PublishRelease(int slot)
     std::memset(BaseNamePtr(slot), 0, shm::kNameLen);
     std::memset(CrosshairPtr(slot), 0, shm::kCrosshairLen);
     *ScoreboardFlairPtr(slot) = 0;
+    *ClanGroupIdPtr(slot) = 0;
+    std::memset(ClanTagPtr(slot), 0, shm::kClanTagLen);
     *AvatarAppliedPtr(slot) = 0;
     *AvatarAppliedSidPtr(slot) = 0;
     *PingPtr(slot) = 0;

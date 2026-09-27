@@ -72,6 +72,7 @@ You can create a file named `bot_info.json` inside `/game/csgo/addons/BotHider/`
 
 ```json
 {
+  "players": {
     "73936547": {
         "player_name": "s1mple",
         "crosshair_code": "CSGO-pE5f8-6RQvk-HLpdN-KW3J6-BQwLA",
@@ -80,14 +81,20 @@ You can create a file named `bot_info.json` inside `/game/csgo/addons/BotHider/`
     "153400465": {
         "player_name": "ZywOo",
         "crosshair_code": "CSGO-FqJYj-kLuW3-V2QZ3-xbkQK-PHPYE",
-        "scoreboard_flair": 5226
+        "scoreboard_flair": 5226,
+        "clan_tag": "DRAGODINDE",
+        "clan_group_id": 33294804
     }
+  }
 }
 ```
 
 - **steamid**: The 32-bit account ID (will be converted to a full SteamID64 automatically).
 - **crosshair_code**: The crosshair share code to apply to the bot (optional).
 - **scoreboard_flair**: The item definition index used as the bot's scoreboard flair (optional, `0` clears it).
+- **clan_tag**, **clan_group_id**: Optional pair for the bot's displayed Steam group tag and 32-bit group ID. Both must be present; invalid or incomplete pairs are ignored.
+
+Clan tags also require the server setting `sv_clantags_enabled 1`.
 
 If `scoreboard_flair` is missing, invalid, or set to `0`, BotHider leaves the scoreboard flair empty.
 Use [unicbm/cs2-econ-id-index](https://github.com/unicbm/cs2-econ-id-index) to look up valid scoreboard flair item definition IDs.

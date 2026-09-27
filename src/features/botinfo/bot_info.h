@@ -4,6 +4,8 @@
 
 #pragma once
 
+#include "clan_tag.h"
+
 #include <cstdint>
 #include <string>
 #include <vector>
@@ -18,6 +20,7 @@ struct BotEntry
     uint64_t steamId64 = 0;
     std::string crosshairCode;
     uint32_t scoreboardFlair = 0;
+    ClanTag clanTag;
 };
 
 class BotInfoStore

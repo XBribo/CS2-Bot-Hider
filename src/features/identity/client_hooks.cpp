@@ -82,8 +82,11 @@ KHook::Return<void> HiderPlugin::HookOnClientConnectedPost( // NOLINT(readabilit
     const uint64_t configuredSteamId = entry && entry->steamId64 != 0 ? entry->steamId64 : 0;
     const char* crosshairCode = entry ? entry->crosshairCode.c_str() : nullptr;
     const uint32_t scoreboardFlair = entry ? entry->scoreboardFlair : 0;
+    const char* clanTag = entry ? entry->clanTag.tag.c_str() : nullptr;
+    const uint32_t clanGroupId = entry ? entry->clanTag.groupId : 0;
     const uint64_t steamId = identity_runtime::MakeUniqueSteamId(index, configuredSteamId);
-    if (!Manager().AdoptSlot(index, displayName.c_str(), steamId, crosshairCode, scoreboardFlair))
+    if (!Manager().AdoptSlot(index, displayName.c_str(), steamId, crosshairCode, scoreboardFlair,
+                             clanTag, clanGroupId))
     {
         BotInfo().ReleaseAssignment(entry);
         return { KHook::Action::Ignore };

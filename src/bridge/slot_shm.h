@@ -69,9 +69,13 @@ inline constexpr int kOffAvatarApplied = 14752; // byte[64]
 inline constexpr int kOffAvatarAppliedSid = 14816; // uint64[64]
 inline constexpr int kOffAvatarData = 16384; // byte[64][16 KiB]
 
-inline constexpr int kTotalSize = kOffAvatarData + (kMaxSlots * kAvatarMaxBytes);
+// Configured clan presentation for each adopted identity
+inline constexpr int kClanTagLen = 128;
+inline constexpr int kOffClanGroupId = kOffAvatarData + (kMaxSlots * kAvatarMaxBytes); // uint32[64]
+inline constexpr int kOffClanTag = kOffClanGroupId + (kMaxSlots * sizeof(uint32_t)); // char[64][128]
+inline constexpr int kTotalSize = kOffClanTag + (kMaxSlots * kClanTagLen);
 static_assert(kOffAvatarAppliedSid + (kMaxSlots * sizeof(uint64_t)) <= kOffAvatarData, "Avatar metadata overlaps avatar data");
-static_assert(kOffAvatarData + (kMaxSlots * kAvatarMaxBytes) <= kTotalSize, "Shared-memory data exceeds the mapping size");
+static_assert(kOffClanTag + (kMaxSlots * kClanTagLen) == kTotalSize, "Shared-memory data exceeds the mapping size");
 
 // Command opcodes.
 enum CmdType : uint8_t

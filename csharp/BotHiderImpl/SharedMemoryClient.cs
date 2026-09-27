@@ -19,7 +19,7 @@ public sealed class SharedMemoryClient : IBotHiderApi, IDisposable
     private const int NameLen = 32;
     private const int CmdCount = 64;
     private const int AvatarMaxBytes = 16 * 1024;
-    private const int TotalSize = 1_064_960;
+    private const int TotalSize = 1_073_408;
     private static readonly byte[] AvatarPngSignature =
         [0x89, (byte)'P', (byte)'N', (byte)'G', 0x0D, 0x0A, 0x1A, 0x0A];
 
@@ -53,6 +53,10 @@ public sealed class SharedMemoryClient : IBotHiderApi, IDisposable
     private const int OffAvatarApplied = 14752;  // byte[64]
     private const int OffAvatarAppliedSid = 14816;  // uint64[64]
     private const int OffAvatarData = 16384;  // byte[64][16 KiB]
+    // Configured clan presentation region
+    private const int OffClanGroupId = 1_064_960; // uint32[64]
+    private const int OffClanTag = 1_065_216; // char[64][128]
+    private const int ClanTagLen = 128;
 
     // Command region offsets
     private const int OffWriteIdx = 2640;
@@ -200,6 +204,13 @@ public sealed class SharedMemoryClient : IBotHiderApi, IDisposable
 
     public string GetCrosshairCode(int slot)
         => ReadFixedUtf8(slot, OffCrosshair, CrosshairLen);
+
+    // Returns the configured clan pair for the selected native identity.
+    public (string Tag, uint GroupId) GetClan(int slot)
+        => IsManagedBot(slot)
+            ? (ReadFixedUtf8(slot, OffClanTag, ClanTagLen),
+               _view!.ReadUInt32(OffClanGroupId + slot * sizeof(uint)))
+            : (string.Empty, 0);
 
     // Returns whether native has applied an avatar to the current SteamID
     public bool HasBotAvatar(int slot)

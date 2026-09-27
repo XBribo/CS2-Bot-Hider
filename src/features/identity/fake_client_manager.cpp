@@ -54,7 +54,8 @@ void FakeClientManager::Init()
     m_steamIds = std::make_unique<SteamIdProvider>(sessionId);
 }
 
-bool FakeClientManager::AdoptSlot(int slot, const char* name, uint64_t steamId64, const char* crosshairCode, uint32_t scoreboardFlair)
+bool FakeClientManager::AdoptSlot(int slot, const char* name, uint64_t steamId64, const char* crosshairCode,
+                                  uint32_t scoreboardFlair, const char* clanTag, uint32_t clanGroupId)
 {
     if (slot < 0 || slot >= PersonaPool::kMaxSlots) return false;
     if (!m_steamIds) return false;
@@ -76,7 +77,7 @@ bool FakeClientManager::AdoptSlot(int slot, const char* name, uint64_t steamId64
     s.steamIdWritten = false;
 
     Personas().MarkSlotManaged(slot, name);
-    Publisher().PublishAdopt(slot, s.syntheticSid, name, crosshairCode, s.scoreboardFlair);
+    Publisher().PublishAdopt(slot, s.syntheticSid, name, crosshairCode, s.scoreboardFlair, clanTag, clanGroupId);
     Publisher().UpdatePing(slot, m_fakePingEnabled ? baseline : 0);
     return true;
 }

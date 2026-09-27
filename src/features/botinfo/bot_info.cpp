@@ -1,6 +1,7 @@
 // bot_info.cpp
 
 #include "bot_info.h"
+#include "clan_tag_config.h"
 
 #include <charconv>
 #include <chrono>
@@ -92,6 +93,7 @@ bool BotInfoStore::Load(const char* path)
             int64_t flair = val["scoreboard_flair"].get<int64_t>();
             e.scoreboardFlair = (flair >= 0 && flair <= 0xFFFF) ? static_cast<uint32_t>(flair) : 0;
         }
+        e.clanTag = ParseClanTag(val);
         m_byName[e.name].push_back(m_entries.size());
         m_entries.push_back(std::move(e));
     }

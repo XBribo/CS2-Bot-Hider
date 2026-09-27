@@ -174,11 +174,12 @@ add_library(
     src/core/interfaces.cpp
     src/core/gamedata.cpp
     src/features/avatar/avatar_override.cpp
-    src/features/identity/personas.cpp
-    src/features/identity/steamid_provider.cpp
+    src/features/botinfo/bot_info.cpp
+    src/features/clantag/clan_tag.cpp
+    src/features/persona/personas.cpp
+    src/features/steamid/steamid_provider.cpp
     src/features/ping/ping_display.cpp
     src/features/identity/fake_client_manager.cpp
-    src/features/identity/bot_info.cpp
     src/features/identity/client_hooks.cpp
     src/features/identity/command_hooks.cpp
     src/features/identity/identity_hooks.cpp
@@ -206,11 +207,15 @@ target_include_directories(
     PRIVATE
     src
     src/features/avatar
+    src/features/botinfo
+    src/features/clantag
     src/features/identity
+    src/features/persona
     src/bridge
     src/core
     src/core/cs2_sdk/entity
     src/features/ping
+    src/features/steamid
     src/utils
     ${NLOHMANN_JSON_INCLUDE}
     ${GENERATED_DIR}

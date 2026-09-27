@@ -27,6 +27,7 @@ public class BotHiderImplPlugin : BasePlugin
     private readonly string[] _appliedCrosshair = new string[64];
     private readonly uint[] _appliedScoreboardFlair = new uint[64];
     private readonly ulong[] _observedIncarnations = new ulong[64];
+    private readonly ClanTagPresenter _clanTags = new();
     private Harmony? _harmony;
 
     public override void Load(bool hotReload)
@@ -57,6 +58,7 @@ public class BotHiderImplPlugin : BasePlugin
 
     public override void Unload(bool hotReload)
     {
+        ResetAppliedState();
         // Undo the patch first
         _harmony?.UnpatchAll(_harmony.Id);
         _harmony = null;
@@ -187,6 +189,7 @@ public class BotHiderImplPlugin : BasePlugin
     private void ResetAppliedSlot(int slot, ulong incarnation)
     {
         if (slot < 0 || slot >= _observedIncarnations.Length) return;
+        _clanTags.Restore(slot);
         _observedIncarnations[slot] = incarnation;
         _appliedCrosshair[slot] = string.Empty;
         _appliedScoreboardFlair[slot] = 0U;
@@ -255,6 +258,8 @@ public class BotHiderImplPlugin : BasePlugin
                 if (TryApplyScoreboardFlair(slot, flair))
                     _appliedScoreboardFlair[slot] = flair;
             }
+
+            _clanTags.Apply(slot, player, _client.GetClan(slot));
         }
     }
 
@@ -350,12 +355,14 @@ public class BotHiderImplPlugin : BasePlugin
         {
             var p = Utilities.GetPlayerFromSlot(s);
             string isBot = (p != null && p.IsValid) ? p.IsBot.ToString() : "n/a";
+            var clan = _client.GetClan(s);
             cmd.ReplyToCommand(
                 $"  slot={s} incarnation={_client.GetSlotIncarnation(s)} " +
                 $"sid={_client.GetBotSteamId(s)}/{_client.GetBaseBotSteamId(s)} " +
                 $"name='{_client.GetPersonaName(s)}'/'{_client.GetBasePersonaName(s)}' " +
                 $"ping={_client.GetPing(s)} " +
                 $"crosshair='{_client.GetCrosshairCode(s)}' " +
+                $"clan='{clan.Tag}'/{clan.GroupId} " +
                 $"avatar={_client.HasBotAvatar(s)}/{_client.GetConfiguredAvatarSize(s)}B " +
                 $"isbot={isBot}");
         }

@@ -35,7 +35,8 @@ class SlotPublisher
     void Shutdown();
 
     // Data-region writers
-    void PublishAdopt(int slot, uint64_t syntheticSid, const char* personaName, const char* crosshairCode, uint32_t scoreboardFlair);
+    void PublishAdopt(int slot, uint64_t syntheticSid, const char* personaName, const char* crosshairCode,
+                      uint32_t scoreboardFlair, const char* clanTag, uint32_t clanGroupId);
     void PublishRelease(int slot);
     void UpdateBaseSyntheticSid(int slot, uint64_t sid);
     void UpdateSyntheticSid(int slot, uint64_t sid);
@@ -67,6 +68,8 @@ class SlotPublisher
     int* PingPtr(int slot) const;
     char* CrosshairPtr(int slot) const;
     uint32_t* ScoreboardFlairPtr(int slot) const;
+    uint32_t* ClanGroupIdPtr(int slot) const;
+    char* ClanTagPtr(int slot) const;
     unsigned char* AvatarAppliedPtr(int slot) const;
     uint64_t* AvatarAppliedSidPtr(int slot) const;
     uint64_t NextIncarnation();
