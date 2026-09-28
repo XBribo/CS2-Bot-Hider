@@ -32,7 +32,7 @@ namespace {
 // Returns whether a SteamID is used by another connected client
 bool IsSteamIdInUseByOther(uint64_t steamId, int exceptSlot)
 {
-    if (steamId == 0 || !g_pNetworkServerService) return false;
+    if (steamId == 0 || !g_pNetworkServerService || offsets::g_clientListOffset < 0) return false;
     auto* gameServer = g_pNetworkServerService->GetIGameServer();
     if (!gameServer) return false;
     auto* clients = reinterpret_cast<CUtlVector<void*>*>(reinterpret_cast<unsigned char*>(gameServer) + offsets::g_clientListOffset);
@@ -301,6 +301,12 @@ uint64_t MakeUniqueSteamId(int slot, uint64_t desired)
         if (!IsSteamIdInUseByOther(candidate, slot)) return candidate;
     }
     return desired;
+}
+
+// Checks exact SteamID availability for synchronous presentation writes.
+bool CanUseExactSteamId(int slot, uint64_t steamId)
+{
+    return steamId != 0 && !IsSteamIdInUseByOther(steamId, slot);
 }
 
 // Synchronizes the controller fake-client bit for one slot

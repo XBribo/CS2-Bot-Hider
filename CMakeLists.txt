@@ -174,6 +174,7 @@ add_library(
     src/core/interfaces.cpp
     src/core/gamedata.cpp
     src/features/avatar/avatar_override.cpp
+    src/features/avatar/avatar_publisher.cpp
     src/features/botinfo/bot_info.cpp
     src/features/clantag/clan_tag.cpp
     src/features/persona/personas.cpp
@@ -186,6 +187,7 @@ add_library(
     src/features/identity/identity_runtime.cpp
     src/features/identity/identity_state.cpp
     src/bridge/slot_publisher.cpp
+    src/bridge/api.cpp
     src/core/cs2_sdk/entity/entity_access.cpp
     src/core/offsets.cpp
     src/utils/platform.cpp

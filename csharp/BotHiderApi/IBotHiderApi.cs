@@ -3,7 +3,14 @@ namespace BotHiderApi;
 public static class BotHiderContract
 {
     public const int MaxPlayerNameUtf8Bytes = 31;
+    public const int ApiVersion = 1;
+
+    // Consumers defer engine work to a frame and unsubscribe on unload.
+    public static event Action? ProviderChanged;
+    public static void NotifyProviderChanged() => ProviderChanged?.Invoke();
 }
+
+public readonly record struct BotHiderSlotRef(int Slot, ulong Incarnation);
 
 public enum BotIdentityMode
 {
@@ -14,6 +21,34 @@ public enum BotIdentityMode
 // Slot is the engine player slot (CCSPlayerController.Slot.Value)
 public interface IBotHiderApi
 {
+    string ProviderEpoch { get; }
+
+    ulong GetSlotIncarnation(int slot);
+
+    ulong GetBaseBotSteamId(int slot);
+
+    string GetBasePersonaName(int slot);
+
+    (string Tag, uint GroupId) GetClan(int slot);
+
+    bool TryAcquireSlots(string owner, BotHiderSlotRef[] slots,
+        CancellationToken ownerLifetime, out string token);
+
+    bool TryReplaceSlots(string token, BotHiderSlotRef[] slots);
+
+    bool TryPublishIdentity(string token, int slot, ulong incarnation,
+        ulong steamId64, string name);
+
+    bool ReleaseSlots(string token);
+
+    int ReleaseSlotsByOwner(string owner);
+
+    bool TryPublishAvatarOverride(ulong steamId64, byte[] png, out string error);
+
+    bool TryClearAvatarOverride(ulong steamId64, out string error);
+
+    void ClearAvatarOverrides();
+
     bool IsManagedBot(int slot);
 
     ulong GetBotSteamId(int slot);

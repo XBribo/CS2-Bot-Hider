@@ -22,8 +22,9 @@ public class BotHiderImplPlugin : BasePlugin
     public static PluginCapability<IBotHiderApi> Capability { get; } =
         new("bothider:api");
 
-    private SharedMemoryClient? _client;
+    private SharedMemory? _client;
     private IBotHiderApi? _api;
+    private Claims? _claims;
     private readonly string[] _appliedCrosshair = new string[64];
     private readonly uint[] _appliedScoreboardFlair = new uint[64];
     private readonly ulong[] _observedIncarnations = new ulong[64];
@@ -35,17 +36,19 @@ public class BotHiderImplPlugin : BasePlugin
         Server.PrintToConsole($"[BotHider] {PluginBuildInfo.DisplayVersion}, built {PluginBuildInfo.BuildTime}");
         // Inject the visible-write actions so SetPersonaName / SetBotSteamId
         // also update the scoreboard
-        _client = new SharedMemoryClient(
+        _client = new SharedMemory(
             ApplyVisibleName,
             ApplyVisibleSid,
             ApplyVisibleScoreboardFlair,
             ApplyVisibleCrosshair);
-        _api = new BotHiderCapabilityApi(_client);
+        _claims = new Claims(_client, ApplyManagedSlots);
+        _api = new BotHiderCapabilityApi(_client, _claims);
         _client.TryConnect();
         Capabilities.RegisterPluginCapability(Capability, () => _api);
+        BotHiderContract.NotifyProviderChanged();
 
         // IsBot override
-        IsBotPatch.Api = _client;
+        IsBotPatch.Api = _api;
         _harmony = new Harmony("net.linyz.bothider.isbot");
         _harmony.PatchAll(typeof(BotHiderImplPlugin).Assembly);
 
@@ -58,18 +61,23 @@ public class BotHiderImplPlugin : BasePlugin
 
     public override void Unload(bool hotReload)
     {
+        _claims?.ReleaseAll();
+        _claims?.Clear();
+        BotHiderContract.NotifyProviderChanged();
         ResetAppliedState();
         // Undo the patch first
         _harmony?.UnpatchAll(_harmony.Id);
         _harmony = null;
         IsBotPatch.Api = null;
         _api = null;
+        _claims = null;
         _client?.Dispose();
     }
 
     // Clears presentation caches when a new map starts
     private void OnMapStart(string mapName)
     {
+        _claims?.Clear();
         ResetAppliedState();
         ApplyManagedSlots();
     }
@@ -77,12 +85,15 @@ public class BotHiderImplPlugin : BasePlugin
     // Clears presentation caches when the current map ends
     private void OnMapEnd()
     {
+        _claims?.ReleaseAll();
+        _claims?.Clear();
         ResetAppliedState();
     }
 
     // Clears presentation caches for one disconnected slot
     private void OnClientDisconnect(int slot)
     {
+        _claims?.RemoveSlot(slot);
         ResetAppliedSlot(slot, 0UL);
     }
 
@@ -199,6 +210,7 @@ public class BotHiderImplPlugin : BasePlugin
     private void ApplyManagedSlots()
     {
         if (_client == null) return;
+        _claims?.RetryRestores();
         int[] managedSlots = _client.GetManagedSlots();
         var managed = new bool[64];
         foreach (int slot in managedSlots)
@@ -206,6 +218,7 @@ public class BotHiderImplPlugin : BasePlugin
         for (int slot = 0; slot < managed.Length; slot++)
         {
             if (managed[slot]) continue;
+            _claims?.RemoveSlot(slot);
             ResetAppliedSlot(slot, 0UL);
         }
 
@@ -214,11 +227,12 @@ public class BotHiderImplPlugin : BasePlugin
             ulong incarnation = _client.GetSlotIncarnation(slot);
             if (_observedIncarnations[slot] != incarnation)
                 ResetAppliedSlot(slot, incarnation);
+            bool claimed = _claims?.IsClaimed(slot, incarnation) == true;
 
             var player = Utilities.GetPlayerFromSlot(slot);
             if (player == null || !player.IsValid) continue;
 
-            ReconcileVisibleIdentity(_client, slot, player);
+            ReconcileVisibleIdentity(_client, slot, player, claimed);
 
             int ping = _client.GetPing(slot);
             if (ping > 0)
@@ -233,6 +247,8 @@ public class BotHiderImplPlugin : BasePlugin
                     Server.PrintToConsole($"[BotHider] m_iPing write failed slot={slot}: {e.Message}");
                 }
             }
+
+            if (claimed) continue;
 
             string cross = _client.GetCrosshairCode(slot);
             if (_appliedCrosshair[slot] != cross ||
@@ -264,10 +280,10 @@ public class BotHiderImplPlugin : BasePlugin
     }
 
     // Restores the native published name and SteamID on the controller
-    private static void ReconcileVisibleIdentity(SharedMemoryClient client, int slot,
-                                                 CCSPlayerController player)
+    private static void ReconcileVisibleIdentity(SharedMemory client, int slot,
+                                                 CCSPlayerController player, bool claimed)
     {
-        string name = client.GetPersonaName(slot);
+        string name = claimed ? client.GetPublishedPersonaName(slot) : client.GetPersonaName(slot);
         if (!string.Equals(player.PlayerName, name, StringComparison.Ordinal))
         {
             player.PlayerName = name;
@@ -485,12 +501,35 @@ public class BotHiderImplPlugin : BasePlugin
 
 internal sealed class BotHiderCapabilityApi : IBotHiderApi
 {
-    private readonly SharedMemoryClient _client;
+    private readonly SharedMemory _client;
+    private readonly Claims _claims;
 
-    public BotHiderCapabilityApi(SharedMemoryClient client)
+    public BotHiderCapabilityApi(SharedMemory client, Claims claims)
     {
         _client = client;
+        _claims = claims;
     }
+
+    public string ProviderEpoch => _claims.Epoch;
+    public ulong GetSlotIncarnation(int slot) => _client.GetSlotIncarnation(slot);
+    public ulong GetBaseBotSteamId(int slot) => _client.GetBaseBotSteamId(slot);
+    public string GetBasePersonaName(int slot) => _client.GetBasePersonaName(slot);
+    public (string Tag, uint GroupId) GetClan(int slot) => _client.GetClan(slot);
+    public bool TryAcquireSlots(string owner, BotHiderSlotRef[] slots,
+        CancellationToken ownerLifetime, out string token)
+        => _claims.TryAcquire(owner, slots, ownerLifetime, out token);
+    public bool TryReplaceSlots(string token, BotHiderSlotRef[] slots)
+        => _claims.TryReplace(token, slots);
+    public bool TryPublishIdentity(string token, int slot, ulong incarnation,
+        ulong steamId64, string name)
+        => _claims.TryPublishIdentity(token, slot, incarnation, steamId64, name);
+    public bool ReleaseSlots(string token) => _claims.Release(token);
+    public int ReleaseSlotsByOwner(string owner) => _claims.ReleaseOwner(owner);
+    public bool TryPublishAvatarOverride(ulong steamId64, byte[] png, out string error)
+        => NativeAvatarClient.TryPublish(steamId64, png, out error);
+    public bool TryClearAvatarOverride(ulong steamId64, out string error)
+        => NativeAvatarClient.TryClear(steamId64, out error);
+    public void ClearAvatarOverrides() => NativeAvatarClient.ClearAll();
 
     // Returns whether the slot is managed by BotHider.
     public bool IsManagedBot(int slot) => _client.IsManagedBot(slot);

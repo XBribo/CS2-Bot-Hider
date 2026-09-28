@@ -8,6 +8,7 @@
 
 #include <cstdint>
 #include <functional>
+#include <thread>
 #include <vector>
 
 namespace cs2bh {
@@ -43,6 +44,8 @@ class SlotPublisher
     void UpdatePersonaName(int slot, const char* name);
     void UpdatePing(int slot, int ping);
     uint64_t GetIncarnation(int slot) const;
+    uint64_t GetBaseSyntheticSid(int slot) const;
+    bool IsOwnerThread() const;
     bool ReadAvatarMetadata(int slot, uint32_t& sequence, uint32_t& length, uint64_t& incarnation) const;
     bool ReadAvatarRequest(int slot, AvatarRequest& request) const;
     void PublishAvatarState(int slot, bool applied, uint64_t steamId);
@@ -78,6 +81,7 @@ class SlotPublisher
     void* m_mappingHandle = nullptr; // HANDLE
     unsigned char* m_view = nullptr;
     uint64_t m_nextIncarnation = 0;
+    std::thread::id m_ownerThread;
 };
 
 SlotPublisher& Publisher();
