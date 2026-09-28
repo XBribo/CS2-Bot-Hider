@@ -11,6 +11,7 @@
 #include "identity_runtime.h"
 #include "identity_state.h"
 #include "avatar_override.h"
+#include "avatar_publisher.h"
 #include "bot_info.h"
 #include "interfaces/interfaces.h"
 #include "fake_client_manager.h"
@@ -110,6 +111,7 @@ void HiderPlugin::OnLevelInit(char const* mapName, char const*, char const*, cha
 {
     identity_runtime::ClearPendingControllerRemovals();
     avatar::ResetRuntime();
+    avatar::ResetPublications();
     auto* gameServer = g_pNetworkServerService ? g_pNetworkServerService->GetIGameServer() : nullptr;
     if (gameServer && gameServer != m_hookedGameServer)
     {
@@ -135,6 +137,7 @@ void HiderPlugin::OnLevelShutdown()
     Manager().ReleaseAll();
     avatar::ProcessOverrides();
     avatar::ResetRuntime();
+    avatar::ResetPublications();
     BotInfo().ResetAssignments();
     BH_LOG_DEBUG("OnLevelShutdown — state drained\n");
 }
@@ -180,6 +183,7 @@ bool HiderPlugin::Load(PluginId id, ISmmAPI* ismm, char* error, size_t maxlen, b
     }
 
     gamedata::Prepare();
+    avatar::InitPublisher(networkStringTables);
 
     g_pCVar = g_icvar;
 
@@ -255,6 +259,11 @@ bool HiderPlugin::Unload(char* error, size_t maxlen)
             m_unloadPending = true;
         }
         std::snprintf(error, maxlen, "unload deferred until the command hook detaches; automatic retry queued");
+        return false;
+    }
+    if (!avatar::ShutdownPublisher())
+    {
+        std::snprintf(error, maxlen, "avatar publisher must unload on the engine main thread");
         return false;
     }
     if (!identity_hooks::Remove())

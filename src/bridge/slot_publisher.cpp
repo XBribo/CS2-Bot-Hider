@@ -75,6 +75,7 @@ bool SlotPublisher::Init()
     m_mappingHandle = reinterpret_cast<void*>(1);
 #endif
     m_view = view;
+    m_ownerThread = std::this_thread::get_id();
 
     // ReadIdx/WriteIdx start at 0
     std::memset(view, 0, shm::kTotalSize);
@@ -97,6 +98,7 @@ void SlotPublisher::Shutdown()
         shm_unlink(shm::kMappingName);
 #endif
         m_view = nullptr;
+        m_ownerThread = {};
     }
     if (m_mappingHandle)
     {
@@ -274,6 +276,19 @@ uint64_t SlotPublisher::GetIncarnation(int slot) const
 {
     if (!m_view || slot < 0 || slot >= shm::kMaxSlots) return 0;
     return *IncarnationPtr(slot);
+}
+
+// Reads the original identity used when a temporary presentation is released.
+uint64_t SlotPublisher::GetBaseSyntheticSid(int slot) const
+{
+    if (!m_view || slot < 0 || slot >= shm::kMaxSlots) return 0;
+    return *BaseSidPtr(slot);
+}
+
+// Checks that engine-facing publication runs on the plugin's loading thread.
+bool SlotPublisher::IsOwnerThread() const
+{
+    return m_view && m_ownerThread == std::this_thread::get_id();
 }
 
 // Reads stable avatar metadata without copying PNG content

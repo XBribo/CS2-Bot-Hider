@@ -13,6 +13,9 @@ void ApplyManagedDisguise(bool disguised);
 // Selects a non-colliding SteamID for one managed slot
 uint64_t MakeUniqueSteamId(int slot, uint64_t desired);
 
+// Rejects a requested identity rather than silently substituting another ID.
+bool CanUseExactSteamId(int slot, uint64_t steamId);
+
 // Synchronizes the controller fake-client bit for one slot
 bool SetControllerFakeClientFlag(int slot, bool fakeClient);
 

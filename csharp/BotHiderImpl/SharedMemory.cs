@@ -9,7 +9,7 @@ namespace BotHiderImpl;
 
 // Reads BotHider's shared-memory data region and posts write commands
 // src/slot_shm.h
-public sealed class SharedMemoryClient : IBotHiderApi, IDisposable
+public sealed class SharedMemory : IDisposable
 {
     private const string MappingName = "CS2BotHider_Slots";
     private const string PosixMappingPath = "/dev/shm/CS2BotHider_Slots";
@@ -88,7 +88,7 @@ public sealed class SharedMemoryClient : IBotHiderApi, IDisposable
     private readonly bool[] _scoreboardFlairAssigned = new bool[MaxSlots];
     private readonly ulong[] _scoreboardFlairIncarnations = new ulong[MaxSlots];
 
-    public SharedMemoryClient(Action<int, string>? onVisibleName = null,
+    public SharedMemory(Action<int, string>? onVisibleName = null,
                               Action<int, ulong>? onVisibleSid = null,
                               Action<int, uint>? onScoreboardFlair = null,
                               Action<int, string>? onCrosshairCode = null)
@@ -183,6 +183,10 @@ public sealed class SharedMemoryClient : IBotHiderApi, IDisposable
         _personaNameOverrideIncarnations[slot] = incarnation;
         return ReadFixedUtf8(slot, OffPersonaName, NameLen);
     }
+
+    // Reads the native effective name without the legacy setter cache.
+    public string GetPublishedPersonaName(int slot)
+        => ReadFixedUtf8(slot, OffPersonaName, NameLen);
 
     // Returns the native persona name before C# presentation overrides
     public string GetBasePersonaName(int slot)
