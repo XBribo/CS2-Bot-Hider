@@ -342,7 +342,7 @@ KHook::Return<void> PackPre(void*, void*, int, void*, void*) noexcept
 {
     g_packEntitiesMutex.lock();
     ++g_nativeHookDepth;
-    if (g_packEntitiesDepth++ == 0) g_packedPawns = ApplyBotFlagOverride();
+    if (g_packEntitiesDepth++ == 0) ApplyBotFlagOverride(g_packedPawns);
     return { KHook::Action::Ignore };
 }
 
