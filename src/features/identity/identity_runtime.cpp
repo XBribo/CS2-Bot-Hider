@@ -100,23 +100,6 @@ BotPawnRef ResolveManagedBotPawn(int slot)
     return result;
 }
 
-// Collects every unique pawn currently owned by managed bots
-std::vector<BotPawnRef> CollectManagedBotPawns()
-{
-    std::vector<BotPawnRef> pawns;
-    pawns.reserve(PersonaPool::kMaxSlots);
-    for (int slot = 0; slot < PersonaPool::kMaxSlots; ++slot)
-    {
-        BotPawnRef pawn = ResolveManagedBotPawn(slot);
-        if (!pawn.instance) continue;
-        auto duplicate = std::ranges::find_if(pawns, [&pawn](const BotPawnRef& existing) {
-            return existing.instance == pawn.instance;
-        });
-        if (duplicate == pawns.end()) pawns.push_back(pawn);
-    }
-    return pawns;
-}
-
 // Checks whether a current client still references one controller
 bool IsControllerReferencedByClient(void* controller, uint16_t* userIdOut)
 {
@@ -181,21 +164,21 @@ ManagedControllerTrace TraceManagedController(void* controller)
 }
 
 // Clears FL_BOT for managed pawns during entity packing
-std::vector<BotPawnRef> ApplyBotFlagOverride()
+void ApplyBotFlagOverride(std::vector<BotPawnRef>& modified)
 {
-    if (offsets::g_baseEntityFlagsOffset < 0) return {};
-    std::vector<BotPawnRef> pawns = CollectManagedBotPawns();
-    std::vector<BotPawnRef> modified;
-    modified.reserve(pawns.size());
-    for (const BotPawnRef& pawn : pawns)
+    if (offsets::g_baseEntityFlagsOffset < 0) return;
+    modified.reserve(PersonaPool::kMaxSlots);
+    for (int slot = 0; slot < PersonaPool::kMaxSlots; ++slot)
     {
+        BotPawnRef pawn = ResolveManagedBotPawn(slot);
+        if (!pawn.instance) continue;
         auto* flags = reinterpret_cast<uint32_t*>(reinterpret_cast<unsigned char*>(pawn.instance) + offsets::g_baseEntityFlagsOffset);
+        // A pawn reached through another slot already has FL_BOT cleared.
         if ((*flags & offsets::kEntityFlagBot) == 0) continue;
         *flags &= ~offsets::kEntityFlagBot;
         entity_access::MarkEntityFieldChanged(pawn.instance, static_cast<uint32_t>(offsets::g_baseEntityFlagsOffset));
         modified.push_back(pawn);
     }
-    return modified;
 }
 
 // Restores FL_BOT on every still-current pawn

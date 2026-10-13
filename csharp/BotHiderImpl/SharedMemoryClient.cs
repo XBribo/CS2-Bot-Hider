@@ -124,11 +124,7 @@ public sealed class SharedMemoryClient : IBotHiderApi, IDisposable
         catch (Exception) { Dispose(); return false; }
     }
 
-    private bool Valid(int slot)
-    {
-        if (_view == null) TryConnect();
-        return _view != null && slot >= 0 && slot < MaxSlots;
-    }
+    private bool Valid(int slot) => _view != null && slot >= 0 && slot < MaxSlots;
 
     // Returns whether the shared memory bridge is connected
     public bool IsConnected()

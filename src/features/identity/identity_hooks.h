@@ -28,7 +28,7 @@ struct ManagedControllerTrace
 };
 
 // Clears FL_BOT for managed pawns during entity packing
-std::vector<BotPawnRef> ApplyBotFlagOverride();
+void ApplyBotFlagOverride(std::vector<BotPawnRef>& modified);
 
 // Restores FL_BOT for pawns changed by the packing scope
 void RestoreBotFlagOverride(const std::vector<BotPawnRef>& pawns);
