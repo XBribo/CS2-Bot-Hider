@@ -7,13 +7,12 @@
 #include <ISmmPlugin.h>
 #include <khook.hpp>
 #include <playerslot.h>
-#include <tier1/utlvector.h>
 #include "hooks.h"
 #include <array>
 #include <cstdint>
 
 class CServerSideClient;
-class INetworkGameClient;
+class CServerChangelevelState;
 class INetworkGameServer;
 class ICvar;
 class CCSPlayerController;
@@ -76,7 +75,7 @@ class HiderPlugin : public ISmmPlugin, public IMetamodListener
                                                 const char* name,
                                                 uint64 xuid,
                                                 const char* networkId) noexcept;
-    KHook::Return<CUtlVector<INetworkGameClient*>*>
+    KHook::Return<CServerChangelevelState*>
     HookStartChangeLevelPre(INetworkGameServer*, const char* mapName, const char* landmark, void* changelevelState) noexcept;
     KHook::Return<void> HookGameFramePost(IServerGameDLL*, bool simulating, bool firstTick, bool lastTick) noexcept;
 
@@ -101,7 +100,7 @@ class HiderPlugin : public ISmmPlugin, public IMetamodListener
     using ClientDisconnectHook =
         hooks::CheckedVirtual<IServerGameClients, void, CPlayerSlot, ENetworkDisconnectionReason, const char*, uint64, const char*>;
     using StartChangeLevelHook =
-        hooks::CheckedVirtual<INetworkGameServer, CUtlVector<INetworkGameClient*>*, const char*, const char*, void*>;
+        hooks::CheckedVirtual<INetworkGameServer, CServerChangelevelState*, const char*, const char*, void*>;
     using GameFrameHook = hooks::CheckedVirtual<IServerGameDLL, void, bool, bool, bool>;
     using DispatchConCommandHook = hooks::CheckedVirtual<ICvar, void, ConCommandRef, const CCommandContext&, const CCommand&>;
 

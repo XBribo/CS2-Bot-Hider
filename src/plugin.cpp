@@ -38,11 +38,14 @@
 #define CS2BH_FASTCALL
 #endif
 
-#include <iserver.h>
-#include <eiface.h>
+#include <engine2/inetworkgameserver.h>
+#include <engine2/inetworkserverservice.h>
+#include <engine2/networkgameserverbase.h>
+#include <engine2/isource2server.h>
+#include <engine2/ivengineserver2.h>
 #include <networkstringtabledefs.h>
-#include <tier1/utlvector.h>
-#include <tier1/convar.h>
+#include <tier0/utlvector.h>
+#include <tier0/convar.h>
 
 namespace cs2bh {
 

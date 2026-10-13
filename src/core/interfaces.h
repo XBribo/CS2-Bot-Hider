@@ -1,7 +1,8 @@
 #pragma once
 #include <cstddef>
 #include <ISmmAPI.h>
-#include <eiface.h>
+#include <engine2/isource2server.h>
+#include <engine2/ivengineserver2.h>
 class ICvar;
 class INetworkServerService;
 class ISchemaSystem;

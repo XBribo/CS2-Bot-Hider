@@ -12,7 +12,6 @@
 #include "personas.h"
 #include "serversideclient_ref.h"
 #include "slot_publisher.h"
-#include "utlvector.h"
 
 #include <cstdint>
 #include <cstdio>
@@ -20,8 +19,8 @@
 #include <cstring>
 #include <vector>
 
-#include <eiface.h>
-#include <tier1/convar.h>
+#include <engine2/ivengineserver2.h>
+#include <tier0/convar.h>
 
 extern IVEngineServer* g_engine;
 
@@ -161,7 +160,7 @@ void HiderPlugin::SetIdentityMode(IdentityMode mode)
 }
 
 // Restores native bot identity and clears managed state before a level transition
-KHook::Return<CUtlVector<INetworkGameClient*>*>
+KHook::Return<CServerChangelevelState*>
 HiderPlugin::HookStartChangeLevelPre(INetworkGameServer*,
                                      const char* mapName,
                                      const char* landmark,

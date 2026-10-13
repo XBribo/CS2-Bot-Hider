@@ -2,7 +2,6 @@
 
 #include "core/cs2_sdk/schema.h"
 #include "core/interfaces.h"
-#include "schemasystem/schematypes.h"
 #include "offsets.h"
 
 #include <schemasystem/schemasystem.h>

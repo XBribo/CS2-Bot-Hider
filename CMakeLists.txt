@@ -65,7 +65,7 @@ else()
 endif()
 
 # Required env vars:
-#   HL2SDKCS2     : hl2sdk-cs2 checkout
+#   HL2SDKCS2     : s2sdk checkout (cs2 branch; legacy env var name)
 #   MMSOURCE_DEV  : metamod-source checkout
 #   CSGO_PROTO    : directory containing network_connection.proto
 #   PROTOC        : optional override for protoc.exe (must be 3.21.x)
@@ -162,8 +162,8 @@ set(NLOHMANN_JSON_INCLUDE "${CMAKE_SOURCE_DIR}/libraries")
 
 set(SDK_SOURCES
     ${HL2SDK}/public/tier0/memoverride.cpp
-    ${HL2SDK}/tier1/keyvalues3.cpp
-    ${HL2SDK}/tier1/convar.cpp
+    ${HL2SDK}/tier0_perproject/keyvalues3.cpp
+    ${HL2SDK}/tier0_perproject/convar.cpp
 )
 
 add_library(
@@ -213,6 +213,7 @@ target_include_directories(
     src/features/persona
     src/bridge
     src/core
+    src/core/cs2_sdk/metamod
     src/core/cs2_sdk/entity
     src/features/ping
     src/features/steamid

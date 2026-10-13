@@ -20,7 +20,7 @@ permissions:
   contents: read
 
 env:
-  HL2SDK_REPO: alliedmodders/hl2sdk
+  HL2SDK_REPO: alliedmodders/s2sdk
   HL2SDK_REF: cs2
   MMSOURCE_REPO: alliedmodders/metamod-source
   MMSOURCE_REF: master
@@ -101,12 +101,12 @@ jobs:
     steps:
       - uses: actions/checkout@v7
 
-      - name: Checkout hl2sdk-cs2
+      - name: Checkout s2sdk-cs2
         uses: actions/checkout@v7
         with:
           repository: ${{ env.HL2SDK_REPO }}
           ref: ${{ env.HL2SDK_REF }}
-          path: deps/hl2sdk-cs2
+          path: deps/s2sdk-cs2
 
       - name: Checkout metamod-source
         uses: actions/checkout@v7
@@ -128,9 +128,9 @@ jobs:
 
       - name: Configure + build
         env:
-          HL2SDKCS2: ${{ github.workspace }}/deps/hl2sdk-cs2
+          HL2SDKCS2: ${{ github.workspace }}/deps/s2sdk-cs2
           MMSOURCE_DEV: ${{ github.workspace }}/deps/metamod-source
-          CSGO_PROTO: ${{ github.workspace }}/deps/hl2sdk-cs2/common
+          CSGO_PROTO: ${{ github.workspace }}/deps/s2sdk-cs2/common
         run: |
           cmake -B build -G "Visual Studio 18 2026" -A x64 -S .
           cmake --build build --config Release
@@ -176,12 +176,12 @@ jobs:
     steps:
       - uses: actions/checkout@v7
 
-      - name: Checkout hl2sdk-cs2
+      - name: Checkout s2sdk-cs2
         uses: actions/checkout@v7
         with:
           repository: ${{ env.HL2SDK_REPO }}
           ref: ${{ env.HL2SDK_REF }}
-          path: deps/hl2sdk-cs2
+          path: deps/s2sdk-cs2
 
       - name: Checkout metamod-source
         uses: actions/checkout@v7
@@ -202,9 +202,9 @@ jobs:
 
       - name: Configure + build
         env:
-          HL2SDKCS2: ${{ github.workspace }}/deps/hl2sdk-cs2
+          HL2SDKCS2: ${{ github.workspace }}/deps/s2sdk-cs2
           MMSOURCE_DEV: ${{ github.workspace }}/deps/metamod-source
-          CSGO_PROTO: ${{ github.workspace }}/deps/hl2sdk-cs2/common
+          CSGO_PROTO: ${{ github.workspace }}/deps/s2sdk-cs2/common
         run: |
           cmake -S . -B build -DCMAKE_BUILD_TYPE=Release
           cmake --build build -j"$(nproc)"

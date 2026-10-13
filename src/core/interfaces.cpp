@@ -2,8 +2,9 @@
 #include "plugin.h"
 #include <ISmmAPI.h>
 #include <icvar.h>
-#include <eiface.h>
-#include <iserver.h>
+#include <engine2/isource2server.h>
+#include <engine2/ivengineserver2.h>
+#include <engine2/inetworkserverservice.h>
 #include <interfaces/interfaces.h>
 #include <schemasystem/schemasystem.h>
 IVEngineServer* g_engine = nullptr;

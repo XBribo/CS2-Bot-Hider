@@ -20,8 +20,10 @@
 #include <vector>
 
 #include <entity2/entityinstance.h>
-#include <iserver.h>
-#include <tier1/utlvector.h>
+#include <engine2/inetworkgameserver.h>
+#include <engine2/inetworkserverservice.h>
+#include <engine2/networkgameserverbase.h>
+#include <tier0/utlvector.h>
 
 extern INetworkServerService* g_pNetworkServerService;
 
