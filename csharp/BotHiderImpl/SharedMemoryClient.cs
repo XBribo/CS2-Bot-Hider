@@ -11,8 +11,8 @@ namespace BotHiderImpl;
 // src/slot_shm.h
 public sealed class SharedMemoryClient : IBotHiderApi, IDisposable
 {
-    private const string MappingName = "CS2BotHider_Slots";
-    private const string PosixMappingPath = "/dev/shm/CS2BotHider_Slots";
+    private static readonly string MappingName = "CS2BotHider_Slots_" + Environment.ProcessId.ToString(CultureInfo.InvariantCulture);
+    private static readonly string PosixMappingPath = "/dev/shm/" + MappingName;
     private const uint Magic = 0x44494842; // 'BHID'
     private const uint Version = 1;
     private const int MaxSlots = 64;

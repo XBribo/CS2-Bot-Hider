@@ -16,6 +16,7 @@
 #include <windef.h> // NOLINT(misc-include-cleaner)
 #include <winbase.h>
 #include <winnt.h>
+#include <processthreadsapi.h>
 #else
 #include <fcntl.h>
 #include <sys/mman.h>
@@ -27,6 +28,7 @@
 #include <atomic>
 #include <cstdint>
 #include <cstring>
+#include <string>
 #include <utility>
 #include <vector> // NOLINT(misc-include-cleaner)
 
@@ -34,6 +36,15 @@ namespace cs2bh {
 
 namespace {
 SlotPublisher g_publisher;
+
+std::string MappingName()
+{
+#ifdef _WIN32
+    return shm::kMappingName + std::to_string(GetCurrentProcessId());
+#else
+    return shm::kMappingName + std::to_string(getpid());
+#endif
+}
 }
 
 SlotPublisher& Publisher() { return g_publisher; }
@@ -46,7 +57,7 @@ bool SlotPublisher::Init()
     if (m_view) return true;
 
 #ifdef _WIN32
-    HANDLE h = CreateFileMappingA(INVALID_HANDLE_VALUE, nullptr, PAGE_READWRITE, 0, shm::kTotalSize, shm::kMappingName);
+    HANDLE h = CreateFileMappingA(INVALID_HANDLE_VALUE, nullptr, PAGE_READWRITE, 0, shm::kTotalSize, MappingName().c_str());
     if (!h) return false;
 
     auto* view = static_cast<unsigned char*>(MapViewOfFile(h, FILE_MAP_ALL_ACCESS, 0, 0, shm::kTotalSize));
@@ -58,13 +69,13 @@ bool SlotPublisher::Init()
 
     m_mappingHandle = h;
 #else
-    int fd = shm_open(shm::kMappingName, O_CREAT | O_RDWR, 0666);
+    int fd = shm_open(MappingName().c_str(), O_CREAT | O_RDWR, 0600);
     if (fd < 0) return false;
 
     if (ftruncate(fd, shm::kTotalSize) != 0)
     {
         close(fd);
-        shm_unlink(shm::kMappingName);
+        shm_unlink(MappingName().c_str());
         return false;
     }
 
@@ -94,7 +105,7 @@ void SlotPublisher::Shutdown()
         UnmapViewOfFile(m_view);
 #else
         munmap(m_view, shm::kTotalSize);
-        shm_unlink(shm::kMappingName);
+        shm_unlink(MappingName().c_str());
 #endif
         m_view = nullptr;
     }
