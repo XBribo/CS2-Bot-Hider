@@ -87,7 +87,11 @@ void ResolveUtilRemoveAndEntSys(const nlohmann::json& gamedata, const modules::M
     }
 
     auto* hit = static_cast<unsigned char*>(modules::FindPatternIn(serverModule, bytes, wildcards));
-    if (!hit) return;
+    if (!hit)
+    {
+        BH_LOG_WARN("UTIL_Remove signature missing or ambiguous\n");
+        return;
+    }
     g_utilRemove = reinterpret_cast<UtilRemoveFn>(hit);
 
     /*

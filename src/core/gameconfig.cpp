@@ -75,12 +75,14 @@ void* ResolveSig(const nlohmann::json& gamedata, const modules::ModuleInfo& modu
         SetError(errorOut, errorOutLen, "failed to parse '%s' sig: '%s'", name, sig.c_str());
         return nullptr;
     }
-    void* addr = modules::FindPatternIn(module, bytes, wild);
-    if (!addr)
+    const auto matches = modules::FindPatternMatchesIn(module, bytes, wild);
+    if (matches.size() != 1)
     {
-        SetError(errorOut, errorOutLen, "sig '%s' not found in target module", name);
+        if (errorOut && errorOutLen)
+            std::snprintf(errorOut, errorOutLen, "sig '%s' expected one executable match, got %s", name,
+                          matches.empty() ? "0" : "2 or more");
         return nullptr;
     }
-    return addr;
+    return matches.front();
 }
 } // namespace cs2bh::gameconfig
