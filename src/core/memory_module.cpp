@@ -7,6 +7,7 @@
 #endif
 
 #include "core/memory_module.h"
+#include <khook.hpp>
 
 #include <algorithm>
 #include <cstdint>
@@ -74,9 +75,8 @@ ModuleInfo ModuleCodeFromHandle(HINSTANCE handle)
     IMAGE_SECTION_HEADER* section = IMAGE_FIRST_SECTION(ntHeader);
     for (WORD i = 0; i < ntHeader->FileHeader.NumberOfSections; ++i, ++section)
     {
-        char name[IMAGE_SIZEOF_SHORT_NAME + 1] = {};
-        std::memcpy(name, section->Name, IMAGE_SIZEOF_SHORT_NAME);
-        if (std::strcmp(name, ".text") != 0) continue;
+        if ((section->Characteristics & (IMAGE_SCN_MEM_EXECUTE | IMAGE_SCN_MEM_READ)) !=
+            (IMAGE_SCN_MEM_EXECUTE | IMAGE_SCN_MEM_READ)) continue;
 
         const size_t sectionSize = static_cast<size_t>(section->Misc.VirtualSize);
         const size_t sectionOffset = static_cast<size_t>(section->VirtualAddress);
@@ -85,7 +85,6 @@ ModuleInfo ModuleCodeFromHandle(HINSTANCE handle)
         out.base = image.base;
         out.size = image.size;
         out.segments.push_back({ .base = image.base + sectionOffset, .size = sectionSize });
-        return out;
     }
     return out;
 }
@@ -234,53 +233,40 @@ bool ParseSigString(const std::string& sigStr, std::vector<uint8_t>& outBytes, s
 
 void* FindPatternIn(const ModuleInfo& module, const std::vector<uint8_t>& pattern, const std::vector<bool>& wild)
 {
-    if (!module || pattern.empty() || pattern.size() != wild.size()) return nullptr;
-
-    const size_t patternLength = pattern.size();
-    for (const ModuleSegment& segment : module.segments)
-    {
-        if (!segment.base || segment.size < patternLength) continue;
-
-        for (size_t i = 0; i + patternLength <= segment.size; ++i)
-        {
-            bool match = true;
-            for (size_t j = 0; j < patternLength; ++j)
-            {
-                if (!wild[j] && segment.base[i + j] != pattern[j])
-                {
-                    match = false;
-                    break;
-                }
-            }
-            if (match) return segment.base + i;
-        }
-    }
-    return nullptr;
+    const auto matches = FindPatternMatchesIn(module, pattern, wild);
+    return matches.size() == 1 ? matches.front() : nullptr;
 }
 
-// Finds every pattern match across the selected module segments.
+// Finds up to two candidates using original KHook bytes.
 std::vector<void*> FindPatternMatchesIn(const ModuleInfo& module, const std::vector<uint8_t>& pattern, const std::vector<bool>& wild)
 {
     std::vector<void*> matches;
-    if (!module || pattern.empty() || pattern.size() != wild.size()) return matches;
-
-    const size_t patternLength = pattern.size();
+    if (!module || pattern.empty() || pattern.size() != wild.size() || !KHook::__exported__khook) return matches;
+    constexpr char hex[] = "0123456789ABCDEF";
+    std::string signature;
+    for (size_t i = 0; i < pattern.size(); ++i)
+    {
+        if (i) signature += ' ';
+        if (wild[i]) signature += '?';
+        else
+        {
+            signature += hex[pattern[i] >> 4];
+            signature += hex[pattern[i] & 15];
+        }
+    }
     for (const ModuleSegment& segment : module.segments)
     {
-        if (!segment.base || segment.size < patternLength) continue;
-
-        for (size_t i = 0; i + patternLength <= segment.size; ++i)
+        if (!segment.base || segment.size < pattern.size()) continue;
+        size_t offset = 0;
+        while (offset <= segment.size - pattern.size())
         {
-            bool match = true;
-            for (size_t j = 0; j < patternLength; ++j)
-            {
-                if (!wild[j] && segment.base[i + j] != pattern[j])
-                {
-                    match = false;
-                    break;
-                }
-            }
-            if (match) matches.push_back(segment.base + i);
+            // KHook's size counts candidate starts, so exclude starts crossing the segment end.
+            auto* match = static_cast<unsigned char*>(KHook::LookupSignature(
+                segment.base + offset, segment.size - offset - pattern.size() + 1, signature.c_str()));
+            if (!match) break;
+            matches.push_back(match);
+            if (matches.size() == 2) return matches; // Enough to reject an ambiguous signature.
+            offset = static_cast<size_t>(match - segment.base) + 1;
         }
     }
     return matches;

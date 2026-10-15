@@ -455,7 +455,7 @@ void PrepareQuotaHook(const nlohmann::json& gamedata, const modules::ModuleInfo&
     void* target = modules::FindPatternIn(serverModule, bytes, wildcards);
     if (!target)
     {
-        BH_LOG_WARN("MaintainBotQuota sig not found — quota fix disabled\n");
+        BH_LOG_WARN("MaintainBotQuota sig missing or ambiguous — quota fix disabled\n");
         return;
     }
     g_quotaHookTarget = target;

@@ -49,7 +49,7 @@ void Prepare()
             }
 
             modules::Initialize();
-            const modules::ModuleInfo& serverModule = modules::server->Image();
+            const modules::ModuleInfo& serverModule = modules::server->Code();
             entity_access::ResolveUtilRemoveAndEntSys(gamedata, serverModule);
 
             identity_hooks::PrepareAll(gamedata, serverModule);
