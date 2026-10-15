@@ -118,11 +118,13 @@ public class BotHiderImplPlugin : BasePlugin
         return HookResult.Continue;
     }
 
-    // Set CCSPlayerController.m_iszPlayerName
-    private static void ApplyVisibleName(int slot, string name)
+    // Updates the visible name only while the queued native lifetime is current.
+    private void ApplyVisibleName(int slot, string name, ulong incarnation)
     {
+        var client = _client;
         Server.NextFrame(() =>
         {
+            if (client == null || !client.IsManagedBot(slot) || client.GetSlotIncarnation(slot) != incarnation) return;
             var player = Utilities.GetPlayerFromSlot(slot);
             if (player == null || !player.IsValid) return;
             player.PlayerName = name;
@@ -130,11 +132,13 @@ public class BotHiderImplPlugin : BasePlugin
         });
     }
 
-    // Write CBasePlayerController.m_steamID
-    private static void ApplyVisibleSid(int slot, ulong sid)
+    // Updates the visible SteamID only while the queued native lifetime is current.
+    private void ApplyVisibleSid(int slot, ulong sid, ulong incarnation)
     {
+        var client = _client;
         Server.NextFrame(() =>
         {
+            if (client == null || !client.IsManagedBot(slot) || client.GetSlotIncarnation(slot) != incarnation) return;
             var player = Utilities.GetPlayerFromSlot(slot);
             if (player == null || !player.IsValid) return;
             try
