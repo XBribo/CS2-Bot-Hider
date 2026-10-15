@@ -16,7 +16,7 @@ inline constexpr const char* kMappingName = "/CS2BotHider_Slots";
 #endif
 
 inline constexpr uint32_t kMagic = 0x44494842; // 'BHID'
-inline constexpr uint32_t kVersion = 2;
+inline constexpr uint32_t kVersion = 1;
 inline constexpr int kMaxSlots = 64;
 inline constexpr int kNameLen = 32; // persona name buffer (incl. NUL)
 inline constexpr int kCmdCount = 64; // ring-buffer entries
