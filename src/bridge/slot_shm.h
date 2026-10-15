@@ -8,11 +8,11 @@
 
 namespace cs2bh::shm {
 
-// Windows named mapping / POSIX shm name.
+// Prefix for the Windows mapping or Linux memfd name. Native and CSS share a PID.
 #ifdef _WIN32
-inline constexpr const char* kMappingName = "Local\\CS2BotHider_Slots";
+inline constexpr const char* kMappingName = "Local\\CS2BotHider_Slots_";
 #else
-inline constexpr const char* kMappingName = "/CS2BotHider_Slots";
+inline constexpr const char* kMappingName = "CS2BotHider_Slots_";
 #endif
 
 inline constexpr uint32_t kMagic = 0x44494842; // 'BHID'

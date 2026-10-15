@@ -11,8 +11,8 @@ namespace BotHiderImpl;
 // src/slot_shm.h
 public sealed class SharedMemoryClient : IBotHiderApi, IDisposable
 {
-    private const string MappingName = "CS2BotHider_Slots";
-    private const string PosixMappingPath = "/dev/shm/CS2BotHider_Slots";
+    private static readonly string MappingName = "CS2BotHider_Slots_" + Environment.ProcessId.ToString(CultureInfo.InvariantCulture);
+    private static readonly string LinuxMappingTarget = "/memfd:" + MappingName + " (deleted)";
     private const uint Magic = 0x44494842; // 'BHID'
     private const uint Version = 1;
     private const int MaxSlots = 64;
@@ -107,8 +107,7 @@ public sealed class SharedMemoryClient : IBotHiderApi, IDisposable
         {
             _mmf = RuntimeInformation.IsOSPlatform(OSPlatform.Windows)
                 ? MemoryMappedFile.OpenExisting(MappingName, MemoryMappedFileRights.ReadWrite)
-                : MemoryMappedFile.CreateFromFile(PosixMappingPath, FileMode.Open, null,
-                    TotalSize, MemoryMappedFileAccess.ReadWrite);
+                : OpenLinuxMapping();
             _view = _mmf.CreateViewAccessor(0, TotalSize,
                 MemoryMappedFileAccess.ReadWrite);
             if (_view.ReadUInt32(OffMagic) != Magic ||
@@ -122,6 +121,18 @@ public sealed class SharedMemoryClient : IBotHiderApi, IDisposable
         }
         catch (FileNotFoundException) { return false; }
         catch (Exception) { Dispose(); return false; }
+    }
+
+    // Reopens the native memfd without taking ownership of its original descriptor.
+    private static MemoryMappedFile OpenLinuxMapping()
+    {
+        foreach (string path in Directory.EnumerateFiles("/proc/self/fd"))
+        {
+            if (new FileInfo(path).LinkTarget != LinuxMappingTarget) continue;
+            return MemoryMappedFile.CreateFromFile(path, FileMode.Open, null,
+                TotalSize, MemoryMappedFileAccess.ReadWrite);
+        }
+        throw new FileNotFoundException("BotHider's native memfd is not available.");
     }
 
     private bool Valid(int slot) => _view != null && slot >= 0 && slot < MaxSlots;

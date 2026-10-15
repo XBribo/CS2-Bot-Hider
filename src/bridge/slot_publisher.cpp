@@ -16,10 +16,9 @@
 #include <windef.h> // NOLINT(misc-include-cleaner)
 #include <winbase.h>
 #include <winnt.h>
+#include <processthreadsapi.h>
 #else
-#include <fcntl.h>
 #include <sys/mman.h>
-#include <sys/stat.h>
 #include <unistd.h>
 #endif
 
@@ -27,6 +26,7 @@
 #include <atomic>
 #include <cstdint>
 #include <cstring>
+#include <string>
 #include <utility>
 #include <vector> // NOLINT(misc-include-cleaner)
 
@@ -34,19 +34,29 @@ namespace cs2bh {
 
 namespace {
 SlotPublisher g_publisher;
+
+// Returns the process-local Windows mapping or Linux memfd name.
+std::string MappingName()
+{
+#ifdef _WIN32
+    return shm::kMappingName + std::to_string(GetCurrentProcessId());
+#else
+    return shm::kMappingName + std::to_string(getpid());
+#endif
+}
 }
 
 SlotPublisher& Publisher() { return g_publisher; }
 
 SlotPublisher::~SlotPublisher() { Shutdown(); }
 
-// Create the page-file-backed mapping and stamp the header once
+// Creates the shared mapping and stamps its header once.
 bool SlotPublisher::Init()
 {
     if (m_view) return true;
 
 #ifdef _WIN32
-    HANDLE h = CreateFileMappingA(INVALID_HANDLE_VALUE, nullptr, PAGE_READWRITE, 0, shm::kTotalSize, shm::kMappingName);
+    HANDLE h = CreateFileMappingA(INVALID_HANDLE_VALUE, nullptr, PAGE_READWRITE, 0, shm::kTotalSize, MappingName().c_str());
     if (!h) return false;
 
     auto* view = static_cast<unsigned char*>(MapViewOfFile(h, FILE_MAP_ALL_ACCESS, 0, 0, shm::kTotalSize));
@@ -58,21 +68,24 @@ bool SlotPublisher::Init()
 
     m_mappingHandle = h;
 #else
-    int fd = shm_open(shm::kMappingName, O_CREAT | O_RDWR, 0666);
+    int fd = memfd_create(MappingName().c_str(), MFD_CLOEXEC);
     if (fd < 0) return false;
 
     if (ftruncate(fd, shm::kTotalSize) != 0)
     {
         close(fd);
-        shm_unlink(shm::kMappingName);
         return false;
     }
 
     auto* view = static_cast<unsigned char*>(mmap(nullptr, shm::kTotalSize, PROT_READ | PROT_WRITE, MAP_SHARED, fd, 0));
-    close(fd);
-    if (view == MAP_FAILED) return false;
+    if (view == MAP_FAILED)
+    {
+        close(fd);
+        return false;
+    }
 
-    m_mappingHandle = reinterpret_cast<void*>(1);
+    // Keep the owning descriptor discoverable through /proc/self/fd for C# reloads.
+    m_mappingFd = fd;
 #endif
     m_view = view;
 
@@ -86,6 +99,7 @@ bool SlotPublisher::Init()
     return true;
 }
 
+// Releases the view and the owning handle; memfd storage dies with its last reference.
 void SlotPublisher::Shutdown()
 {
     if (m_view)
@@ -94,17 +108,22 @@ void SlotPublisher::Shutdown()
         UnmapViewOfFile(m_view);
 #else
         munmap(m_view, shm::kTotalSize);
-        shm_unlink(shm::kMappingName);
 #endif
         m_view = nullptr;
     }
+#ifdef _WIN32
     if (m_mappingHandle)
     {
-#ifdef _WIN32
         CloseHandle(m_mappingHandle);
-#endif
         m_mappingHandle = nullptr;
     }
+#else
+    if (m_mappingFd >= 0)
+    {
+        close(m_mappingFd);
+        m_mappingFd = -1;
+    }
+#endif
 }
 
 // Internal pointer helpers

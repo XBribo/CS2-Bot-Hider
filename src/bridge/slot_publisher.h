@@ -75,7 +75,11 @@ class SlotPublisher
     uint64_t NextIncarnation();
     void BumpGen();
 
+#ifdef _WIN32
     void* m_mappingHandle = nullptr; // HANDLE
+#else
+    int m_mappingFd = -1;
+#endif
     unsigned char* m_view = nullptr;
     uint64_t m_nextIncarnation = 0;
 };
