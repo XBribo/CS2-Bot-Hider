@@ -8,11 +8,11 @@
 
 namespace cs2bh::shm {
 
-// Prefix for the server process's mapping. Native and CSS run in the same PID.
+// Prefix for the Windows mapping or Linux memfd name. Native and CSS share a PID.
 #ifdef _WIN32
 inline constexpr const char* kMappingName = "Local\\CS2BotHider_Slots_";
 #else
-inline constexpr const char* kMappingName = "/CS2BotHider_Slots_";
+inline constexpr const char* kMappingName = "CS2BotHider_Slots_";
 #endif
 
 inline constexpr uint32_t kMagic = 0x44494842; // 'BHID'

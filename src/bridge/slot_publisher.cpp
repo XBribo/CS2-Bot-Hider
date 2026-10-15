@@ -18,9 +18,7 @@
 #include <winnt.h>
 #include <processthreadsapi.h>
 #else
-#include <fcntl.h>
 #include <sys/mman.h>
-#include <sys/stat.h>
 #include <unistd.h>
 #endif
 
@@ -37,6 +35,7 @@ namespace cs2bh {
 namespace {
 SlotPublisher g_publisher;
 
+// Returns the process-local Windows mapping or Linux memfd name.
 std::string MappingName()
 {
 #ifdef _WIN32
@@ -51,7 +50,7 @@ SlotPublisher& Publisher() { return g_publisher; }
 
 SlotPublisher::~SlotPublisher() { Shutdown(); }
 
-// Create the page-file-backed mapping and stamp the header once
+// Creates the shared mapping and stamps its header once.
 bool SlotPublisher::Init()
 {
     if (m_view) return true;
@@ -69,21 +68,24 @@ bool SlotPublisher::Init()
 
     m_mappingHandle = h;
 #else
-    int fd = shm_open(MappingName().c_str(), O_CREAT | O_RDWR, 0600);
+    int fd = memfd_create(MappingName().c_str(), MFD_CLOEXEC);
     if (fd < 0) return false;
 
     if (ftruncate(fd, shm::kTotalSize) != 0)
     {
         close(fd);
-        shm_unlink(MappingName().c_str());
         return false;
     }
 
     auto* view = static_cast<unsigned char*>(mmap(nullptr, shm::kTotalSize, PROT_READ | PROT_WRITE, MAP_SHARED, fd, 0));
-    close(fd);
-    if (view == MAP_FAILED) return false;
+    if (view == MAP_FAILED)
+    {
+        close(fd);
+        return false;
+    }
 
-    m_mappingHandle = reinterpret_cast<void*>(1);
+    // Keep the owning descriptor discoverable through /proc/self/fd for C# reloads.
+    m_mappingFd = fd;
 #endif
     m_view = view;
 
@@ -97,6 +99,7 @@ bool SlotPublisher::Init()
     return true;
 }
 
+// Releases the view and the owning handle; memfd storage dies with its last reference.
 void SlotPublisher::Shutdown()
 {
     if (m_view)
@@ -105,17 +108,22 @@ void SlotPublisher::Shutdown()
         UnmapViewOfFile(m_view);
 #else
         munmap(m_view, shm::kTotalSize);
-        shm_unlink(MappingName().c_str());
 #endif
         m_view = nullptr;
     }
+#ifdef _WIN32
     if (m_mappingHandle)
     {
-#ifdef _WIN32
         CloseHandle(m_mappingHandle);
-#endif
         m_mappingHandle = nullptr;
     }
+#else
+    if (m_mappingFd >= 0)
+    {
+        close(m_mappingFd);
+        m_mappingFd = -1;
+    }
+#endif
 }
 
 // Internal pointer helpers
