@@ -365,6 +365,7 @@ void SlotPublisher::DrainCommands(const SteamIdSink& onSteamId,
     auto* writeIdx = reinterpret_cast<volatile uint32_t*>(m_view + shm::kOffWriteIdx);
     auto* readIdx = reinterpret_cast<volatile uint32_t*>(m_view + shm::kOffReadIdx);
     auto* cmds = reinterpret_cast<shm::Command*>(m_view + shm::kOffCmds);
+    const auto* incarnations = reinterpret_cast<const uint64_t*>(m_view + shm::kOffCommandIncarnation);
 
     uint32_t w = *writeIdx;
     uint32_t r = *readIdx;
@@ -387,7 +388,8 @@ void SlotPublisher::DrainCommands(const SteamIdSink& onSteamId,
             continue;
         }
         int slot = c.slot;
-        if (slot >= 0 && slot < shm::kMaxSlots)
+        if (slot >= 0 && slot < shm::kMaxSlots && SlotStatePtr()[slot] &&
+            incarnations[r % shm::kCmdCount] != 0 && incarnations[r % shm::kCmdCount] == GetIncarnation(slot))
         {
             if (c.type == shm::CmdSetSteamId && onSteamId)
             {

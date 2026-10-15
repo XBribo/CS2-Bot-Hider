@@ -14,7 +14,7 @@ public sealed class SharedMemoryClient : IBotHiderApi, IDisposable
     private const string MappingName = "CS2BotHider_Slots";
     private const string PosixMappingPath = "/dev/shm/CS2BotHider_Slots";
     private const uint Magic = 0x44494842; // 'BHID'
-    private const uint Version = 1;
+    private const uint Version = 2;
     private const int MaxSlots = 64;
     private const int NameLen = 32;
     private const int CmdCount = 64;
@@ -52,6 +52,7 @@ public sealed class SharedMemoryClient : IBotHiderApi, IDisposable
     private const int OffAvatarIncarnation = 14240;  // uint64[64]
     private const int OffAvatarApplied = 14752;  // byte[64]
     private const int OffAvatarAppliedSid = 14816;  // uint64[64]
+    private const int OffCommandIncarnation = 15328; // uint64[CmdCount]
     private const int OffAvatarData = 16384;  // byte[64][16 KiB]
     // Configured clan presentation region
     private const int OffClanGroupId = 1_064_960; // uint32[64]
@@ -432,6 +433,13 @@ public sealed class SharedMemoryClient : IBotHiderApi, IDisposable
             return false;
         lock (_writeLock)
         {
+            ulong incarnation = 0;
+            if (slot != SlotAll)
+            {
+                if (!IsManagedBot(slot)) return false;
+                incarnation = GetSlotIncarnation(slot);
+                if (incarnation == 0) return false;
+            }
             uint w = _view.ReadUInt32(OffWriteIdx);
             uint r = _view.ReadUInt32(OffReadIdx);
             if (unchecked(w - r) >= CmdCount)
@@ -442,6 +450,7 @@ public sealed class SharedMemoryClient : IBotHiderApi, IDisposable
             _view.Write(baseOff + 1, (byte)slot);
             _view.Write(baseOff + 8, sid);
             _view.WriteArray(baseOff + 16, nameBuf, 0, NameLen);
+            _view.Write(OffCommandIncarnation + (int)(w % CmdCount) * sizeof(ulong), incarnation);
 
             Interlocked.MemoryBarrier();
             _view.Write(OffWriteIdx, w + 1);

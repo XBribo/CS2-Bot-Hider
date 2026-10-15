@@ -16,7 +16,7 @@ inline constexpr const char* kMappingName = "/CS2BotHider_Slots";
 #endif
 
 inline constexpr uint32_t kMagic = 0x44494842; // 'BHID'
-inline constexpr uint32_t kVersion = 1;
+inline constexpr uint32_t kVersion = 2;
 inline constexpr int kMaxSlots = 64;
 inline constexpr int kNameLen = 32; // persona name buffer (incl. NUL)
 inline constexpr int kCmdCount = 64; // ring-buffer entries
@@ -67,6 +67,8 @@ inline constexpr int kOffAvatarLength = 13984; // uint32[64]
 inline constexpr int kOffAvatarIncarnation = 14240; // uint64[64]
 inline constexpr int kOffAvatarApplied = 14752; // byte[64]
 inline constexpr int kOffAvatarAppliedSid = 14816; // uint64[64]
+// One target incarnation per ring entry, in the reserved metadata space.
+inline constexpr int kOffCommandIncarnation = 15328; // uint64[kCmdCount]
 inline constexpr int kOffAvatarData = 16384; // byte[64][16 KiB]
 
 // Configured clan presentation for each adopted identity
@@ -75,6 +77,8 @@ inline constexpr int kOffClanGroupId = kOffAvatarData + (kMaxSlots * kAvatarMaxB
 inline constexpr int kOffClanTag = kOffClanGroupId + (kMaxSlots * sizeof(uint32_t)); // char[64][128]
 inline constexpr int kTotalSize = kOffClanTag + (kMaxSlots * kClanTagLen);
 static_assert(kOffAvatarAppliedSid + (kMaxSlots * sizeof(uint64_t)) <= kOffAvatarData, "Avatar metadata overlaps avatar data");
+static_assert(kOffAvatarAppliedSid + (kMaxSlots * sizeof(uint64_t)) <= kOffCommandIncarnation);
+static_assert(kOffCommandIncarnation + (kCmdCount * sizeof(uint64_t)) <= kOffAvatarData);
 static_assert(kOffClanTag + (kMaxSlots * kClanTagLen) == kTotalSize, "Shared-memory data exceeds the mapping size");
 
 // Command opcodes.
