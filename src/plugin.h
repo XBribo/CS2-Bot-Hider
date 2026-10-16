@@ -5,6 +5,7 @@
 #pragma once
 
 #include <ISmmPlugin.h>
+#include <engine2/isource2server.h>
 #include <khook.hpp>
 #include <playerslot.h>
 #include "hooks.h"
