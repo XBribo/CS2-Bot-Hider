@@ -1,0 +1,3 @@
+[submodule "src/core/cs2_sdk"]
+	path = src/core/cs2_sdk
+	url = https://github.com/XBribo/cs2_sdk.git

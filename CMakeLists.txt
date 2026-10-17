@@ -24,19 +24,16 @@ endif()
 set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 
 find_program(CLANG_FORMAT_EXECUTABLE NAMES clang-format clang-format.exe)
-file(GLOB_RECURSE BOT_HIDER_FORMAT_FILES
-    CONFIGURE_DEPENDS
-    LIST_DIRECTORIES false
-    "${CMAKE_SOURCE_DIR}/src/*.c"
-    "${CMAKE_SOURCE_DIR}/src/*.cc"
-    "${CMAKE_SOURCE_DIR}/src/*.cpp"
-    "${CMAKE_SOURCE_DIR}/src/*.cxx"
-    "${CMAKE_SOURCE_DIR}/src/*.h"
-    "${CMAKE_SOURCE_DIR}/src/*.hh"
-    "${CMAKE_SOURCE_DIR}/src/*.hpp"
-    "${CMAKE_SOURCE_DIR}/src/*.hxx"
-    "${CMAKE_SOURCE_DIR}/src/*.inl"
-)
+set(BOT_HIDER_FORMAT_FILES "")
+# Do not traverse the SDK's recursive dependencies when checking plugin formatting.
+foreach(extension c cc cpp cxx h hh hpp hxx inl)
+    file(GLOB plugin_format_top CONFIGURE_DEPENDS
+        "${CMAKE_SOURCE_DIR}/src/*.${extension}" "${CMAKE_SOURCE_DIR}/src/core/*.${extension}")
+    file(GLOB_RECURSE plugin_format_nested CONFIGURE_DEPENDS LIST_DIRECTORIES false
+        "${CMAKE_SOURCE_DIR}/src/features/*.${extension}" "${CMAKE_SOURCE_DIR}/src/bridge/*.${extension}"
+        "${CMAKE_SOURCE_DIR}/src/utils/*.${extension}" "${CMAKE_SOURCE_DIR}/src/core/entity/*.${extension}")
+    list(APPEND BOT_HIDER_FORMAT_FILES ${plugin_format_top} ${plugin_format_nested})
+endforeach()
 
 option(ENABLE_FORMAT_CHECK "Run clang-format check before building BotHider" OFF)
 
@@ -64,112 +61,11 @@ else()
     )
 endif()
 
-# Required env vars:
-#   HL2SDKCS2     : s2sdk checkout (cs2 branch; legacy env var name)
-#   MMSOURCE_DEV  : metamod-source checkout
-#   CSGO_PROTO    : directory containing network_connection.proto
-#   PROTOC        : optional override for protoc.exe (must be 3.21.x)
-#
-
-set(CMAKE_CXX_STANDARD 20)
-set(CMAKE_CXX_STANDARD_REQUIRED ON)
-set(CMAKE_CXX_EXTENSIONS OFF)
-
-if(MSVC)
-    set(CMAKE_MSVC_RUNTIME_LIBRARY "MultiThreaded$<$<CONFIG:Debug>:Debug>")
-endif()
-
-if(NOT CMAKE_SIZEOF_VOID_P EQUAL 8)
-    message(FATAL_ERROR "BotHider requires x64 build (use -A x64).")
-endif()
-
-set(HL2SDK $ENV{HL2SDKCS2})
-set(MMS $ENV{MMSOURCE_DEV})
-set(PROTO_DIR $ENV{CSGO_PROTO})
-
-if(HL2SDK AND NOT PROTO_DIR)
-    set(PROTO_DIR "${HL2SDK}/common")
-endif()
-
-foreach(v HL2SDK MMS)
-    if(NOT ${v} OR NOT EXISTS "${${v}}")
-        message(FATAL_ERROR "${v} env var not set or path missing: '${${v}}'")
-    endif()
-endforeach()
-if(NOT PROTO_DIR OR NOT EXISTS "${PROTO_DIR}/network_connection.proto")
-    message(FATAL_ERROR "PROTO_DIR/CSGO_PROTO missing network_connection.proto: '${PROTO_DIR}'")
-endif()
-
-if(DEFINED ENV{PROTOC} AND EXISTS "$ENV{PROTOC}")
-    set(PROTOC_EXE "$ENV{PROTOC}")
-else()
-    find_program(PROTOC_EXE protoc REQUIRED)
-endif()
-execute_process(
-    COMMAND "${PROTOC_EXE}" --version
-    OUTPUT_VARIABLE PROTOC_VER
-    OUTPUT_STRIP_TRAILING_WHITESPACE
-)
-
-if(NOT PROTOC_VER MATCHES "libprotoc 3\\.21\\.")
-    message(FATAL_ERROR "protoc must be 3.21.x (got '${PROTOC_VER}')")
-endif()
-
-message(STATUS "protoc: ${PROTOC_EXE} (${PROTOC_VER})")
-
-set(KHOOK_INCLUDE "${MMS}/third_party/khook/include")
-if(NOT EXISTS "${KHOOK_INCLUDE}/khook.hpp")
-    message(FATAL_ERROR "KHook headers missing from MMSOURCE_DEV submodules: '${KHOOK_INCLUDE}'")
-endif()
-
-set(PROTO_FILES network_connection.proto)
-set(GENERATED_DIR "${CMAKE_BINARY_DIR}/generated")
-file(MAKE_DIRECTORY "${GENERATED_DIR}")
-
-set(PROTO_SRCS "")
-set(PROTO_INPUTS "")
-foreach(p ${PROTO_FILES})
-    string(REGEX REPLACE "\\.proto$" ".pb.cc" cc ${p})
-    string(REGEX REPLACE "\\.proto$" ".pb.h" hh ${p})
-    list(APPEND PROTO_SRCS "${GENERATED_DIR}/${cc}" "${GENERATED_DIR}/${hh}")
-    list(APPEND PROTO_INPUTS "${PROTO_DIR}/${p}")
-endforeach()
-
-add_custom_command(
-    OUTPUT ${PROTO_SRCS}
-    COMMAND "${PROTOC_EXE}" --cpp_out=${GENERATED_DIR} --proto_path=${PROTO_DIR} ${PROTO_FILES}
-    DEPENDS ${PROTO_INPUTS}
-    WORKING_DIRECTORY "${PROTO_DIR}"
-    COMMENT "protoc ${PROTO_FILES}"
-    VERBATIM
-)
-
-include(FetchContent)
-FetchContent_Declare(spdlog
-    GIT_REPOSITORY https://github.com/gabime/spdlog.git
-    GIT_TAG v1.x
-    GIT_SHALLOW TRUE
-)
-set(SPDLOG_BUILD_SHARED OFF CACHE BOOL "" FORCE)
-FetchContent_MakeAvailable(spdlog)
-set_target_properties(spdlog PROPERTIES
-    POSITION_INDEPENDENT_CODE ON
-    CXX_VISIBILITY_PRESET hidden
-    VISIBILITY_INLINES_HIDDEN YES
-)
-
-set(NLOHMANN_JSON_INCLUDE "${CMAKE_SOURCE_DIR}/libraries")
-
-set(SDK_SOURCES
-    ${HL2SDK}/public/tier0/memoverride.cpp
-    ${HL2SDK}/tier0_perproject/keyvalues3.cpp
-    ${HL2SDK}/tier0_perproject/convar.cpp
-)
+add_subdirectory(src/core/cs2_sdk)
 
 add_library(
     BotHider SHARED
     src/plugin.cpp
-    src/core/log.cpp
     src/core/config.cpp
     src/core/interfaces.cpp
     src/core/gamedata.cpp
@@ -186,25 +82,18 @@ add_library(
     src/features/identity/identity_runtime.cpp
     src/features/identity/identity_state.cpp
     src/bridge/slot_publisher.cpp
-    src/core/cs2_sdk/entity/entity_access.cpp
+    src/core/entity/entity_access.cpp
     src/core/offsets.cpp
-    src/utils/platform.cpp
-    src/core/memory_module.cpp
-    src/core/gameconfig.cpp
-    src/core/cs2_sdk/schema.cpp
-    ${PROTO_SRCS}
-    ${SDK_SOURCES}
 )
 
-target_link_libraries(BotHider PRIVATE spdlog::spdlog)
+target_link_libraries(BotHider PRIVATE cs2_sdk::sdk)
+cs2_sdk_configure_plugin(BotHider)
 
 if(ENABLE_FORMAT_CHECK)
     add_dependencies(BotHider format-check)
 endif()
 
-target_include_directories(
-    BotHider
-    PRIVATE
+target_include_directories(BotHider PRIVATE
     src
     src/features/avatar
     src/features/botinfo
@@ -213,120 +102,23 @@ target_include_directories(
     src/features/persona
     src/bridge
     src/core
-    src/core/cs2_sdk/metamod
-    src/core/cs2_sdk/entity
+    src/core/entity
     src/features/ping
     src/features/steamid
     src/utils
-    ${NLOHMANN_JSON_INCLUDE}
-    ${GENERATED_DIR}
-    ${HL2SDK}/thirdparty/protobuf-3.21.8/src
-    ${KHOOK_INCLUDE}
-    ${MMS}/core
-    ${MMS}/core/sourcemm
-    ${HL2SDK}/public
-    ${HL2SDK}/public/engine
-    ${HL2SDK}/public/game/server
-    ${HL2SDK}/public/game/shared
-    ${HL2SDK}/public/mathlib
-    ${HL2SDK}/public/tier0
-    ${HL2SDK}/public/entity2
-    ${HL2SDK}/game/shared
-    ${HL2SDK}/common
 )
 
 target_compile_definitions(BotHider PRIVATE
     SEMVER="${PLUGIN_VERSION}"
     GITHUB_SHA="${PLUGIN_GIT_SHA}"
-    META_IS_SOURCE2
-    PLATFORM_64BITS
-    X64BITS
-    GOOGLE_PROTOBUF_NO_RTTI
 )
 
 if(WIN32)
     set(BOT_HIDER_PLATFORM_DIR win64)
     set(BOT_HIDER_SUFFIX ".dll")
-    set(HL2SDK_LIBDIR ${HL2SDK}/lib/public/win64)
-    # MSVC has no <byteswap.h> clash, so tier1 goes on the normal include path
-    target_include_directories(BotHider PRIVATE ${HL2SDK}/public/tier1)
-    target_link_libraries(
-        BotHider
-        PRIVATE
-        psapi
-        ${HL2SDK_LIBDIR}/tier0.lib
-        ${HL2SDK_LIBDIR}/mathlib.lib
-        ${HL2SDK_LIBDIR}/interfaces.lib
-        ${HL2SDK_LIBDIR}/2015/libprotobuf.lib
-    )
-    if(MSVC)
-        target_link_options(BotHider PRIVATE /NODEFAULTLIB:LIBCMTD)
-    endif()
-    target_compile_definitions(
-        BotHider
-        PRIVATE
-        _CRT_SECURE_NO_WARNINGS
-        WIN32
-        _WIN32
-        _WINDOWS
-        COMPILER_MSVC
-        COMPILER_MSVC64
-        NOMINMAX
-        _ALLOW_KEYWORD_MACROS
-    )
-elseif(CMAKE_SYSTEM_NAME STREQUAL "Linux")
+else()
     set(BOT_HIDER_PLATFORM_DIR linuxsteamrt64)
     set(BOT_HIDER_SUFFIX ".so")
-    set(HL2SDK_LIBDIR ${HL2SDK}/lib/linux64)
-    target_link_libraries(
-        BotHider
-        PRIVATE
-        ${HL2SDK_LIBDIR}/libtier0.so
-        ${HL2SDK_LIBDIR}/mathlib.a
-        ${HL2SDK_LIBDIR}/interfaces.a
-        ${HL2SDK_LIBDIR}/release/libprotobuf.a
-        pthread
-        dl
-    )
-    target_compile_definitions(
-        BotHider
-        PRIVATE
-        POSIX
-        _LINUX
-        LINUX
-        COMPILER_GCC
-        stricmp=strcasecmp
-        _stricmp=strcasecmp
-        _strnicmp=strncasecmp
-        strnicmp=strncasecmp
-        _snprintf=snprintf
-        _vsnprintf=vsnprintf
-        _alloca=alloca
-        strcmpi=strcasecmp
-    )
-    target_compile_options(
-        BotHider
-        PRIVATE
-        -fPIC
-        -fno-rtti
-        -fvisibility=hidden
-        # tier1 last on the search path: glibc's <byteswap.h> wins over SDK's same-named header
-        -idirafter ${HL2SDK}/public/tier1
-        -Wno-non-virtual-dtor
-        -Wno-overloaded-virtual
-        -Wno-register
-        -Wno-narrowing
-        -Wno-deprecated-copy
-    )
-    set_target_properties(
-        BotHider
-        PROPERTIES
-        SKIP_BUILD_RPATH TRUE
-        BUILD_RPATH ""
-        INSTALL_RPATH ""
-    )
-else()
-    message(FATAL_ERROR "Unsupported platform: ${CMAKE_SYSTEM_NAME}")
 endif()
 
 set(BOT_HIDER_PACKAGE_BIN_DIR "${CMAKE_BINARY_DIR}/package/addons/BotHider/bin/${BOT_HIDER_PLATFORM_DIR}")
@@ -372,18 +164,3 @@ add_custom_command(
         "${CMAKE_SOURCE_DIR}/configs/addons/BotHider/config.json"
         "${CMAKE_BINARY_DIR}/package/addons/BotHider/config.json"
 )
-
-if(MSVC)
-    target_compile_options(
-        BotHider
-        PRIVATE
-        /W3
-        /permissive-
-        /utf-8 # UTF-8
-        /wd4267 # size_t -> int conversion
-        /wd4244 # narrowing conversion
-        /wd4146 # unary minus on unsigned
-        /wd4996 # deprecated CRT
-        /wd4661 # template instantiation needed
-    )
-endif()

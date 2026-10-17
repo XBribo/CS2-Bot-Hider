@@ -1,10 +1,13 @@
 # Build output
 build/
+build-*/
 out/
 dist/
 cmake-build-*/
 *.dll
 *.so
+*.a
+*.o
 *.pdb
 *.lib
 *.exp
@@ -14,6 +17,7 @@ cmake-build-*/
 
 
 # CMake cache
+CMakeUserPresets.json
 CMakeCache.txt
 CMakeFiles/
 CMakeScripts/

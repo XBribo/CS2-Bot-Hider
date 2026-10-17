@@ -1,19 +1,17 @@
-#include "core/gameconfig.h"
 #include "core/gamedata.h"
+#include "core/cs2_sdk/src/core/gameconfig.h"
 #include "core/log.h"
 #include "entity_access.h"
 #include "identity_hooks.h"
 #include "offsets.h"
-#include "core/memory_module.h"
-#include "utils/platform.h"
+#include "core/cs2_sdk/src/core/memory_module.h"
+#include "core/cs2_sdk/src/utils/platform.h"
 #include <filesystem>
 #include <string>
 namespace cs2bh::gamedata {
-namespace {
-// Resolves gamedata beside bin/, relative to this plugin module.
-std::string ComputeGamedataPath()
+std::string ComputePath()
 {
-    std::filesystem::path path(platform::SelfModulePath());
+    std::filesystem::path path(cs2_sdk::platform::SelfModulePath());
     if (path.empty()) return "";
     for (int i = 0; i < 3; ++i)
     {
@@ -22,38 +20,30 @@ std::string ComputeGamedataPath()
     }
     return (path / "gamedata.json").string();
 }
-} // namespace
 
-// Resolves the existing gamedata entries and preserves optional-feature failures.
 void Prepare()
 {
-    // Resolve UTIL_Remove
-    // Required to destroy controllers on kick
+    const std::string gamedataPath = ComputePath();
+    nlohmann::json gamedata;
+    if (!cs2_sdk::gameconfig::LoadGamedata(gamedataPath.c_str(), gamedata))
     {
-        const std::string gdPath = ComputeGamedataPath();
-        nlohmann::json gamedata;
-        if (!gameconfig::LoadGamedata(gdPath.c_str(), gamedata))
+        BH_LOG_WARN("gamedata.json not loaded at '%s' — "
+                    "controller cleanup disabled\n",
+                    gamedataPath.c_str());
+    }
+    else
+    {
+        offsets::LoadFromGamedata(gamedata);
+        if (offsets::g_vtableSlotClientSetName < 0)
         {
-            BH_LOG_WARN("gamedata.json not loaded at '%s' — "
-                        "controller cleanup disabled\n",
-                        gdPath.c_str());
+            BH_LOG_WARN("CServerSideClient::SetName vtable slot missing - "
+                        "name overwrite disabled\n");
         }
-        else
-        {
-            // Override member offsets from gamedata.json (fallback kept if absent)
-            offsets::LoadFromGamedata(gamedata);
-            if (offsets::g_vtableSlotClientSetName < 0)
-            {
-                BH_LOG_WARN("CServerSideClient::SetName vtable slot missing - "
-                            "name overwrite disabled\n");
-            }
 
-            modules::Initialize();
-            const modules::ModuleInfo& serverModule = modules::server->Code();
-            entity_access::ResolveUtilRemoveAndEntSys(gamedata, serverModule);
-
-            identity_hooks::PrepareAll(gamedata, serverModule);
-        }
+        cs2_sdk::modules::Initialize();
+        const cs2_sdk::modules::ModuleInfo& serverModule = cs2_sdk::modules::server->Code();
+        entity_access::ResolveUtilRemoveAndEntSys(gamedata, serverModule);
+        identity_hooks::PrepareAll(gamedata, serverModule);
     }
     if (!entity_access::UtilRemoveTarget())
     {

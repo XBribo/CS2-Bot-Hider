@@ -67,14 +67,8 @@ function Build-Windows {
 function Build-Linux {
     Write-Step "Linux (WSL: $WslDistro)"
     $srcWsl = ConvertTo-WslPath $Root
-    $hl2Wsl = ConvertTo-WslPath $env:HL2SDKCS2
-    $mmsWsl = ConvertTo-WslPath $env:MMSOURCE_DEV
-    $protoWsl = ConvertTo-WslPath $env:CSGO_PROTO
     $bash = @"
 set -e
-export HL2SDKCS2='$hl2Wsl'
-export MMSOURCE_DEV='$mmsWsl'
-export CSGO_PROTO='$protoWsl'
 cmake -S '$srcWsl' -B ~/bh-build -DCMAKE_BUILD_TYPE=$Config
 cmake --build ~/bh-build -j`$(nproc)
 test -f ~/bh-build/package/addons/BotHider/bin/linuxsteamrt64/BotHider.so
@@ -108,11 +102,11 @@ function Build-CSharp {
 }
 
 # --- Dist ------------------------------------------
-function Build-Dist([string]$nativePkg, [string]$csharpOut, [string]$destRoot) {
+function Build-Dist([string]$packageRoot, [string]$csharpOut, [string]$destRoot) {
     if (Test-Path $destRoot) { Remove-Item -Recurse -Force $destRoot }
     New-Item -ItemType Directory -Force $destRoot | Out-Null
-    if ($nativePkg) {
-        Copy-Item -Recurse -Force "$nativePkg/addons" $destRoot
+    if ($packageRoot) {
+        Copy-Item -Recurse -Force "$packageRoot/addons" $destRoot
     }
     if ($csharpOut) {
         $cssDir = Join-Path $destRoot "addons/counterstrikesharp"

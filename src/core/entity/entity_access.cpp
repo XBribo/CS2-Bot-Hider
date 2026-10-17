@@ -1,7 +1,9 @@
-#include "core/gameconfig.h"
+#include "core/cs2_sdk/src/core/gameconfig.h"
+#include "core/cs2_sdk/src/utils/memory.h"
+#include "core/cs2_sdk/src/utils/platform.h"
 #include "core/log.h"
 #include "entity_access.h"
-#include "core/cs2_sdk/entity/player.h"
+#include "core/entity/player.h"
 
 #include "playerslot.h"
 #include "nlohmann/json.hpp"
@@ -9,7 +11,7 @@
 #include "entityidentity.h"
 #include "plugin.h" // NOLINT(misc-include-cleaner)
 #include "serversideclient_ref.h"
-#include "core/memory_module.h"
+#include "core/cs2_sdk/src/core/memory_module.h"
 #include "offsets.h"
 
 #include <cstdint>
@@ -18,6 +20,7 @@
 #include <vector>
 
 #include <entity2/entityinstance.h>
+#include <entityhandle.h>
 #include <engine2/inetworkgameserver.h>
 #include <engine2/inetworkserverservice.h>
 #include <engine2/networkgameserverbase.h>
@@ -25,9 +28,6 @@
 
 #ifdef _WIN32
 #include <excpt.h>
-#define CS2BH_FASTCALL __fastcall
-#else
-#define CS2BH_FASTCALL
 #endif
 
 extern INetworkServerService* g_pNetworkServerService;
@@ -36,15 +36,14 @@ namespace cs2bh::entity_access {
 
 namespace {
 
-using UtilRemoveFn = void(CS2BH_FASTCALL*)(void*);
-using ClientSetNameFn = void(CS2BH_FASTCALL*)(void*, const char*);
+using UtilRemoveFn = void(CS2_SDK_FASTCALL*)(void*);
+using ClientSetNameFn = void(CS2_SDK_FASTCALL*)(void*, const char*);
 
 UtilRemoveFn g_utilRemove = nullptr;
 void** g_entitySystemGlobal = nullptr;
 
 } // namespace
 
-// Resolves one server-side client from its slot
 void* ResolveClientBySlot(int slot)
 {
     if (!g_pNetworkServerService || offsets::g_clientListOffset < 0) return nullptr;
@@ -56,7 +55,6 @@ void* ResolveClientBySlot(int slot)
     return clients->Element(slot);
 }
 
-// Publishes changed userinfo for one client slot
 bool RefreshClientUserInfo(int slot)
 {
     if (!g_pNetworkServerService || slot < 0 || slot >= 64) return false;
@@ -66,27 +64,26 @@ bool RefreshClientUserInfo(int slot)
     return true;
 }
 
-// Resolves UTIL_Remove and its entity-system reference
-void ResolveUtilRemoveAndEntSys(const nlohmann::json& gamedata, const modules::ModuleInfo& serverModule)
+void ResolveUtilRemoveAndEntSys(const nlohmann::json& gamedata, const cs2_sdk::modules::ModuleInfo& serverModule)
 {
     g_utilRemove = nullptr;
     g_entitySystemGlobal = nullptr;
     if (!serverModule)
     {
-        BH_LOG_WARN("%s module unresolved for signature scan\n", offsets::kServerModuleName);
+        BH_LOG_WARN("%s module unresolved for signature scan\n", cs2_sdk::modules::kServerModuleName);
         return;
     }
 
-    std::string signature = gameconfig::FindPlatformSig(gamedata, "UTIL_Remove");
+    std::string signature = cs2_sdk::gameconfig::FindPlatformSig(gamedata, "UTIL_Remove");
     std::vector<uint8_t> bytes;
     std::vector<bool> wildcards;
-    if (signature.empty() || !modules::ParseSigString(signature, bytes, wildcards))
+    if (signature.empty() || !cs2_sdk::modules::ParseSigString(signature, bytes, wildcards))
     {
-        BH_LOG_WARN("UTIL_Remove %s sig missing/malformed in gamedata.json\n", gameconfig::PlatformName());
+        BH_LOG_WARN("UTIL_Remove %s sig missing/malformed in gamedata.json\n", cs2_sdk::gameconfig::PlatformName());
         return;
     }
 
-    auto* hit = static_cast<unsigned char*>(modules::FindPatternIn(serverModule, bytes, wildcards));
+    auto* hit = static_cast<unsigned char*>(cs2_sdk::modules::FindPatternIn(serverModule, bytes, wildcards));
     if (!hit)
     {
         BH_LOG_WARN("UTIL_Remove signature missing or ambiguous\n");
@@ -104,39 +101,18 @@ void ResolveUtilRemoveAndEntSys(const nlohmann::json& gamedata, const modules::M
         const bool isLinuxLea = bytes[i] == 0x48 && bytes[i + 1] == 0x8D && bytes[i + 2] == 0x05;
         if (!isWindowsMov && !isLinuxLea) continue;
 
-        unsigned char* displacementAddress = hit + i + 3;
-        const int32_t displacement = *reinterpret_cast<int32_t*>(displacementAddress);
-        unsigned char* instructionEnd = displacementAddress + 4;
-        g_entitySystemGlobal = reinterpret_cast<void**>(instructionEnd + displacement);
+        g_entitySystemGlobal = static_cast<void**>(cs2_sdk::memory::ResolveRelativeAddress(hit + i, 3, 7));
         break;
     }
 }
 
 namespace {
 
-// Reads one pointer while isolating invalid memory access on Windows
+// Clears the output even when the protected read fails.
 bool SafeReadPointer(const void* address, void** output)
 {
-#ifdef _WIN32
-    __try
-    {
-        *output = *reinterpret_cast<void* const*>(address);
-        return true;
-    }
-    __except (EXCEPTION_EXECUTE_HANDLER)
-    {
-        *output = nullptr;
-        return false;
-    }
-#else
-    if (!address)
-    {
-        *output = nullptr;
-        return false;
-    }
-    *output = *reinterpret_cast<void* const*>(address);
-    return true;
-#endif
+    *output = nullptr;
+    return cs2_sdk::memory::Read(address, 0, *output);
 }
 
 // Copies one indirectly referenced string with guarded reads on Windows
@@ -184,13 +160,12 @@ bool SafeReadString(const void* address, char* output, size_t capacity)
 
 } // namespace
 
-// Resolves one entity instance and optionally copies its class name
 void* ResolveEntityInstance(int entityIndex, char* classnameOut, size_t classnameCap)
 {
     if (classnameOut && classnameCap) classnameOut[0] = '\0';
     if (!g_entitySystemGlobal || entityIndex <= 0 || entityIndex >= 0x8000 || offsets::g_entitySystemIdentityChunksOffset < 0 ||
-        offsets::g_entityIdentitySize <= 0 ||
-        offsets::g_entityIdentityInstanceOffset < 0 || (classnameOut && classnameCap && offsets::g_entityIdentityClassNameOffset < 0))
+        offsets::g_entityIdentitySize <= 0 || offsets::g_entityIdentityInstanceOffset < 0 ||
+        (classnameOut && classnameCap && offsets::g_entityIdentityClassNameOffset < 0))
     {
         return nullptr;
     }
@@ -221,7 +196,6 @@ void* ResolveEntityInstance(int entityIndex, char* classnameOut, size_t classnam
     return instance;
 }
 
-// Returns whether an entity is already entering deletion
 bool IsEntityBeingDeleted(void* instance)
 {
     if (!instance) return true;
@@ -231,7 +205,6 @@ bool IsEntityBeingDeleted(void* instance)
     return (flags & (EF_DELETE_IN_PROGRESS | EF_MARKED_FOR_DELETE)) != 0;
 }
 
-// Marks one flattened entity field as changed
 void MarkEntityFieldChanged(void* instance, unsigned int offset)
 {
     if (!instance) return;
@@ -239,10 +212,8 @@ void MarkEntityFieldChanged(void* instance, unsigned int offset)
     reinterpret_cast<CEntityInstance*>(instance)->NetworkStateChanged(changed);
 }
 
-// Returns the resolved UTIL_Remove target
 void* UtilRemoveTarget() { return reinterpret_cast<void*>(g_utilRemove); }
 
-// Removes one entity through the resolved engine function
 bool RemoveEntity(void* instance)
 {
     if (!g_utilRemove || !instance) return false;
@@ -250,10 +221,8 @@ bool RemoveEntity(void* instance)
     return true;
 }
 
-// Returns the resolved controller pawn-handle offset
 int BotPawnHandleOffset() { return offsets::g_botPawnHandleOffset; }
 
-// Resets the idle timer for the pawn owned by one client
 void ResetIdleTimerForClient(void* client)
 {
     if (!client) return;
@@ -270,14 +239,13 @@ void ResetIdleTimerForClient(void* client)
     if (!handleField) return;
     const uint32_t pawnHandle = *handleField;
     if (pawnHandle == 0xFFFFFFFF) return;
-    const int pawnIndex = static_cast<int>(pawnHandle & 0x7FFF);
+    const int pawnIndex = CEntityHandle(pawnHandle).GetEntryIndex();
     void* pawn = ResolveEntityInstance(pawnIndex, nullptr, 0);
     if (!pawn) return;
 
     if (auto* idleTime = sdk::IdleTime(pawn)) *idleTime = 0.0F;
 }
 
-// Updates the engine-side name for one client
 const char* SetEngineName(void* client, const char* newName)
 {
     if (!client || !newName || !newName[0] || offsets::g_vtableSlotClientSetName < 0)
@@ -308,7 +276,6 @@ const char* SetEngineName(void* client, const char* newName)
 #endif
 }
 
-// Clears resolved interfaces and runtime targets
 void Reset()
 {
     g_utilRemove = nullptr;

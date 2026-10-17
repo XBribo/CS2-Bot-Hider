@@ -1,4 +1,4 @@
-#include "core/gameconfig.h"
+#include "core/cs2_sdk/src/core/gameconfig.h"
 #include "core/log.h"
 #include "identity_hooks.h"
 
@@ -10,8 +10,8 @@
 #include "personas.h"
 #include "plugin.h"
 #include "serversideclient_ref.h"
-#include "core/cs2_sdk/schema.h"
-#include "core/memory_module.h"
+#include "core/cs2_sdk/src/core/schema.h"
+#include "core/cs2_sdk/src/core/memory_module.h"
 #include "offsets.h"
 
 #include <cstdint>
@@ -39,7 +39,7 @@ void* g_sameMapTeardownHookTarget = nullptr;
 int g_pickNewTeamsOnResetOffset = -1;
 std::recursive_mutex g_packEntitiesMutex;
 thread_local uint32_t g_packEntitiesDepth = 0;
-thread_local uint32_t g_nativeHookDepth = 0;
+thread_local uint32_t g_hookDepth = 0;
 std::array<bool, 64> g_identityResolveWarned{};
 bool g_identityInvalidOffsetWarned = false;
 
@@ -260,7 +260,7 @@ thread_local std::vector<BotPawnRef> g_packedPawns;
 void BeginPopulationFrame(std::vector<bool>& frames, bool enabled)
 {
     frames.push_back(enabled);
-    ++g_nativeHookDepth;
+    ++g_hookDepth;
     if (enabled) BeginPopulationTransaction(true);
 }
 
@@ -270,7 +270,7 @@ void EndPopulationFrame(std::vector<bool>& frames)
     const bool enabled = frames.back();
     frames.pop_back();
     if (enabled) EndPopulationTransaction(true);
-    --g_nativeHookDepth;
+    --g_hookDepth;
 }
 
 // Restores bot identity before quota evaluation without bypassing other consumers.
@@ -290,7 +290,7 @@ KHook::Return<int64_t> QuotaPost(void*) noexcept
 // Captures bot identity for each nested voter count.
 KHook::Return<int> VotersPre(void*) noexcept
 {
-    ++g_nativeHookDepth;
+    ++g_hookDepth;
     g_voterFrames.push_back(g_plugin.IsDisguiseEnabled() ? std::make_unique<ScopedNativeBotIdentityRestore>() : nullptr);
     return { KHook::Action::Ignore };
 }
@@ -299,7 +299,7 @@ KHook::Return<int> VotersPre(void*) noexcept
 KHook::Return<int> VotersPost(void*) noexcept
 {
     g_voterFrames.pop_back();
-    --g_nativeHookDepth;
+    --g_hookDepth;
     return { KHook::Action::Ignore };
 }
 
@@ -341,7 +341,7 @@ KHook::Return<int64_t> JoinTeamPost(void*, unsigned int, bool) noexcept
 KHook::Return<void> PackPre(void*, void*, int, void*, void*) noexcept
 {
     g_packEntitiesMutex.lock();
-    ++g_nativeHookDepth;
+    ++g_hookDepth;
     if (g_packEntitiesDepth++ == 0) ApplyBotFlagOverride(g_packedPawns);
     return { KHook::Action::Ignore };
 }
@@ -354,7 +354,7 @@ KHook::Return<void> PackPost(void*, void*, int, void*, void*) noexcept
         RestoreBotFlagOverride(g_packedPawns);
         g_packedPawns.clear();
     }
-    --g_nativeHookDepth;
+    --g_hookDepth;
     g_packEntitiesMutex.unlock();
     return { KHook::Action::Ignore };
 }
@@ -441,18 +441,18 @@ void ClearBindings()
 }
 
 // Resolves and prepares the bot quota detour
-void PrepareQuotaHook(const nlohmann::json& gamedata, const modules::ModuleInfo& serverModule)
+void PrepareQuotaHook(const nlohmann::json& gamedata, const cs2_sdk::modules::ModuleInfo& serverModule)
 {
     if (!serverModule) return;
-    std::string signature = gameconfig::FindPlatformSig(gamedata, "CCSBotManager::MaintainBotQuota");
+    std::string signature = cs2_sdk::gameconfig::FindPlatformSig(gamedata, "CCSBotManager::MaintainBotQuota");
     std::vector<uint8_t> bytes;
     std::vector<bool> wildcards;
-    if (signature.empty() || !modules::ParseSigString(signature, bytes, wildcards))
+    if (signature.empty() || !cs2_sdk::modules::ParseSigString(signature, bytes, wildcards))
     {
         BH_LOG_WARN("MaintainBotQuota sig missing — quota fix disabled\n");
         return;
     }
-    void* target = modules::FindPatternIn(serverModule, bytes, wildcards);
+    void* target = cs2_sdk::modules::FindPatternIn(serverModule, bytes, wildcards);
     if (!target)
     {
         BH_LOG_WARN("MaintainBotQuota sig missing or ambiguous — quota fix disabled\n");
@@ -462,19 +462,19 @@ void PrepareQuotaHook(const nlohmann::json& gamedata, const modules::ModuleInfo&
 }
 
 // Resolves and prepares the eligible-voter count detour
-void PrepareCountPotentialVotersHook(const nlohmann::json& gamedata, const modules::ModuleInfo& serverModule)
+void PrepareCountPotentialVotersHook(const nlohmann::json& gamedata, const cs2_sdk::modules::ModuleInfo& serverModule)
 {
     if (!serverModule) return;
-    std::string signature = gameconfig::FindPlatformSig(gamedata, "CBaseIssue::CountPotentialVoters");
+    std::string signature = cs2_sdk::gameconfig::FindPlatformSig(gamedata, "CBaseIssue::CountPotentialVoters");
     std::vector<uint8_t> bytes;
     std::vector<bool> wildcards;
-    if (signature.empty() || !modules::ParseSigString(signature, bytes, wildcards))
+    if (signature.empty() || !cs2_sdk::modules::ParseSigString(signature, bytes, wildcards))
     {
         BH_LOG_WARN("CountPotentialVoters signature missing or malformed\n");
         return;
     }
 
-    std::vector<void*> matches = modules::FindPatternMatchesIn(serverModule, bytes, wildcards);
+    std::vector<void*> matches = cs2_sdk::modules::FindPatternMatchesIn(serverModule, bytes, wildcards);
     if (matches.size() != 1)
     {
         BH_LOG_WARN("CountPotentialVoters hook requires exactly one match\n");
@@ -486,19 +486,19 @@ void PrepareCountPotentialVotersHook(const nlohmann::json& gamedata, const modul
 }
 
 // Resolves and prepares the team-join identity detour
-void PrepareHandleJoinTeamHook(const nlohmann::json& gamedata, const modules::ModuleInfo& serverModule)
+void PrepareHandleJoinTeamHook(const nlohmann::json& gamedata, const cs2_sdk::modules::ModuleInfo& serverModule)
 {
     if (!serverModule) return;
-    std::string signature = gameconfig::FindPlatformSig(gamedata, "CCSPlayerController::HandleCommand_JoinTeam");
+    std::string signature = cs2_sdk::gameconfig::FindPlatformSig(gamedata, "CCSPlayerController::HandleCommand_JoinTeam");
     std::vector<uint8_t> bytes;
     std::vector<bool> wildcards;
-    if (signature.empty() || !modules::ParseSigString(signature, bytes, wildcards))
+    if (signature.empty() || !cs2_sdk::modules::ParseSigString(signature, bytes, wildcards))
     {
         BH_LOG_WARN("HandleCommand_JoinTeam signature missing or malformed\n");
         return;
     }
 
-    std::vector<void*> matches = modules::FindPatternMatchesIn(serverModule, bytes, wildcards);
+    std::vector<void*> matches = cs2_sdk::modules::FindPatternMatchesIn(serverModule, bytes, wildcards);
     if (matches.size() != 1)
     {
         BH_LOG_WARN("HandleCommand_JoinTeam hook requires exactly one match\n");
@@ -510,19 +510,19 @@ void PrepareHandleJoinTeamHook(const nlohmann::json& gamedata, const modules::Mo
 }
 
 // Resolves and prepares the human-team restriction detour
-void PrepareHumanTeamRestrictionHook(const nlohmann::json& gamedata, const modules::ModuleInfo& serverModule)
+void PrepareHumanTeamRestrictionHook(const nlohmann::json& gamedata, const cs2_sdk::modules::ModuleInfo& serverModule)
 {
     if (!serverModule) return;
-    std::string signature = gameconfig::FindPlatformSig(gamedata, "MpHumanTeam_ApplyRestriction");
+    std::string signature = cs2_sdk::gameconfig::FindPlatformSig(gamedata, "MpHumanTeam_ApplyRestriction");
     std::vector<uint8_t> bytes;
     std::vector<bool> wildcards;
-    if (signature.empty() || !modules::ParseSigString(signature, bytes, wildcards))
+    if (signature.empty() || !cs2_sdk::modules::ParseSigString(signature, bytes, wildcards))
     {
         BH_LOG_WARN("MpHumanTeam_ApplyRestriction signature missing or malformed\n");
         return;
     }
 
-    std::vector<void*> matches = modules::FindPatternMatchesIn(serverModule, bytes, wildcards);
+    std::vector<void*> matches = cs2_sdk::modules::FindPatternMatchesIn(serverModule, bytes, wildcards);
     if (matches.size() != 1)
     {
         BH_LOG_WARN("MpHumanTeam_ApplyRestriction hook requires exactly one match\n");
@@ -536,25 +536,25 @@ void PrepareHumanTeamRestrictionHook(const nlohmann::json& gamedata, const modul
 // Resolves and prepares the entity-packing detour
 void PreparePackEntitiesHook(const nlohmann::json& gamedata)
 {
-    std::string signature = gameconfig::FindPlatformSig(gamedata, "CNetworkGameServer::PackEntities");
+    std::string signature = cs2_sdk::gameconfig::FindPlatformSig(gamedata, "CNetworkGameServer::PackEntities");
     std::vector<uint8_t> bytes;
     std::vector<bool> wildcards;
-    if (signature.empty() || !modules::ParseSigString(signature, bytes, wildcards))
+    if (signature.empty() || !cs2_sdk::modules::ParseSigString(signature, bytes, wildcards))
     {
         BH_LOG_WARN("PackEntities signature missing or malformed\n");
         return;
     }
 
-    modules::Initialize();
-    if (!modules::engine || !modules::engine->Code())
+    cs2_sdk::modules::Initialize();
+    if (!cs2_sdk::modules::engine || !cs2_sdk::modules::engine->Code())
     {
-        BH_LOG_WARN("%s code range unresolved - PackEntities hook disabled\n", offsets::kEngineModuleName);
+        BH_LOG_WARN("%s code range unresolved - PackEntities hook disabled\n", cs2_sdk::modules::kEngineModuleName);
         return;
     }
 
-    const modules::ModuleInfo& codeModule = modules::engine->Code();
+    const cs2_sdk::modules::ModuleInfo& codeModule = cs2_sdk::modules::engine->Code();
 
-    std::vector<void*> matches = modules::FindPatternMatchesIn(codeModule, bytes, wildcards);
+    std::vector<void*> matches = cs2_sdk::modules::FindPatternMatchesIn(codeModule, bytes, wildcards);
     if (matches.size() != 1)
     {
         BH_LOG_WARN("PackEntities hook requires exactly one match\n");
@@ -566,27 +566,27 @@ void PreparePackEntitiesHook(const nlohmann::json& gamedata)
 }
 
 // Resolves the state-machine entry and its Schema-controlled team-reset condition.
-void PrepareSameMapTeardownHook(const nlohmann::json& gamedata, const modules::ModuleInfo& serverModule)
+void PrepareSameMapTeardownHook(const nlohmann::json& gamedata, const cs2_sdk::modules::ModuleInfo& serverModule)
 {
     if (!serverModule) return;
     constexpr const char* kTargetName = "CCSGameRules::EndMatchState";
-    std::string signature = gameconfig::FindPlatformSig(gamedata, kTargetName);
+    std::string signature = cs2_sdk::gameconfig::FindPlatformSig(gamedata, kTargetName);
     std::vector<uint8_t> bytes;
     std::vector<bool> wildcards;
-    if (signature.empty() || !modules::ParseSigString(signature, bytes, wildcards))
+    if (signature.empty() || !cs2_sdk::modules::ParseSigString(signature, bytes, wildcards))
     {
         BH_LOG_WARN("same-map teardown signature missing or malformed\n");
         return;
     }
 
-    std::vector<void*> matches = modules::FindPatternMatchesIn(serverModule, bytes, wildcards);
+    std::vector<void*> matches = cs2_sdk::modules::FindPatternMatchesIn(serverModule, bytes, wildcards);
     if (matches.size() != 1)
     {
         BH_LOG_WARN("same-map teardown hook requires exactly one match\n");
         return;
     }
 
-    g_pickNewTeamsOnResetOffset = schema::GetFieldOffset("CCSGameRules", "m_bPickNewTeamsOnReset");
+    g_pickNewTeamsOnResetOffset = cs2_sdk::schema::GetFieldOffset("CCSGameRules", "m_bPickNewTeamsOnReset");
     if (g_pickNewTeamsOnResetOffset < 0)
     {
         BH_LOG_WARN("CCSGameRules::m_bPickNewTeamsOnReset Schema field unavailable - teardown hook disabled\n");
@@ -599,7 +599,7 @@ void PrepareSameMapTeardownHook(const nlohmann::json& gamedata, const modules::M
 } // namespace
 
 // Resolves and prepares every optional identity detour
-void PrepareAll(const nlohmann::json& gamedata, const modules::ModuleInfo& serverModule)
+void PrepareAll(const nlohmann::json& gamedata, const cs2_sdk::modules::ModuleInfo& serverModule)
 {
     PrepareQuotaHook(gamedata, serverModule);
     PrepareCountPotentialVotersHook(gamedata, serverModule);
@@ -623,7 +623,7 @@ void InstallPrepared()
 // Uninstalls all identity detours and releases their shared handle
 bool Remove()
 {
-    if (g_nativeHookDepth != 0)
+    if (g_hookDepth != 0)
     {
         BH_LOG_ERROR("refusing KHook removal during an identity callback\n");
         return false;

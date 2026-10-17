@@ -1,13 +1,13 @@
 #pragma once
 
-#include "core/cs2_sdk/schema.h"
+#include "core/cs2_sdk/src/core/schema.h"
 #include <cstdint>
 
 namespace cs2bh::sdk {
 // Resolves a typed field only when both the entity and its Schema entry exist.
 template <typename T> T* Field(void* entity, const char* className, const char* fieldName)
 {
-    const int offset = schema::GetFieldOffset(className, fieldName);
+    const int offset = cs2_sdk::schema::GetFieldOffset(className, fieldName);
     if (!entity || offset < 0) return nullptr;
     return reinterpret_cast<T*>(static_cast<unsigned char*>(entity) + offset);
 }

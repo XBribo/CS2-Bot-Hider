@@ -1,6 +1,6 @@
 #pragma once
 
-#include "core/memory_module.h"
+#include "core/cs2_sdk/src/core/memory_module.h"
 
 #include <cstddef>
 
@@ -9,7 +9,7 @@
 namespace cs2bh::entity_access {
 
 // Resolves UTIL_Remove and its entity-system reference
-void ResolveUtilRemoveAndEntSys(const nlohmann::json& gamedata, const modules::ModuleInfo& serverModule);
+void ResolveUtilRemoveAndEntSys(const nlohmann::json& gamedata, const cs2_sdk::modules::ModuleInfo& serverModule);
 
 // Returns the resolved UTIL_Remove target
 void* UtilRemoveTarget();

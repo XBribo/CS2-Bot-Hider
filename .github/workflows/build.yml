@@ -19,12 +19,6 @@ on:
 permissions:
   contents: read
 
-env:
-  HL2SDK_REPO: alliedmodders/s2sdk
-  HL2SDK_REF: cs2
-  MMSOURCE_REPO: alliedmodders/metamod-source
-  MMSOURCE_REF: master
-
 jobs:
   # Reads the shared native and managed package version.
   guard:
@@ -100,37 +94,10 @@ jobs:
     timeout-minutes: 60
     steps:
       - uses: actions/checkout@v7
-
-      - name: Checkout s2sdk-cs2
-        uses: actions/checkout@v7
         with:
-          repository: ${{ env.HL2SDK_REPO }}
-          ref: ${{ env.HL2SDK_REF }}
-          path: deps/s2sdk-cs2
-
-      - name: Checkout metamod-source
-        uses: actions/checkout@v7
-        with:
-          repository: ${{ env.MMSOURCE_REPO }}
-          ref: ${{ env.MMSOURCE_REF }}
-          path: deps/metamod-source
           submodules: recursive
 
-      - name: Install protoc 3.21.12
-        shell: bash
-        run: |
-          curl -fsSL -o "$RUNNER_TEMP/protoc.zip" \
-            https://github.com/protocolbuffers/protobuf/releases/download/v21.12/protoc-21.12-win64.zip
-          mkdir -p "$RUNNER_TEMP/protoc"
-          unzip -q "$RUNNER_TEMP/protoc.zip" -d "$RUNNER_TEMP/protoc"
-          echo "PROTOC=$RUNNER_TEMP/protoc/bin/protoc.exe" >> "$GITHUB_ENV"
-          "$RUNNER_TEMP/protoc/bin/protoc.exe" --version | grep -q 'libprotoc 3\.21\.12'
-
       - name: Configure + build
-        env:
-          HL2SDKCS2: ${{ github.workspace }}/deps/s2sdk-cs2
-          MMSOURCE_DEV: ${{ github.workspace }}/deps/metamod-source
-          CSGO_PROTO: ${{ github.workspace }}/deps/s2sdk-cs2/common
         run: |
           cmake -B build -G "Visual Studio 18 2026" -A x64 -S .
           cmake --build build --config Release
@@ -175,36 +142,10 @@ jobs:
     timeout-minutes: 60
     steps:
       - uses: actions/checkout@v7
-
-      - name: Checkout s2sdk-cs2
-        uses: actions/checkout@v7
         with:
-          repository: ${{ env.HL2SDK_REPO }}
-          ref: ${{ env.HL2SDK_REF }}
-          path: deps/s2sdk-cs2
-
-      - name: Checkout metamod-source
-        uses: actions/checkout@v7
-        with:
-          repository: ${{ env.MMSOURCE_REPO }}
-          ref: ${{ env.MMSOURCE_REF }}
-          path: deps/metamod-source
           submodules: recursive
 
-      - name: Install protoc 3.21.12
-        run: |
-          curl -fsSL -o "$RUNNER_TEMP/protoc.zip" \
-            https://github.com/protocolbuffers/protobuf/releases/download/v21.12/protoc-21.12-linux-x86_64.zip
-          mkdir -p "$RUNNER_TEMP/protoc"
-          unzip -q "$RUNNER_TEMP/protoc.zip" -d "$RUNNER_TEMP/protoc"
-          echo "PROTOC=$RUNNER_TEMP/protoc/bin/protoc" >> "$GITHUB_ENV"
-          "$RUNNER_TEMP/protoc/bin/protoc" --version | grep -q 'libprotoc 3\.21\.12'
-
       - name: Configure + build
-        env:
-          HL2SDKCS2: ${{ github.workspace }}/deps/s2sdk-cs2
-          MMSOURCE_DEV: ${{ github.workspace }}/deps/metamod-source
-          CSGO_PROTO: ${{ github.workspace }}/deps/s2sdk-cs2/common
         run: |
           cmake -S . -B build -DCMAKE_BUILD_TYPE=Release
           cmake --build build -j"$(nproc)"

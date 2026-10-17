@@ -20,6 +20,7 @@
 #include <vector>
 
 #include <entity2/entityinstance.h>
+#include <entityhandle.h>
 #include <engine2/inetworkgameserver.h>
 #include <engine2/inetworkserverservice.h>
 #include <engine2/networkgameserverbase.h>
@@ -85,7 +86,7 @@ BotPawnRef ResolveManagedBotPawn(int slot)
     const uint32_t pawnHandle = *reinterpret_cast<uint32_t*>(reinterpret_cast<unsigned char*>(controller) + pawnHandleOffset);
     if (pawnHandle == 0xFFFFFFFF) return result;
 
-    const int pawnIndex = static_cast<int>(pawnHandle & 0x7FFF);
+    const int pawnIndex = CEntityHandle(pawnHandle).GetEntryIndex();
     void* pawn = entity_access::ResolveEntityInstance(pawnIndex, nullptr, 0);
     if (!pawn || entity_access::IsEntityBeingDeleted(pawn)) return result;
 
@@ -187,7 +188,7 @@ void RestoreBotFlagOverride(const std::vector<BotPawnRef>& pawns)
     if (offsets::g_baseEntityFlagsOffset < 0) return;
     for (const BotPawnRef& pawn : pawns)
     {
-        const int pawnIndex = static_cast<int>(pawn.handle & 0x7FFF);
+        const int pawnIndex = CEntityHandle(pawn.handle).GetEntryIndex();
         void* currentPawn = entity_access::ResolveEntityInstance(pawnIndex, nullptr, 0);
         if (currentPawn != pawn.instance || entity_access::IsEntityBeingDeleted(currentPawn))
         {
@@ -387,7 +388,7 @@ void DrainPendingControllerRemovals()
 
     for (auto item = pending.begin(); item != pending.end();)
     {
-        const int entityIndex = static_cast<int>(item->handle & 0x7FFF);
+        const int entityIndex = CEntityHandle(item->handle).GetEntryIndex();
         char className[64];
         void* current = entity_access::ResolveEntityInstance(entityIndex, className, sizeof(className));
         if (current != item->controller || std::strcmp(className, "cs_player_controller") != 0 ||

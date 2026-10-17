@@ -1,7 +1,4 @@
 #include "core/log.h"
-// Metamod plugin entry and lifecycle orchestration
-// All constants (offsets, vtable slots, schema candidates) live in offsets.h
-
 #include "plugin.h"
 #include "ISmmPlugin.h"
 #include "ISmmPluginExt.h"
@@ -19,8 +16,8 @@
 #include "slot_publisher.h"
 #include "steam/steamtypes.h"
 #include "offsets.h"
-#include "core/memory_module.h"
-#include "core/cs2_sdk/schema.h"
+#include "core/cs2_sdk/src/core/memory_module.h"
+#include "core/cs2_sdk/src/core/schema.h"
 #include "core/config.h"
 #include "core/interfaces.h"
 #include "core/gamedata.h"
@@ -31,12 +28,6 @@
 
 #define VERSION_STRING  "v" SEMVER " @ " GITHUB_SHA
 #define BUILD_TIMESTAMP __DATE__ " " __TIME__
-
-#ifdef _WIN32
-#define CS2BH_FASTCALL __fastcall
-#else
-#define CS2BH_FASTCALL
-#endif
 
 #include <engine2/inetworkgameserver.h>
 #include <engine2/inetworkserverservice.h>
@@ -152,7 +143,7 @@ bool HiderPlugin::Load(PluginId id, ISmmAPI* ismm, char* error, size_t maxlen, b
     m_unloadPending = false;
 
     if (!interfaces::Init(ismm, error, maxlen)) return false;
-    if (!log::Init(g_SMAPI->GetBaseDir(), error, maxlen)) return false;
+    if (!log::Init(g_SMAPI->GetBaseDir(), "BotHider", error, maxlen)) return false;
 
     if (!KHook::__exported__khook)
     {
@@ -164,7 +155,7 @@ bool HiderPlugin::Load(PluginId id, ISmmAPI* ismm, char* error, size_t maxlen, b
 
     if (!offsets::LoadFromSchema(error, maxlen))
     {
-        schema::Reset();
+        cs2_sdk::schema::Reset();
         log::Close();
         return false;
     }
@@ -281,27 +272,19 @@ bool HiderPlugin::Unload(char* error, size_t maxlen)
     Publisher().Shutdown();
     avatar::SetStringTableContainer(nullptr);
     entity_access::Reset();
-    schema::Reset();
+    cs2_sdk::schema::Reset();
     BH_LOG_INFO("Unloaded");
     log::Close();
     return true;
 }
 
-// Returns plugin author metadata.
 const char* HiderPlugin::GetAuthor() { return "XBribo(๑•.•๑)"; }
-// Returns the plugin name.
 const char* HiderPlugin::GetName() { return "BotHider"; }
-// Returns the plugin description.
 const char* HiderPlugin::GetDescription() { return "Bot persona/steamid/ping/crosshair/avatar hider"; }
-// Returns the plugin project URL.
 const char* HiderPlugin::GetURL() { return "https://github.com/XBribo/CS2-Bot-Hider"; }
-// Returns the plugin license.
 const char* HiderPlugin::GetLicense() { return "AGPL-3.0"; }
-// Returns the version supplied by the build.
 const char* HiderPlugin::GetVersion() { return VERSION_STRING; }
-// Returns the compilation date and time.
 const char* HiderPlugin::GetDate() { return BUILD_TIMESTAMP; }
-// Returns the plugin log tag.
 const char* HiderPlugin::GetLogTag() { return "BH"; }
 
 } // namespace cs2bh
