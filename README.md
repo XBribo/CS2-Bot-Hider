@@ -123,10 +123,11 @@ For API integration and build instructions, see [TECH.md](TECH.md).
 
 ## Special thanks
 
-- [replica](https://github.com/44076-meow/replica) for helping determine the framework.
-- [御坂17032号](https://github.com/Misaka17032) and [Miksen](https://github.com/mrc4tt) for adding Linux support.
-- [ed0ard](https://github.com/ed0ard) for helping with testing and bug fixes.
-- [un1](https://github.com/unicbm) for the ScoreboardFlair idea.
+- [replica](https://github.com/44076-meow/replica)
+- [un1](https://github.com/unicbm)
+- [ed0ard](https://github.com/ed0ard)
+- [御坂17032号](https://github.com/Misaka17032)
+- [Miksen](https://github.com/mrc4tt)
 
 ------------------------------------------------------------------------
 
