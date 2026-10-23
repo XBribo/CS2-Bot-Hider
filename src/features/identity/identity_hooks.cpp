@@ -318,7 +318,7 @@ KHook::Return<int64_t> HumanTeamPost() noexcept
 }
 
 // Restores native identity only for managed non-HLTV team joins.
-KHook::Return<int64_t> JoinTeamPre(void* controller, unsigned int, bool) noexcept
+KHook::Return<bool> JoinTeamPre(void* controller, unsigned int, uint8_t) noexcept
 {
     bool enabled = false;
     if (g_plugin.IsDisguiseEnabled())
@@ -331,7 +331,7 @@ KHook::Return<int64_t> JoinTeamPre(void* controller, unsigned int, bool) noexcep
 }
 
 // Ends the identity transaction for this team join.
-KHook::Return<int64_t> JoinTeamPost(void*, unsigned int, bool) noexcept
+KHook::Return<bool> JoinTeamPost(void*, unsigned int, uint8_t) noexcept
 {
     EndPopulationFrame(g_joinTeamFrames);
     return { KHook::Action::Ignore };
@@ -360,11 +360,7 @@ KHook::Return<void> PackPost(void*, void*, int, void*, void*) noexcept
 }
 
 // Restores native identity only while the end-match state machine can reset teams.
-#if defined(__linux__)
-KHook::Return<bool> EndMatchPre(void* gameRules, const char*) noexcept
-#else
 KHook::Return<bool> EndMatchPre(void* gameRules) noexcept
-#endif
 {
     const bool enabled = g_plugin.IsDisguiseEnabled() && gameRules && g_pickNewTeamsOnResetOffset >= 0 &&
                          *(static_cast<const uint8_t*>(gameRules) + g_pickNewTeamsOnResetOffset) != 0;
@@ -373,11 +369,7 @@ KHook::Return<bool> EndMatchPre(void* gameRules) noexcept
 }
 
 // Redisguises surviving clients after the engine finishes its end-match work.
-#if defined(__linux__)
-KHook::Return<bool> EndMatchPost(void*, const char*) noexcept
-#else
 KHook::Return<bool> EndMatchPost(void*) noexcept
-#endif
 {
     EndPopulationFrame(g_teardownFrames);
     return { KHook::Action::Ignore };
@@ -400,13 +392,9 @@ template <typename Return, typename... Args> class NativeHook : public KHook::Fu
 using QuotaHook = NativeHook<int64_t, void*>;
 using VotersHook = NativeHook<int, void*>;
 using HumanTeamHook = NativeHook<int64_t>;
-using JoinTeamHook = NativeHook<int64_t, void*, unsigned int, bool>;
+using JoinTeamHook = NativeHook<bool, void*, unsigned int, uint8_t>;
 using PackHook = NativeHook<void, void*, void*, int, void*, void*>;
-#if defined(__linux__)
-using EndMatchHook = NativeHook<bool, void*, const char*>;
-#else
 using EndMatchHook = NativeHook<bool, void*>;
-#endif
 std::unique_ptr<QuotaHook> g_quotaHook;
 std::unique_ptr<VotersHook> g_votersHook;
 std::unique_ptr<HumanTeamHook> g_humanTeamHook;
