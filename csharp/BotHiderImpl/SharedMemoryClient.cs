@@ -80,7 +80,7 @@ public sealed class SharedMemoryClient : IBotHiderApi, IDisposable
 
     private readonly Action<int, string, ulong>? _onVisibleName;
 
-    private readonly Action<int, ulong, ulong>? _onVisibleSid;
+    private readonly Action<int, ulong>? _onSteamIdQueued;
     private readonly Action<int, uint, ulong>? _onScoreboardFlair;
     private readonly Action<int, string, ulong>? _onCrosshairCode;
     private readonly string?[] _personaNameOverrides = new string?[MaxSlots];
@@ -91,12 +91,12 @@ public sealed class SharedMemoryClient : IBotHiderApi, IDisposable
 
     // Captures presentation callbacks that retain the queued slot lifetime.
     public SharedMemoryClient(Action<int, string, ulong>? onVisibleName = null,
-                              Action<int, ulong, ulong>? onVisibleSid = null,
+                              Action<int, ulong>? onSteamIdQueued = null,
                               Action<int, uint, ulong>? onScoreboardFlair = null,
                               Action<int, string, ulong>? onCrosshairCode = null)
     {
         _onVisibleName = onVisibleName;
-        _onVisibleSid = onVisibleSid;
+        _onSteamIdQueued = onSteamIdQueued;
         _onScoreboardFlair = onScoreboardFlair;
         _onCrosshairCode = onCrosshairCode;
     }
@@ -294,12 +294,12 @@ public sealed class SharedMemoryClient : IBotHiderApi, IDisposable
 
     // IBotHiderApi: write side
 
-    // Queues a SteamID update and forwards its captured lifetime to presentation.
+    // Queues a SteamID request without exposing an unconfirmed display value.
     public bool SetBotSteamId(int slot, ulong steamId64)
     {
         if (!Valid(slot)) return false;
         bool ok = PostCommand(CmdSetSteamId, slot, steamId64, null, out ulong incarnation);
-        if (ok) _onVisibleSid?.Invoke(slot, steamId64, incarnation);
+        if (ok) _onSteamIdQueued?.Invoke(slot, incarnation);
         return ok;
     }
 

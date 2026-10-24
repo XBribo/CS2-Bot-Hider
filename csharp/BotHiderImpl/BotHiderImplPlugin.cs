@@ -150,9 +150,17 @@ public class BotHiderImplPlugin : BasePlugin
     private void ApplyVisibleName(int slot, string name, ulong incarnation)
         => QueueVisibleWrite(slot, incarnation, "name", player => WriteVisibleName(player, name));
 
-    // Queues the visible SteamID.
-    private void ApplyVisibleSid(int slot, ulong sid, ulong incarnation)
-        => QueueVisibleWrite(slot, incarnation, "SteamID", player => WriteVisibleSid(player, sid));
+    // Reads the native SteamID after the queued lifetime has been checked.
+    private void ApplyVisibleSid(int slot, ulong incarnation)
+    {
+        var client = _client;
+        if (client == null) return;
+        QueueVisibleWrite(slot, incarnation, "SteamID", player =>
+        {
+            ulong sid = client.GetBotSteamId(slot);
+            if (player.SteamID != sid) WriteVisibleSid(player, sid);
+        });
+    }
 
     // Queues the visible crosshair.
     private void ApplyVisibleCrosshair(int slot, string code, ulong incarnation)
