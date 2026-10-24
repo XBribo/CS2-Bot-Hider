@@ -193,6 +193,7 @@ bool HiderPlugin::Load(PluginId id, ISmmAPI* ismm, char* error, size_t maxlen, b
         Publisher().PublishSignature("HandleJoinTeam", identity_hooks::HandleJoinTeamTarget());
         Publisher().PublishSignature("HumanTeamRestriction", identity_hooks::HumanTeamRestrictionTarget());
         Publisher().PublishSignature("SameMapTeardown", identity_hooks::SameMapTeardownTarget());
+        Publisher().PublishSignature("ScriptIsBot", identity_hooks::ScriptIsBotTarget());
     }
     else
     {
@@ -226,8 +227,9 @@ bool HiderPlugin::Load(PluginId id, ISmmAPI* ismm, char* error, size_t maxlen, b
     if (identity_hooks::HandleJoinTeamTarget()) ++installedHooks;
     if (identity_hooks::HumanTeamRestrictionTarget()) ++installedHooks;
     if (identity_hooks::SameMapTeardownTarget()) ++installedHooks;
+    if (identity_hooks::ScriptIsBotTarget()) ++installedHooks;
     BH_LOG_INFO("Loaded %s\n", GetVersion());
-    BH_LOG_DEBUG("config mode=%s fake_ping=%s range=%d-%d identities=%zu hooks=%d/6 util_remove=%s schema=%s shm=%s avatar=%s\n",
+    BH_LOG_DEBUG("config mode=%s fake_ping=%s range=%d-%d identities=%zu hooks=%d/7 util_remove=%s schema=%s shm=%s avatar=%s\n",
                  IsBotMode() ? "bot" : "player", settings.fakePingEnabled ? "on" : "off", settings.fakePingMin, settings.fakePingMax,
                  BotInfo().Count(), installedHooks, entity_access::UtilRemoveTarget() ? "ok" : "fail", "ok",
                  sharedMemoryReady ? "ok" : "fail", networkStringTables ? "ok" : "fail");

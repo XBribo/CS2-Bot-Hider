@@ -12,6 +12,7 @@
 #include "serversideclient_ref.h"
 #include "core/cs2_sdk/src/core/schema.h"
 #include "core/cs2_sdk/src/core/memory_module.h"
+#include "core/cs2_sdk/src/utils/memory.h"
 #include "offsets.h"
 
 #include <cstdint>
@@ -36,6 +37,7 @@ void* g_handleJoinTeamHookTarget = nullptr;
 void* g_applyHumanTeamRestrictionHookTarget = nullptr;
 void* g_packEntitiesHookTarget = nullptr;
 void* g_sameMapTeardownHookTarget = nullptr;
+void* g_scriptIsBotHookTarget = nullptr;
 int g_pickNewTeamsOnResetOffset = -1;
 std::recursive_mutex g_packEntitiesMutex;
 thread_local uint32_t g_packEntitiesDepth = 0;
@@ -67,7 +69,8 @@ bool IsValidController(void* controller, const char* className, uint32_t handle)
 class ScopedNativeBotIdentityRestore
 {
   public:
-    ScopedNativeBotIdentityRestore() { Capture(); }
+    // Skips network updates for read-only queries.
+    explicit ScopedNativeBotIdentityRestore(bool markNetworkChanges = true) : m_markNetworkChanges(markNetworkChanges) { Capture(); }
     ~ScopedNativeBotIdentityRestore() { Restore(); }
 
     int ModifiedCount() const { return m_modifiedCount; }
@@ -75,6 +78,7 @@ class ScopedNativeBotIdentityRestore
   private:
     std::array<NativeBotIdentitySnapshot, 64> m_snapshots{};
     int m_modifiedCount = 0;
+    bool m_markNetworkChanges = true;
 
     void Capture()
     {
@@ -149,7 +153,7 @@ class ScopedNativeBotIdentityRestore
             snapshot.hasController = true;
             const uint32_t before = *flags;
             *flags |= 0x100U;
-            if (*flags != before)
+            if (*flags != before && m_markNetworkChanges)
             {
                 entity_access::MarkEntityFieldChanged(snapshot.controller, static_cast<uint32_t>(offsets::g_baseEntityFlagsOffset));
             }
@@ -196,7 +200,8 @@ class ScopedNativeBotIdentityRestore
             if (*flags != snapshot.controllerFlags)
             {
                 *flags = snapshot.controllerFlags;
-                entity_access::MarkEntityFieldChanged(controller, static_cast<uint32_t>(offsets::g_baseEntityFlagsOffset));
+                if (m_markNetworkChanges)
+                    entity_access::MarkEntityFieldChanged(controller, static_cast<uint32_t>(offsets::g_baseEntityFlagsOffset));
             }
         }
     }
@@ -254,6 +259,7 @@ thread_local std::vector<bool> g_humanTeamFrames;
 thread_local std::vector<bool> g_joinTeamFrames;
 thread_local std::vector<bool> g_teardownFrames;
 thread_local std::vector<std::unique_ptr<ScopedNativeBotIdentityRestore>> g_voterFrames;
+thread_local std::vector<std::unique_ptr<ScopedNativeBotIdentityRestore>> g_scriptIsBotFrames;
 thread_local std::vector<BotPawnRef> g_packedPawns;
 
 // Keeps each PRE paired with its POST even when callbacks nest or change identity mode.
@@ -300,6 +306,24 @@ KHook::Return<int> VotersPost(void*) noexcept
 {
     g_voterFrames.pop_back();
     --g_hookDepth;
+    return { KHook::Action::Ignore };
+}
+
+// Restores bot identity during script checks.
+KHook::Return<void> ScriptIsBotPre(void*) noexcept
+{
+    g_packEntitiesMutex.lock();
+    ++g_hookDepth;
+    g_scriptIsBotFrames.push_back(g_plugin.IsDisguiseEnabled() ? std::make_unique<ScopedNativeBotIdentityRestore>(false) : nullptr);
+    return { KHook::Action::Ignore };
+}
+
+// Restores disguise before returning to JavaScript.
+KHook::Return<void> ScriptIsBotPost(void*) noexcept
+{
+    g_scriptIsBotFrames.pop_back();
+    --g_hookDepth;
+    g_packEntitiesMutex.unlock();
     return { KHook::Action::Ignore };
 }
 
@@ -395,12 +419,14 @@ using HumanTeamHook = NativeHook<int64_t>;
 using JoinTeamHook = NativeHook<bool, void*, unsigned int, uint8_t>;
 using PackHook = NativeHook<void, void*, void*, int, void*, void*>;
 using EndMatchHook = NativeHook<bool, void*>;
+using ScriptIsBotHook = NativeHook<void, void*>;
 std::unique_ptr<QuotaHook> g_quotaHook;
 std::unique_ptr<VotersHook> g_votersHook;
 std::unique_ptr<HumanTeamHook> g_humanTeamHook;
 std::unique_ptr<JoinTeamHook> g_joinTeamHook;
 std::unique_ptr<PackHook> g_packHook;
 std::unique_ptr<EndMatchHook> g_endMatchHook;
+std::unique_ptr<ScriptIsBotHook> g_scriptIsBotHook;
 
 // Installs one resolved optional hook and clears failed targets from diagnostics.
 template <typename Hook, typename Pre, typename Post>
@@ -425,6 +451,7 @@ void ClearBindings()
     g_handleJoinTeamHookTarget = nullptr;
     g_applyHumanTeamRestrictionHookTarget = nullptr;
     g_sameMapTeardownHookTarget = nullptr;
+    g_scriptIsBotHookTarget = nullptr;
     g_pickNewTeamsOnResetOffset = -1;
 }
 
@@ -584,6 +611,43 @@ void PrepareSameMapTeardownHook(const nlohmann::json& gamedata, const cs2_sdk::m
     BH_LOG_DEBUG("Schema CCSGameRules::m_bPickNewTeamsOnReset=0x%x\n", g_pickNewTeamsOnResetOffset);
 }
 
+// Resolves the named IsBot callback.
+void PrepareScriptIsBotHook(const nlohmann::json& gamedata, const cs2_sdk::modules::ModuleInfo& serverModule)
+{
+    g_scriptIsBotHookTarget = nullptr;
+    if (!serverModule || !cs2_sdk::modules::server) return;
+    constexpr const char* kTargetName = "CSPlayerController::ScriptIsBot";
+    const std::string signature = cs2_sdk::gameconfig::FindPlatformSig(gamedata, kTargetName);
+    const int nameReferenceOffset = cs2_sdk::gameconfig::FindPlatformOffset(gamedata, kTargetName, -1);
+    std::vector<uint8_t> bytes;
+    std::vector<bool> wildcards;
+    if (nameReferenceOffset < 0 || !cs2_sdk::modules::ParseSigString(signature, bytes, wildcards))
+    {
+        BH_LOG_WARN("ScriptIsBot signature/name reference unavailable - map script bot recognition fix disabled\n");
+        return;
+    }
+
+    const auto& image = cs2_sdk::modules::server->Image();
+    void* target = nullptr;
+    for (void* match : cs2_sdk::modules::FindPatternMatchesIn(serverModule, bytes, wildcards, 0))
+    {
+        const auto* reference = static_cast<unsigned char*>(match) + nameReferenceOffset;
+        if (!cs2_sdk::modules::ContainsRange(serverModule, reference, 7)) continue;
+        // Validates a RIP-relative LEA.
+        if ((reference[0] & 0xFB) != 0x48 || reference[1] != 0x8D || (reference[2] & 0xC7) != 0x05) continue;
+        const void* name = cs2_sdk::memory::ResolveRelativeAddress(reference, 3, 7);
+        if (!cs2_sdk::modules::ContainsRange(image, name, sizeof("IsBot")) || std::memcmp(name, "IsBot", sizeof("IsBot")) != 0) continue;
+        if (target)
+        {
+            BH_LOG_WARN("ScriptIsBot hook requires exactly one named callback\n");
+            return;
+        }
+        target = match;
+    }
+    g_scriptIsBotHookTarget = target;
+    if (!target) BH_LOG_WARN("ScriptIsBot named callback unresolved - map script bot recognition fix disabled\n");
+}
+
 } // namespace
 
 // Resolves and prepares every optional identity detour
@@ -595,6 +659,7 @@ void PrepareAll(const nlohmann::json& gamedata, const cs2_sdk::modules::ModuleIn
     PrepareHumanTeamRestrictionHook(gamedata, serverModule);
     PreparePackEntitiesHook(gamedata);
     PrepareSameMapTeardownHook(gamedata, serverModule);
+    PrepareScriptIsBotHook(gamedata, serverModule);
 }
 
 // Installs every successfully prepared identity detour
@@ -606,6 +671,15 @@ void InstallPrepared()
     InstallHook(g_humanTeamHook, g_applyHumanTeamRestrictionHookTarget, HumanTeamPre, HumanTeamPost, "MpHumanTeam_ApplyRestriction");
     InstallHook(g_packHook, g_packEntitiesHookTarget, PackPre, PackPost, "CNetworkGameServer::PackEntities");
     InstallHook(g_endMatchHook, g_sameMapTeardownHookTarget, EndMatchPre, EndMatchPost, "CCSGameRules::EndMatchState");
+    if (g_packHook && entity_access::UtilRemoveTarget())
+    {
+        InstallHook(g_scriptIsBotHook, g_scriptIsBotHookTarget, ScriptIsBotPre, ScriptIsBotPost, "CSPlayerController::ScriptIsBot");
+    }
+    else
+    {
+        g_scriptIsBotHookTarget = nullptr;
+        BH_LOG_WARN("ScriptIsBot fix requires entity resolution and the entity-packing hook - disabled\n");
+    }
 }
 
 // Uninstalls all identity detours and releases their shared handle
@@ -617,6 +691,7 @@ bool Remove()
         return false;
     }
     // KHook waits for active calls; holding the packing mutex here would deadlock them.
+    g_scriptIsBotHook.reset();
     g_packHook.reset();
     g_endMatchHook.reset();
     g_joinTeamHook.reset();
@@ -644,5 +719,8 @@ void* HumanTeamRestrictionTarget() { return g_applyHumanTeamRestrictionHookTarge
 
 // Returns the resolved same-map teardown helper target
 void* SameMapTeardownTarget() { return g_sameMapTeardownHookTarget; }
+
+// Returns the script IsBot target.
+void* ScriptIsBotTarget() { return g_scriptIsBotHookTarget; }
 
 } // namespace cs2bh::identity_hooks

@@ -82,6 +82,9 @@ void* HumanTeamRestrictionTarget();
 // Returns the resolved end-match state-machine target.
 void* SameMapTeardownTarget();
 
+// Returns the script IsBot target.
+void* ScriptIsBotTarget();
+
 } // namespace identity_hooks
 
 } // namespace cs2bh
