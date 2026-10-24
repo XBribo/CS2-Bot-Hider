@@ -117,7 +117,6 @@ class HiderPlugin : public ISmmPlugin, public IMetamodListener
     StartChangeLevelHook m_startChangeLevelHook;
     GameFrameHook m_gameFrameHook;
     DispatchConCommandHook m_dispatchConCommandHook;
-    bool m_selfDisabled = false;
     bool m_unloadPending = false;
     unsigned int m_tickCounter = 0; // throttles per-tick idle-timer reset
     IdentityMode m_identityMode = IdentityMode::Player;

@@ -113,7 +113,7 @@ void DrainPendingBotKicks()
         const CCommand arguments(2, argv);
         if (arguments.ArgC() != 2)
         {
-            BH_LOG_WARN("deferred bot_kick rejected slot=%d: command arguments exceed SDK limits\n", kick.slot);
+            BH_LOG_WARN("bot_kick rejected slot=%d: argument limit", kick.slot);
             continue;
         }
         const CCommandContext context(CT_NO_TARGET, CPlayerSlot(-1));
@@ -130,7 +130,7 @@ HiderPlugin::HookDispatchConCommandPre(ICvar*, ConCommandRef command, const CCom
     const hooks::CallbackScope callbackScope;
     hooks::BeginDispatch();
     g_populationCommandFrames.push_back(false);
-    if (m_selfDisabled || !command.IsValidRef()) return { KHook::Action::Ignore };
+    if (!command.IsValidRef()) return { KHook::Action::Ignore };
     const char* commandName = command.GetName();
 
     if (IsBotAddCommand(commandName))
@@ -188,7 +188,7 @@ void HiderPlugin::SetIdentityMode(IdentityMode mode)
     if (m_identityMode == mode) return;
     m_identityMode = mode;
     identity_runtime::ApplyManagedDisguise(mode == IdentityMode::Player);
-    BH_LOG_DEBUG("identity mode=%s\n", mode == IdentityMode::Bot ? "bot" : "player");
+    BH_LOG_DEBUG("identity mode=%s", mode == IdentityMode::Bot ? "bot" : "player");
 }
 
 // Restores native bot identity and clears managed state before a level transition
@@ -199,15 +199,12 @@ HiderPlugin::HookStartChangeLevelPre(INetworkGameServer*,
                                      void* /*changelevelState*/) noexcept // NOLINT(readability-make-member-function-const)
 {
     const hooks::CallbackScope callbackScope;
-    if (m_selfDisabled) return { KHook::Action::Ignore, nullptr };
-
     const int restoredClients = identity_runtime::RestoreManagedClientsForEngineTeardown();
     identity_state::ClearAll();
     Manager().ReleaseAll();
     avatar::ProcessOverrides();
     BotInfo().ResetAssignments();
-    BH_LOG_DEBUG("StartChangeLevel PRE restored=%d map='%s' landmark='%s'\n", restoredClients, mapName ? mapName : "?",
-                 landmark ? landmark : "");
+    BH_LOG_DEBUG("level change restored=%d map='%s' landmark='%s'", restoredClients, mapName ? mapName : "?", landmark ? landmark : "");
     return { KHook::Action::Ignore, nullptr };
 }
 
@@ -215,9 +212,9 @@ HiderPlugin::HookStartChangeLevelPre(INetworkGameServer*,
 KHook::Return<void> HiderPlugin::HookGameFramePost(IServerGameDLL*, bool simulating, bool /*firstTick*/, bool /*lastTick*/) noexcept
 {
     const hooks::CallbackScope callbackScope;
-    if (!m_selfDisabled && !m_unloadPending) DrainPendingBotKicks();
+    if (!m_unloadPending) DrainPendingBotKicks();
     ProcessPendingUnload();
-    if (m_selfDisabled || !simulating) return { KHook::Action::Ignore };
+    if (!simulating) return { KHook::Action::Ignore };
 
     identity_runtime::DrainPendingControllerRemovals();
     for (int slot = 0; slot < PersonaPool::kMaxSlots; ++slot)
@@ -277,7 +274,7 @@ KHook::Return<void> HiderPlugin::HookGameFramePost(IServerGameDLL*, bool simulat
         // Changes the display-name source
         [this](bool useBotInfo) {
         SetUseBotInfoName(useBotInfo);
-        BH_LOG_DEBUG("name source -> %s\n", useBotInfo ? "bot_info" : "botprofile");
+        BH_LOG_DEBUG("name source=%s", useBotInfo ? "bot_info" : "botprofile");
     });
     avatar::ProcessOverrides();
     return { KHook::Action::Ignore };

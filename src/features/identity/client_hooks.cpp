@@ -51,7 +51,7 @@ KHook::Return<void> HiderPlugin::HookOnClientConnectedPost( // NOLINT(readabilit
     bool fakePlayer) noexcept
 {
     const hooks::CallbackScope callbackScope;
-    if (m_selfDisabled || !fakePlayer || identity_runtime::IsHltvConnection(name, networkId))
+    if (!fakePlayer || identity_runtime::IsHltvConnection(name, networkId))
     {
         return { KHook::Action::Ignore };
     }
@@ -116,8 +116,6 @@ KHook::Return<void> HiderPlugin::HookClientPutInServerPost(IServerGameClients*,
                                                            uint64 /*xuid*/) noexcept // NOLINT(readability-make-member-function-const)
 {
     const hooks::CallbackScope callbackScope;
-    if (m_selfDisabled) return { KHook::Action::Ignore };
-
     (void)type;
     const int index = slot.Get();
     if (index < 0 || index >= PersonaPool::kMaxSlots || !Manager().IsManaged(index))
@@ -171,8 +169,6 @@ KHook::Return<void> HiderPlugin::HookClientDisconnectPre( // NOLINT(readability-
     const char* /*networkId*/) noexcept
 {
     const hooks::CallbackScope callbackScope;
-    if (m_selfDisabled) return { KHook::Action::Ignore };
-
     const int index = slot.Get();
     if (index < 0 || index >= PersonaPool::kMaxSlots || !Manager().IsManaged(index))
     {

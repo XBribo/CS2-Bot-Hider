@@ -194,28 +194,7 @@ void RestoreBotFlagOverride(const std::vector<BotPawnRef>& pawns)
 
 namespace identity_runtime {
 
-// Counts connected human clients, excluding managed/fake/HLTV clients
-int CountHumanClients()
-{
-    if (!g_pNetworkServerService) return 0;
-    auto* gameServer = g_pNetworkServerService->GetIGameServer();
-    if (!gameServer) return 0;
-    auto* clients = reinterpret_cast<CUtlVector<void*>*>(reinterpret_cast<unsigned char*>(gameServer) + offsets::g_clientListOffset);
-    const int count = clients->Count();
-    if (count < 0 || count > 256) return 0;
-
-    int humans = 0;
-    for (int slot = 0; slot < count; ++slot)
-    {
-        void* client = clients->Element(slot);
-        if (!client) continue;
-        if (Manager().IsManaged(slot) || ssc::IsHltv(client) || ssc::IsFakePlayerSet(client)) continue;
-        void* networkChannel = *reinterpret_cast<void**>(reinterpret_cast<unsigned char*>(client) + ssc::g_netChannelOffset);
-        if (networkChannel) ++humans;
-    }
-    return humans;
-}
-
+// Switches bot flags while retaining the managed SteamID.
 void ApplyManagedDisguise(bool disguised)
 {
     for (int slot = 0; slot < PersonaPool::kMaxSlots; ++slot)
@@ -227,19 +206,14 @@ void ApplyManagedDisguise(bool disguised)
         if (disguised)
         {
             ssc::ClearFakePlayer(client);
-            SetControllerFakeClientFlag(slot, false);
-            const uint64_t steamId = Manager().GetSyntheticSid(slot);
-            if (steamId != 0) ssc::WriteSteamId(client, steamId);
         }
         else
         {
             ssc::SetFakePlayer(client);
-            SetControllerFakeClientFlag(slot, true);
-            // Bot mode keeps Valve's bot flags but retains the managed
-            // SteamID used by BotHider's presentation and avatar override.
-            const uint64_t steamId = Manager().GetSyntheticSid(slot);
-            if (steamId != 0) ssc::WriteSteamId(client, steamId);
         }
+        SetControllerFakeClientFlag(slot, !disguised);
+        const uint64_t steamId = Manager().GetSyntheticSid(slot);
+        if (steamId != 0) ssc::WriteSteamId(client, steamId);
         entity_access::RefreshClientUserInfo(slot);
     }
 }
@@ -327,7 +301,7 @@ bool QueueControllerRemovalForClient(void* client, int slot)
     if (!client) return false;
     if (!entity_access::UtilRemoveTarget())
     {
-        BH_LOG_WARN("deferred destroy unavailable: UTIL_Remove unresolved\n");
+        BH_LOG_WARN("controller cleanup unavailable: UTIL_Remove unresolved");
         return false;
     }
 
@@ -336,16 +310,12 @@ bool QueueControllerRemovalForClient(void* client, int slot)
     void* controller = entity_access::ResolveEntityInstance(entityIndex, className, sizeof(className));
     if (!controller)
     {
-        BH_LOG_WARN("deferred destroy skipped: entity resolve failed "
-                    "entIdx=%d cls='%s' (check entity-system signature and kEntSys_* offsets)\n",
-                    entityIndex, className);
+        BH_LOG_WARN("controller cleanup skipped ent=%d: unresolved", entityIndex);
         return false;
     }
     if (std::strcmp(className, "cs_player_controller") != 0)
     {
-        BH_LOG_WARN("deferred destroy skipped entIdx=%d cls='%s' "
-                    "(not a controller)\n",
-                    entityIndex, className);
+        BH_LOG_WARN("controller cleanup skipped ent=%d: class='%s'", entityIndex, className);
         return false;
     }
     if (entity_access::IsEntityBeingDeleted(controller)) return false;
@@ -390,10 +360,8 @@ void DrainPendingControllerRemovals()
         {
             if (currentUserId != item->userId)
             {
-                BH_LOG_WARN("deferred destroy abandoned slot=%d "
-                            "handle=0x%08x: controller was rebound to "
-                            "userid=%u\n",
-                            item->slot, item->handle, static_cast<unsigned int>(currentUserId));
+                BH_LOG_WARN("controller cleanup skipped slot=%d handle=0x%08x: rebound userid=%u", item->slot, item->handle,
+                            static_cast<unsigned int>(currentUserId));
                 item = pending.erase(item);
                 continue;
             }
@@ -438,7 +406,7 @@ bool ReleaseManagedHltvSlot(int slot, void* client)
     identity_state::ClearSlot(slot);
     Manager().ReleaseSlot(slot);
 
-    BH_LOG_DEBUG("slot=%d rejected: SourceTV/HLTV client\n", slot);
+    BH_LOG_DEBUG("slot=%d released: HLTV", slot);
     return true;
 }
 
