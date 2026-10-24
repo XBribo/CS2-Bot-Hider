@@ -3,7 +3,7 @@
 #pragma once
 
 #include <array>
-#include <deque>
+#include <cstdint>
 #include <mutex>
 #include <string>
 
@@ -13,14 +13,6 @@ class PersonaPool
 {
   public:
     PersonaPool();
-
-    // Push a persona onto the FIFO
-    // Called from Spawn() before bot_add
-    void Push(const char* name);
-
-    std::string Pop();
-
-    size_t PendingCount() const;
 
     std::string PickFromRoster();
 
@@ -34,7 +26,6 @@ class PersonaPool
 
   private:
     mutable std::mutex m_mutex;
-    std::deque<std::string> m_fifo;
     std::array<std::string, kMaxSlots> m_slotNames;
     std::array<bool, kMaxSlots> m_slotManaged{};
     uint64_t m_rosterRngState = 0;

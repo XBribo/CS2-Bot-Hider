@@ -3,15 +3,11 @@
 // SteamID pool sourced from bot_info.json
 
 #include "steamid_provider.h"
-#include <cstddef>
 #include <cstdint>
 
 #include "bot_info.h"
 
 namespace cs2bh {
-
-// Pool size reflects the loaded bot_info.json entries.
-size_t SteamIdProvider::PoolSize() noexcept { return BotInfo().Count(); }
 
 // FNV-1a 64-bit over the session id string.
 SteamIdProvider::SteamIdProvider(const char* sessionId)

@@ -17,10 +17,8 @@ struct ManagedSlot
 {
     bool active = false;
     uint64_t syntheticSid = 0;
-    uint32_t scoreboardFlair = 0;
     PingJitter jitter{ 50 }; // 50ms baseline
     PingDisplay display;
-    bool steamIdWritten = false;
 };
 
 class FakeClientManager
@@ -49,8 +47,6 @@ class FakeClientManager
 
     // Override the SteamID64
     void SetSyntheticSid(int slot, uint64_t sid);
-
-    SteamIdProvider* SteamIds() { return m_steamIds.get(); }
 
   private:
     mutable std::mutex m_mutex;

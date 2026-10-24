@@ -71,13 +71,11 @@ bool FakeClientManager::AdoptSlot(int slot, const char* name, uint64_t steamId64
     s.active = true;
     // Uses the already validated SteamID selected for this slot
     s.syntheticSid = steamId64;
-    s.scoreboardFlair = scoreboardFlair;
     s.jitter = PingJitter(baseline, m_fakePingMinimum, m_fakePingMaximum);
     s.display = PingDisplay{};
-    s.steamIdWritten = false;
 
     Personas().MarkSlotManaged(slot, name);
-    Publisher().PublishAdopt(slot, s.syntheticSid, name, crosshairCode, s.scoreboardFlair, clanTag, clanGroupId);
+    Publisher().PublishAdopt(slot, s.syntheticSid, name, crosshairCode, scoreboardFlair, clanTag, clanGroupId);
     Publisher().UpdatePing(slot, m_fakePingEnabled ? baseline : 0);
     return true;
 }
@@ -87,8 +85,6 @@ void FakeClientManager::ReleaseSlot(int slot)
     if (slot < 0 || slot >= PersonaPool::kMaxSlots) return;
     std::lock_guard<std::mutex> g(m_mutex);
     m_slots[slot].active = false;
-    m_slots[slot].steamIdWritten = false;
-    m_slots[slot].scoreboardFlair = 0;
     m_slots[slot].display.Reset();
     Personas().ClearSlot(slot);
     Publisher().PublishRelease(slot);
@@ -100,8 +96,6 @@ void FakeClientManager::ReleaseAll()
     for (int i = 0; i < PersonaPool::kMaxSlots; ++i)
     {
         m_slots[i].active = false;
-        m_slots[i].steamIdWritten = false;
-        m_slots[i].scoreboardFlair = 0;
         m_slots[i].display.Reset();
         Personas().ClearSlot(i);
         Publisher().PublishRelease(i);

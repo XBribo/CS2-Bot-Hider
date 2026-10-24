@@ -8,15 +8,10 @@
 namespace cs2bh::ssc {
 
 // offsets — defaults are fallbacks, overridden at load from gamedata.json
-inline int g_userIdStringOffset = 56; // CUtlString
 inline int g_nameOffset = 64; // CUtlString
-inline int g_clientSlotOffset = 72; // CPlayerSlot (int)
 inline int g_entityIndexOffset = 76; // CEntityIndex (int)
-inline int g_serverOffset = 80; // CNetworkGameServerBase*
 inline int g_netChannelOffset = 88; // INetChannel*
 inline int g_connectionTypeFlagsOffset = 96; // byte, fake-client mask 0x08
-inline int g_signonStateOffset = 100; // SignonState_t
-inline int g_attachedToOffset = 144;
 inline int g_fakePlayerOffset = 160; // bool
 inline int g_userIdOffset = 168; // short
 inline int g_steamIdOffset = 171; // CSteamID

@@ -29,9 +29,6 @@ class BotInfoStore
     // Load from disk. Returns false + logs on failure
     bool Load(const char* path);
 
-    // Looks up the first entry with a matching player_name
-    const BotEntry* FindByName(const char* name) const;
-
     // Selects an available identity, preferring an exact display-name match
     const BotEntry* PickForBot(const char* engineName);
 

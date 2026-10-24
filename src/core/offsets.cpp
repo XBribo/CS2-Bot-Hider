@@ -9,22 +9,22 @@
 
 namespace cs2bh::offsets {
 
+// Resolves required flags and optional pawn handles.
 bool LoadFromSchema(char* error, size_t maxlen)
 {
     const bool schemaReady = cs2_sdk::schema::Init(g_schemaSystem, error, maxlen);
     const cs2_sdk::schema::FieldBinding fields[] = {
         { .target = &g_baseEntityFlagsOffset, .className = "CBaseEntity", .fieldName = "m_fFlags" },
-        { .target = &g_controllerTeamOffset, .className = "CBaseEntity", .fieldName = "m_iTeamNum" },
     };
     const bool fieldsReady = cs2_sdk::schema::ResolveFields(fields);
     if (!fieldsReady)
     {
-        std::snprintf(error, maxlen, "required CBaseEntity Schema offsets unavailable: m_fFlags=%d m_iTeamNum=%d; identity hooks disabled",
-                      offsets::g_baseEntityFlagsOffset, offsets::g_controllerTeamOffset);
+        std::snprintf(error, maxlen, "required CBaseEntity Schema offset unavailable: m_fFlags=%d; identity hooks disabled",
+                      offsets::g_baseEntityFlagsOffset);
         BH_LOG_ERROR("%s\n", error);
         return false;
     }
-    BH_LOG_DEBUG("Schema CBaseEntity: m_fFlags=0x%x m_iTeamNum=0x%x\n", offsets::g_baseEntityFlagsOffset, offsets::g_controllerTeamOffset);
+    BH_LOG_DEBUG("Schema CBaseEntity: m_fFlags=0x%x\n", offsets::g_baseEntityFlagsOffset);
 
     if (schemaReady)
     {
@@ -44,15 +44,10 @@ bool LoadFromSchema(char* error, size_t maxlen)
 void LoadFromGamedata(const nlohmann::json& gamedata)
 {
     const cs2_sdk::gameconfig::OffsetBinding offsets[] = {
-        { &ssc::g_userIdStringOffset, "CServerSideClient::m_UserIDString" },
         { &ssc::g_nameOffset, "CServerSideClient::m_Name" },
-        { &ssc::g_clientSlotOffset, "CServerSideClient::m_nClientSlot" },
         { &ssc::g_entityIndexOffset, "CServerSideClient::m_nEntityIndex" },
-        { &ssc::g_serverOffset, "CServerSideClient::m_Server" },
         { &ssc::g_netChannelOffset, "CServerSideClient::m_NetChannel" },
         { &ssc::g_connectionTypeFlagsOffset, "CServerSideClient::m_nConnectionTypeFlags" },
-        { &ssc::g_signonStateOffset, "CServerSideClient::m_nSignonState" },
-        { &ssc::g_attachedToOffset, "CServerSideClient::m_pAttachedTo" },
         { &ssc::g_fakePlayerOffset, "CServerSideClient::m_bFakePlayer" },
         { &ssc::g_userIdOffset, "CServerSideClient::m_UserID" },
         { &ssc::g_steamIdOffset, "CServerSideClient::m_SteamID" },

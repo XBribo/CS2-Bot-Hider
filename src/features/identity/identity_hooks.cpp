@@ -73,11 +73,8 @@ class ScopedNativeBotIdentityRestore
     explicit ScopedNativeBotIdentityRestore(bool markNetworkChanges = true) : m_markNetworkChanges(markNetworkChanges) { Capture(); }
     ~ScopedNativeBotIdentityRestore() { Restore(); }
 
-    int ModifiedCount() const { return m_modifiedCount; }
-
   private:
     std::array<NativeBotIdentitySnapshot, 64> m_snapshots{};
-    int m_modifiedCount = 0;
     bool m_markNetworkChanges = true;
 
     void Capture()
@@ -116,7 +113,6 @@ class ScopedNativeBotIdentityRestore
             snapshot.fakePlayer = raw[ssc::g_fakePlayerOffset];
             snapshot.modified = true;
             ssc::SetFakePlayer(snapshot.client);
-            ++m_modifiedCount;
 
             const int entityIndex = *reinterpret_cast<int*>(raw + ssc::g_entityIndexOffset);
             char className[64];
@@ -344,12 +340,7 @@ KHook::Return<int64_t> HumanTeamPost() noexcept
 // Restores native identity only for managed non-HLTV team joins.
 KHook::Return<bool> JoinTeamPre(void* controller, unsigned int, uint8_t) noexcept
 {
-    bool enabled = false;
-    if (g_plugin.IsDisguiseEnabled())
-    {
-        const auto trace = TraceManagedController(controller);
-        enabled = trace.managed && !trace.hltv;
-    }
+    const bool enabled = g_plugin.IsDisguiseEnabled() && IsManagedBotController(controller);
     BeginPopulationFrame(g_joinTeamFrames, enabled);
     return { KHook::Action::Ignore };
 }

@@ -20,7 +20,6 @@ class PingDisplay
 
     void Reset();
 
-    int LastWrittenPing() const { return m_lastWritten; }
     int CurrentAverage() const;
 
   private:

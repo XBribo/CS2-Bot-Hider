@@ -17,24 +17,14 @@ struct BotPawnRef
     uint32_t handle = 0xFFFFFFFF;
 };
 
-struct ManagedControllerTrace
-{
-    int slot = -1;
-    uint32_t handle = 0xFFFFFFFF;
-    uint32_t flags = 0;
-    unsigned int currentTeam = 0;
-    bool managed = false;
-    bool hltv = false;
-};
-
 // Clears FL_BOT for managed pawns during entity packing
 void ApplyBotFlagOverride(std::vector<BotPawnRef>& modified);
 
 // Restores FL_BOT for pawns changed by the packing scope
 void RestoreBotFlagOverride(const std::vector<BotPawnRef>& pawns);
 
-// Collects identity state for one managed controller
-ManagedControllerTrace TraceManagedController(void* controller);
+// Checks managed non-HLTV controller ownership.
+bool IsManagedBotController(void* controller);
 
 namespace identity_hooks {
 

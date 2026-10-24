@@ -127,14 +127,10 @@ bool IsControllerReferencedByClient(void* controller, uint16_t* userIdOut)
 
 } // namespace
 
-// Collects controller and client state for a managed team join
-ManagedControllerTrace TraceManagedController(void* controller)
+// Checks managed non-HLTV controller ownership.
+bool IsManagedBotController(void* controller)
 {
-    ManagedControllerTrace trace;
-    if (!controller || offsets::g_baseEntityFlagsOffset < 0)
-    {
-        return trace;
-    }
+    if (!controller || offsets::g_baseEntityFlagsOffset < 0) return false;
 
     for (int slot = 0; slot < PersonaPool::kMaxSlots; ++slot)
     {
@@ -149,19 +145,9 @@ ManagedControllerTrace TraceManagedController(void* controller)
             continue;
         }
 
-        trace.slot = slot;
-        trace.handle = static_cast<uint32_t>(reinterpret_cast<CEntityInstance*>(resolved)->GetRefEHandle().ToInt());
-        trace.flags = *reinterpret_cast<uint32_t*>(reinterpret_cast<unsigned char*>(resolved) + offsets::g_baseEntityFlagsOffset);
-        if (offsets::g_controllerTeamOffset >= 0)
-        {
-            trace.currentTeam =
-                *reinterpret_cast<unsigned char*>(reinterpret_cast<unsigned char*>(resolved) + offsets::g_controllerTeamOffset);
-        }
-        trace.managed = true;
-        trace.hltv = ssc::IsHltv(client);
-        break;
+        return !ssc::IsHltv(client);
     }
-    return trace;
+    return false;
 }
 
 // Clears FL_BOT for managed pawns during entity packing

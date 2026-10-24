@@ -8,8 +8,6 @@
 #include <cstdint>
 #include <mutex>
 #include <string>
-#include <cstddef>
-#include <utility>
 
 namespace cs2bh {
 
@@ -24,30 +22,6 @@ PersonaPool& Personas() { return g_personaPool; }
 PersonaPool::PersonaPool()
 {
     m_rosterRngState = static_cast<uint64_t>(std::chrono::steady_clock::now().time_since_epoch().count()) ^ 0x9E3779B97F4A7C15ULL;
-}
-
-void PersonaPool::Push(const char* name)
-{
-    if (!name || !name[0]) return;
-    std::lock_guard<std::mutex> g(m_mutex);
-    for (const auto& q : m_fifo)
-        if (q == name) return; // dedupe
-    m_fifo.emplace_back(name);
-}
-
-std::string PersonaPool::Pop()
-{
-    std::lock_guard<std::mutex> g(m_mutex);
-    if (m_fifo.empty()) return {};
-    auto s = std::move(m_fifo.front());
-    m_fifo.pop_front();
-    return s;
-}
-
-size_t PersonaPool::PendingCount() const
-{
-    std::lock_guard<std::mutex> g(m_mutex);
-    return m_fifo.size();
 }
 
 std::string PersonaPool::PickFromRoster()

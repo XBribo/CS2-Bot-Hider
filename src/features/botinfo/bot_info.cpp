@@ -101,15 +101,6 @@ bool BotInfoStore::Load(const char* path)
     return !m_entries.empty();
 }
 
-// Returns the first enabled identity with an exact display-name match
-const BotEntry* BotInfoStore::FindByName(const char* name) const
-{
-    if (!name) return nullptr;
-    auto it = m_byName.find(name);
-    if (it == m_byName.end() || it->second.empty()) return nullptr;
-    return &m_entries[it->second.front()];
-}
-
 // Selects an available identity, preferring an exact display-name match
 const BotEntry* BotInfoStore::PickForBot(const char* engineName)
 {

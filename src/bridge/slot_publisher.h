@@ -56,8 +56,6 @@ class SlotPublisher
                        const IdentityModeSink& onIdentityMode,
                        const NameSourceSink& onNameSource);
 
-    bool Active() const { return m_view != nullptr; }
-
   private:
     unsigned char* SlotStatePtr() const;
     uint64_t* SidPtr(int slot) const;
