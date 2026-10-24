@@ -19,6 +19,14 @@ struct PendingControllerRemoval
     unsigned int referencedFrames = 0;
 };
 
+struct PendingBotKick
+{
+    int slot = -1;
+    void* client = nullptr;
+    uint16_t userId = 0;
+    uint64_t incarnation = 0;
+};
+
 // Binds bot identity data and the original engine name to one slot
 void BindSlot(int slot, const BotEntry* entry, const char* originalName);
 
@@ -34,7 +42,10 @@ void ClearSlot(int slot);
 // Returns the pending controller-removal queue
 std::vector<PendingControllerRemoval>& PendingControllerRemovals();
 
-// Clears all slot bindings and pending controller removals
+// Returns the identity-checked bot commands waiting for a game frame.
+std::vector<PendingBotKick>& PendingBotKicks();
+
+// Clears all slot bindings, pending controller removals and bot commands.
 void ClearAll();
 
 } // namespace identity_state

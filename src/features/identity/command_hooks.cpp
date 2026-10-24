@@ -4,6 +4,7 @@
 
 #include "avatar_override.h"
 #include "bot_info.h"
+#include "core/interfaces.h"
 #include "entity_access.h"
 #include "fake_client_manager.h"
 #include "identity_hooks.h"
@@ -14,15 +15,12 @@
 #include "slot_publisher.h"
 
 #include <cstdint>
-#include <cstdio>
 #include <cstdlib>
 #include <cstring>
 #include <vector>
 
-#include <engine2/ivengineserver2.h>
+#include <icvar.h>
 #include <tier0/convar.h>
-
-extern IVEngineServer* g_engine;
 
 namespace cs2bh {
 
@@ -76,17 +74,51 @@ int FindManagedSlotByUserId(const char* value)
     return -1;
 }
 
-// Queues a managed bot removal through Valve's bot command
+// Captures the native target without placing its name in the engine text queue.
 bool QueueManagedBotKick(int slot)
 {
-    if (slot < 0 || !g_engine) return false;
-    const std::string name = Personas().GetSlotName(slot);
-    if (name.empty()) return false;
+    if (!g_icvar || !Manager().IsManaged(slot) || !g_icvar->FindConCommand("bot_kick").IsValidRef()) return false;
+    void* client = entity_access::ResolveClientBySlot(slot);
+    if (!client || ssc::IsHltv(client) || Personas().GetSlotName(slot).empty()) return false;
 
-    char botKickCommand[640];
-    std::snprintf(botKickCommand, sizeof(botKickCommand), "bot_kick \"%s\"\n", name.c_str());
-    g_engine->ServerCommand(botKickCommand);
+    const uint16_t userId = *reinterpret_cast<const uint16_t*>(static_cast<const unsigned char*>(client) + ssc::g_userIdOffset);
+    identity_state::PendingBotKicks().push_back(
+        { .slot = slot, .client = client, .userId = userId, .incarnation = Publisher().GetIncarnation(slot) });
     return true;
+}
+
+// Dispatches argv directly after rechecking that each queued bot still owns its slot.
+void DrainPendingBotKicks()
+{
+    auto& queued = identity_state::PendingBotKicks();
+    if (queued.empty()) return;
+    std::vector<identity_state::PendingBotKick> pending;
+    pending.swap(queued);
+    if (!g_icvar) return;
+    const ConCommandRef command = g_icvar->FindConCommand("bot_kick");
+    if (!command.IsValidRef()) return;
+
+    for (const auto& kick : pending)
+    {
+        if (!Manager().IsManaged(kick.slot)) continue;
+        void* client = entity_access::ResolveClientBySlot(kick.slot);
+        if (!client || client != kick.client || ssc::IsHltv(client)) continue;
+        const uint16_t userId = *reinterpret_cast<const uint16_t*>(static_cast<const unsigned char*>(client) + ssc::g_userIdOffset);
+        // Native identity checks still work when the optional shared-memory bridge is unavailable.
+        if (userId != kick.userId || (kick.incarnation != 0 && Publisher().GetIncarnation(kick.slot) != kick.incarnation)) continue;
+
+        const std::string name = Personas().GetSlotName(kick.slot);
+        if (name.empty()) continue;
+        const char* argv[] = { "bot_kick", name.c_str() };
+        const CCommand arguments(2, argv);
+        if (arguments.ArgC() != 2)
+        {
+            BH_LOG_WARN("deferred bot_kick rejected slot=%d: command arguments exceed SDK limits\n", kick.slot);
+            continue;
+        }
+        const CCommandContext context(CT_NO_TARGET, CPlayerSlot(-1));
+        g_icvar->DispatchConCommand(command, context, arguments);
+    }
 }
 
 } // namespace
@@ -183,6 +215,7 @@ HiderPlugin::HookStartChangeLevelPre(INetworkGameServer*,
 KHook::Return<void> HiderPlugin::HookGameFramePost(IServerGameDLL*, bool simulating, bool /*firstTick*/, bool /*lastTick*/) noexcept
 {
     const hooks::CallbackScope callbackScope;
+    if (!m_selfDisabled && !m_unloadPending) DrainPendingBotKicks();
     ProcessPendingUnload();
     if (m_selfDisabled || !simulating) return { KHook::Action::Ignore };
 

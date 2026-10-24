@@ -13,6 +13,7 @@ namespace {
 std::array<const BotEntry*, PersonaPool::kMaxSlots> g_slotEntries{};
 std::array<std::string, PersonaPool::kMaxSlots> g_originalSlotNames{};
 std::vector<PendingControllerRemoval> g_pendingControllerRemovals;
+std::vector<PendingBotKick> g_pendingBotKicks;
 const std::string kGEmptyName;
 
 } // namespace
@@ -50,13 +51,17 @@ void ClearSlot(int slot)
 // Returns the pending controller-removal queue
 std::vector<PendingControllerRemoval>& PendingControllerRemovals() { return g_pendingControllerRemovals; }
 
-// Clears all slot bindings and pending controller removals
+// Returns the bot commands queued outside the current command dispatch.
+std::vector<PendingBotKick>& PendingBotKicks() { return g_pendingBotKicks; }
+
+// Clears all slot bindings and deferred work owned by the current level.
 void ClearAll()
 {
     g_slotEntries.fill(nullptr);
     for (std::string& name : g_originalSlotNames)
         name.clear();
     g_pendingControllerRemovals.clear();
+    g_pendingBotKicks.clear();
 }
 
 } // namespace cs2bh::identity_state
