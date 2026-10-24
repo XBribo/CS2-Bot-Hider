@@ -96,19 +96,21 @@ public class BotHiderImplPlugin : BasePlugin
         return HookResult.Continue;
     }
 
-    // Player connect full — apply visible fields once when the controller becomes available
+    // Applies presentation once the controller is available.
     [GameEventHandler]
     public HookResult OnPlayerConnectFull(EventPlayerConnectFull @event, GameEventInfo info)
     {
-        ApplyManagedSlots();
+        var player = @event.Userid;
+        if (player != null && player.IsValid) ApplyManagedSlot(player.Slot);
         return HookResult.Continue;
     }
 
-    // Player spawn — reapply visible fields after spawn
+    // Restores presentation after spawn.
     [GameEventHandler]
     public HookResult OnPlayerSpawn(EventPlayerSpawn @event, GameEventInfo info)
     {
-        ApplyManagedSlots();
+        var player = @event.Userid;
+        if (player != null && player.IsValid) ApplyManagedSlot(player.Slot);
         return HookResult.Continue;
     }
 
@@ -116,7 +118,8 @@ public class BotHiderImplPlugin : BasePlugin
     [GameEventHandler]
     public HookResult OnPlayerDeath(EventPlayerDeath @event, GameEventInfo info)
     {
-        ApplyManagedSlots();
+        var player = @event.Userid;
+        if (player != null && player.IsValid) ApplyManagedSlot(player.Slot);
         return HookResult.Continue;
     }
 
@@ -210,12 +213,13 @@ public class BotHiderImplPlugin : BasePlugin
         _appliedScoreboardFlair[slot] = 0U;
     }
 
-    // Timer body
+    // Reconciles all slots and clears released presentation state.
     private void ApplyManagedSlots()
     {
         if (_client == null) return;
         int[] managedSlots = _client.GetManagedSlots();
-        var managed = new bool[64];
+        Span<bool> managed = stackalloc bool[64];
+        managed.Clear();
         foreach (int slot in managedSlots)
             managed[slot] = true;
         for (int slot = 0; slot < managed.Length; slot++)
@@ -225,56 +229,68 @@ public class BotHiderImplPlugin : BasePlugin
         }
 
         foreach (int slot in managedSlots)
+            ApplyManagedSlot(slot);
+    }
+
+    // Reconciles one current managed bot without scanning other slots.
+    private void ApplyManagedSlot(int slot)
+    {
+        var client = _client;
+        if (client == null || slot < 0 || slot >= _observedIncarnations.Length) return;
+        if (!client.IsManagedBot(slot))
         {
-            ulong incarnation = _client.GetSlotIncarnation(slot);
-            if (_observedIncarnations[slot] != incarnation)
-                ResetAppliedSlot(slot, incarnation);
-
-            var player = Utilities.GetPlayerFromSlot(slot);
-            if (player == null || !player.IsValid) continue;
-
-            ReconcileVisibleIdentity(_client, slot, player);
-
-            int ping = _client.GetPing(slot);
-            if (ping > 0)
-            {
-                try
-                {
-                    // m_iPing not networked: write the field only, no SetStateChanged
-                    Schema.SetSchemaValue(player.Handle, "CCSPlayerController", "m_iPing", ping);
-                }
-                catch (Exception e)
-                {
-                    Server.PrintToConsole($"[BotHider] ping write failed slot={slot}: {e.Message}");
-                }
-            }
-
-            string cross = _client.GetCrosshairCode(slot);
-            if (_appliedCrosshair[slot] != cross ||
-                !string.Equals(player.CrosshairCodes, cross, StringComparison.Ordinal))
-            {
-                try
-                {
-                    // Publish the crosshair code through the controller network state
-                    WriteVisibleCrosshair(player, cross);
-                    _appliedCrosshair[slot] = cross;
-                }
-                catch (Exception e)
-                {
-                    Server.PrintToConsole($"[BotHider] crosshair write failed slot={slot}: {e.Message}");
-                }
-            }
-
-            uint flair = _client.GetScoreboardFlair(slot);
-            if (_appliedScoreboardFlair[slot] != flair ||
-                !ScoreboardFlairMatches(player, flair))
-            {
-                if (TryApplyScoreboardFlair(slot, player, flair))
-                    _appliedScoreboardFlair[slot] = flair;
-            }
-
-            _clanTags.Apply(slot, player, _client.GetClan(slot));
+            ResetAppliedSlot(slot, 0UL);
+            return;
         }
+
+        ulong incarnation = client.GetSlotIncarnation(slot);
+        if (_observedIncarnations[slot] != incarnation)
+            ResetAppliedSlot(slot, incarnation);
+        if (incarnation == 0) return;
+
+        var player = Utilities.GetPlayerFromSlot(slot);
+        if (player == null || !player.IsValid) return;
+
+        ReconcileVisibleIdentity(client, slot, player);
+
+        int ping = client.GetPing(slot);
+        if (ping > 0)
+        {
+            try
+            {
+                // Ping is not networked.
+                Schema.SetSchemaValue(player.Handle, "CCSPlayerController", "m_iPing", ping);
+            }
+            catch (Exception e)
+            {
+                Server.PrintToConsole($"[BotHider] ping write failed slot={slot}: {e.Message}");
+            }
+        }
+
+        string cross = client.GetCrosshairCode(slot);
+        if (_appliedCrosshair[slot] != cross ||
+            !string.Equals(player.CrosshairCodes, cross, StringComparison.Ordinal))
+        {
+            try
+            {
+                WriteVisibleCrosshair(player, cross);
+                _appliedCrosshair[slot] = cross;
+            }
+            catch (Exception e)
+            {
+                Server.PrintToConsole($"[BotHider] crosshair write failed slot={slot}: {e.Message}");
+            }
+        }
+
+        uint flair = client.GetScoreboardFlair(slot);
+        if (_appliedScoreboardFlair[slot] != flair ||
+            !ScoreboardFlairMatches(player, flair))
+        {
+            if (TryApplyScoreboardFlair(slot, player, flair))
+                _appliedScoreboardFlair[slot] = flair;
+        }
+
+        _clanTags.Apply(slot, player, client.GetClan(slot));
     }
 
     // Restores the native published name and SteamID on the controller
