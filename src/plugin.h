@@ -109,6 +109,12 @@ class HiderPlugin : public ISmmPlugin, public IMetamodListener
     bool RemoveVirtualHooks();
     // Queues the deferred Metamod unload after the command hook has detached.
     void ProcessPendingUnload();
+    // Dispatches shared-memory commands to their managed-state writers.
+    void DrainBridgeCommands();
+    // Applies a collision-resolved SteamID to one managed client.
+    void ApplySteamIdCommand(int slot, uint64_t steamId);
+    // Updates the engine and published name for one managed client.
+    void ApplyPersonaNameCommand(int slot, const char* name);
 
     INetworkGameServer* m_hookedGameServer = nullptr;
     OnClientConnectedHook m_onClientConnectedHook;
