@@ -447,107 +447,44 @@ void ClearBindings()
 void PrepareQuotaHook(const nlohmann::json& gamedata, const cs2_sdk::modules::ModuleInfo& serverModule)
 {
     if (!serverModule) return;
-    std::string signature = cs2_sdk::gameconfig::FindPlatformSig(gamedata, "CCSBotManager::MaintainBotQuota");
-    std::vector<uint8_t> bytes;
-    std::vector<bool> wildcards;
-    if (signature.empty() || !cs2_sdk::modules::ParseSigString(signature, bytes, wildcards))
-    {
-        BH_LOG_WARN("MaintainBotQuota disabled: invalid signature");
-        return;
-    }
-    void* target = cs2_sdk::modules::FindPatternIn(serverModule, bytes, wildcards);
-    if (!target)
-    {
-        BH_LOG_WARN("MaintainBotQuota disabled: signature missing or ambiguous");
-        return;
-    }
-    g_quotaHookTarget = target;
+    char error[256]{};
+    g_quotaHookTarget = cs2_sdk::gameconfig::ResolveSig(gamedata, serverModule, "CCSBotManager::MaintainBotQuota", error, sizeof(error));
+    if (!g_quotaHookTarget) BH_LOG_WARN("%s", error);
 }
 
 // Resolves and prepares the eligible-voter count detour
 void PrepareCountPotentialVotersHook(const nlohmann::json& gamedata, const cs2_sdk::modules::ModuleInfo& serverModule)
 {
     if (!serverModule) return;
-    std::string signature = cs2_sdk::gameconfig::FindPlatformSig(gamedata, "CBaseIssue::CountPotentialVoters");
-    std::vector<uint8_t> bytes;
-    std::vector<bool> wildcards;
-    if (signature.empty() || !cs2_sdk::modules::ParseSigString(signature, bytes, wildcards))
-    {
-        BH_LOG_WARN("CountPotentialVoters disabled: invalid signature");
-        return;
-    }
-
-    std::vector<void*> matches = cs2_sdk::modules::FindPatternMatchesIn(serverModule, bytes, wildcards);
-    if (matches.size() != 1)
-    {
-        BH_LOG_WARN("CountPotentialVoters disabled: signature missing or ambiguous");
-        return;
-    }
-
-    void* target = matches.front();
-    g_countPotentialVotersHookTarget = target;
+    char error[256]{};
+    g_countPotentialVotersHookTarget =
+        cs2_sdk::gameconfig::ResolveSig(gamedata, serverModule, "CBaseIssue::CountPotentialVoters", error, sizeof(error));
+    if (!g_countPotentialVotersHookTarget) BH_LOG_WARN("%s", error);
 }
 
 // Resolves and prepares the team-join identity detour
 void PrepareHandleJoinTeamHook(const nlohmann::json& gamedata, const cs2_sdk::modules::ModuleInfo& serverModule)
 {
     if (!serverModule) return;
-    std::string signature = cs2_sdk::gameconfig::FindPlatformSig(gamedata, "CCSPlayerController::HandleCommand_JoinTeam");
-    std::vector<uint8_t> bytes;
-    std::vector<bool> wildcards;
-    if (signature.empty() || !cs2_sdk::modules::ParseSigString(signature, bytes, wildcards))
-    {
-        BH_LOG_WARN("HandleJoinTeam disabled: invalid signature");
-        return;
-    }
-
-    std::vector<void*> matches = cs2_sdk::modules::FindPatternMatchesIn(serverModule, bytes, wildcards);
-    if (matches.size() != 1)
-    {
-        BH_LOG_WARN("HandleJoinTeam disabled: signature missing or ambiguous");
-        return;
-    }
-
-    void* target = matches.front();
-    g_handleJoinTeamHookTarget = target;
+    char error[256]{};
+    g_handleJoinTeamHookTarget =
+        cs2_sdk::gameconfig::ResolveSig(gamedata, serverModule, "CCSPlayerController::HandleCommand_JoinTeam", error, sizeof(error));
+    if (!g_handleJoinTeamHookTarget) BH_LOG_WARN("%s", error);
 }
 
 // Resolves and prepares the human-team restriction detour
 void PrepareHumanTeamRestrictionHook(const nlohmann::json& gamedata, const cs2_sdk::modules::ModuleInfo& serverModule)
 {
     if (!serverModule) return;
-    std::string signature = cs2_sdk::gameconfig::FindPlatformSig(gamedata, "MpHumanTeam_ApplyRestriction");
-    std::vector<uint8_t> bytes;
-    std::vector<bool> wildcards;
-    if (signature.empty() || !cs2_sdk::modules::ParseSigString(signature, bytes, wildcards))
-    {
-        BH_LOG_WARN("HumanTeamRestriction disabled: invalid signature");
-        return;
-    }
-
-    std::vector<void*> matches = cs2_sdk::modules::FindPatternMatchesIn(serverModule, bytes, wildcards);
-    if (matches.size() != 1)
-    {
-        BH_LOG_WARN("HumanTeamRestriction disabled: signature missing or ambiguous");
-        return;
-    }
-
-    void* target = matches.front();
-    g_applyHumanTeamRestrictionHookTarget = target;
+    char error[256]{};
+    g_applyHumanTeamRestrictionHookTarget =
+        cs2_sdk::gameconfig::ResolveSig(gamedata, serverModule, "MpHumanTeam_ApplyRestriction", error, sizeof(error));
+    if (!g_applyHumanTeamRestrictionHookTarget) BH_LOG_WARN("%s", error);
 }
 
 // Resolves and prepares the entity-packing detour
 void PreparePackEntitiesHook(const nlohmann::json& gamedata)
 {
-    std::string signature = cs2_sdk::gameconfig::FindPlatformSig(gamedata, "CNetworkGameServer::PackEntities");
-    std::vector<uint8_t> bytes;
-    std::vector<bool> wildcards;
-    if (signature.empty() || !cs2_sdk::modules::ParseSigString(signature, bytes, wildcards))
-    {
-        BH_LOG_WARN("PackEntities disabled: invalid signature");
-        return;
-    }
-
     cs2_sdk::modules::Initialize();
     if (!cs2_sdk::modules::engine || !cs2_sdk::modules::engine->Code())
     {
@@ -555,37 +492,21 @@ void PreparePackEntitiesHook(const nlohmann::json& gamedata)
         return;
     }
 
-    const cs2_sdk::modules::ModuleInfo& codeModule = cs2_sdk::modules::engine->Code();
-
-    std::vector<void*> matches = cs2_sdk::modules::FindPatternMatchesIn(codeModule, bytes, wildcards);
-    if (matches.size() != 1)
-    {
-        BH_LOG_WARN("PackEntities disabled: signature missing or ambiguous");
-        return;
-    }
-
-    void* target = matches.front();
-    g_packEntitiesHookTarget = target;
+    char error[256]{};
+    g_packEntitiesHookTarget = cs2_sdk::gameconfig::ResolveSig(gamedata, cs2_sdk::modules::engine->Code(),
+                                                               "CNetworkGameServer::PackEntities", error, sizeof(error));
+    if (!g_packEntitiesHookTarget) BH_LOG_WARN("%s", error);
 }
 
 // Resolves the state-machine entry and its Schema-controlled team-reset condition.
 void PrepareSameMapTeardownHook(const nlohmann::json& gamedata, const cs2_sdk::modules::ModuleInfo& serverModule)
 {
     if (!serverModule) return;
-    constexpr const char* kTargetName = "CCSGameRules::EndMatchState";
-    std::string signature = cs2_sdk::gameconfig::FindPlatformSig(gamedata, kTargetName);
-    std::vector<uint8_t> bytes;
-    std::vector<bool> wildcards;
-    if (signature.empty() || !cs2_sdk::modules::ParseSigString(signature, bytes, wildcards))
+    char error[256]{};
+    void* target = cs2_sdk::gameconfig::ResolveSig(gamedata, serverModule, "CCSGameRules::EndMatchState", error, sizeof(error));
+    if (!target)
     {
-        BH_LOG_WARN("SameMapTeardown disabled: invalid signature");
-        return;
-    }
-
-    std::vector<void*> matches = cs2_sdk::modules::FindPatternMatchesIn(serverModule, bytes, wildcards);
-    if (matches.size() != 1)
-    {
-        BH_LOG_WARN("SameMapTeardown disabled: signature missing or ambiguous");
+        BH_LOG_WARN("%s", error);
         return;
     }
 
@@ -595,7 +516,7 @@ void PrepareSameMapTeardownHook(const nlohmann::json& gamedata, const cs2_sdk::m
         BH_LOG_WARN("SameMapTeardown disabled: m_bPickNewTeamsOnReset unresolved");
         return;
     }
-    g_sameMapTeardownHookTarget = matches.front();
+    g_sameMapTeardownHookTarget = target;
     BH_LOG_DEBUG("CCSGameRules::m_bPickNewTeamsOnReset=0x%x", g_pickNewTeamsOnResetOffset);
 }
 
