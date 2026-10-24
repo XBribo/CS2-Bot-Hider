@@ -27,28 +27,20 @@ void Prepare()
     nlohmann::json gamedata;
     if (!cs2_sdk::gameconfig::LoadGamedata(gamedataPath.c_str(), gamedata))
     {
-        BH_LOG_WARN("gamedata.json not loaded at '%s' — "
-                    "controller cleanup disabled\n",
-                    gamedataPath.c_str());
+        BH_LOG_WARN("gamedata unavailable path='%s': identity detours and cleanup disabled", gamedataPath.c_str());
     }
     else
     {
         offsets::LoadFromGamedata(gamedata);
         if (offsets::g_vtableSlotClientSetName < 0)
         {
-            BH_LOG_WARN("CServerSideClient::SetName vtable slot missing - "
-                        "name overwrite disabled\n");
+            BH_LOG_WARN("name writes disabled: SetName vtable slot missing");
         }
 
         cs2_sdk::modules::Initialize();
         const cs2_sdk::modules::ModuleInfo& serverModule = cs2_sdk::modules::server->Code();
         entity_access::ResolveUtilRemoveAndEntSys(gamedata, serverModule);
         identity_hooks::PrepareAll(gamedata, serverModule);
-    }
-    if (!entity_access::UtilRemoveTarget())
-    {
-        BH_LOG_WARN("UTIL_Remove signature unresolved — "
-                    "controller cleanup disabled\n");
     }
 }
 } // namespace cs2bh::gamedata

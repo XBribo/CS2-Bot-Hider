@@ -79,12 +79,12 @@ class ScopedNativeBotIdentityRestore
 
     void Capture()
     {
-        if (ssc::g_userIdOffset < 0 || ssc::g_entityIndexOffset < 0 || ssc::g_netChannelOffset < 0 ||
-            ssc::g_connectionTypeFlagsOffset < 0 || ssc::g_fakePlayerOffset < 0 || offsets::g_baseEntityFlagsOffset < 0)
+        if (ssc::g_userIdOffset < 0 || ssc::g_entityIndexOffset < 0 || ssc::g_connectionTypeFlagsOffset < 0 ||
+            ssc::g_fakePlayerOffset < 0 || offsets::g_baseEntityFlagsOffset < 0)
         {
             if (!g_identityInvalidOffsetWarned)
             {
-                BH_LOG_WARN("native identity restore disabled: invalid client/controller offsets\n");
+                BH_LOG_WARN("identity restore disabled: invalid offsets");
                 g_identityInvalidOffsetWarned = true;
             }
             return;
@@ -101,7 +101,7 @@ class ScopedNativeBotIdentityRestore
             {
                 if (!g_identityResolveWarned[slot])
                 {
-                    BH_LOG_WARN("native identity restore client resolve failed slot=%d\n", slot);
+                    BH_LOG_WARN("identity restore slot=%d: client unresolved", slot);
                     g_identityResolveWarned[slot] = true;
                 }
                 continue;
@@ -121,18 +121,15 @@ class ScopedNativeBotIdentityRestore
             {
                 if (!g_identityResolveWarned[slot])
                 {
-                    BH_LOG_WARN("native identity restore controller resolve failed slot=%d userid=%u entIdx=%d "
-                                "clientFake=%u conn=0x%02x net=%p\n",
-                                slot, static_cast<unsigned int>(snapshot.userId), entityIndex,
-                                static_cast<unsigned int>(snapshot.fakePlayer), static_cast<unsigned int>(snapshot.connectionFlags),
-                                *reinterpret_cast<void**>(raw + ssc::g_netChannelOffset));
+                    BH_LOG_WARN("identity restore slot=%d userid=%u ent=%d: controller unresolved", slot,
+                                static_cast<unsigned int>(snapshot.userId), entityIndex);
                     g_identityResolveWarned[slot] = true;
                 }
                 continue;
             }
             if (std::strcmp(className, "cs_player_controller") != 0 || entity_access::IsEntityBeingDeleted(snapshot.controller))
             {
-                BH_LOG_WARN("native identity restore invalid controller slot=%d userid=%u entIdx=%d cls='%s'\n", slot,
+                BH_LOG_WARN("identity restore slot=%d userid=%u ent=%d: invalid controller class='%s'", slot,
                             static_cast<unsigned int>(snapshot.userId), entityIndex, className);
                 g_identityResolveWarned[slot] = true;
                 snapshot.controller = nullptr;
@@ -166,7 +163,7 @@ class ScopedNativeBotIdentityRestore
             void* currentClient = entity_access::ResolveClientBySlot(snapshot.slot);
             if (currentClient != snapshot.client)
             {
-                BH_LOG_WARN("native identity restore skipped slot=%d: client rebound\n", snapshot.slot);
+                BH_LOG_WARN("identity restore skipped slot=%d: client rebound", snapshot.slot);
                 continue;
             }
 
@@ -174,8 +171,8 @@ class ScopedNativeBotIdentityRestore
             const uint16_t currentUserId = *reinterpret_cast<uint16_t*>(raw + ssc::g_userIdOffset);
             if (currentUserId != snapshot.userId)
             {
-                BH_LOG_WARN("native identity restore skipped slot=%d: userid changed %u->%u\n", snapshot.slot,
-                            static_cast<unsigned int>(snapshot.userId), static_cast<unsigned int>(currentUserId));
+                BH_LOG_WARN("identity restore skipped slot=%d: userid=%u->%u", snapshot.slot, static_cast<unsigned int>(snapshot.userId),
+                            static_cast<unsigned int>(currentUserId));
                 continue;
             }
             raw[ssc::g_connectionTypeFlagsOffset] = snapshot.connectionFlags;
@@ -187,7 +184,7 @@ class ScopedNativeBotIdentityRestore
             void* controller = entity_access::ResolveEntityInstance(entityIndex, className, sizeof(className));
             if (!IsValidController(controller, className, snapshot.handle) || controller != snapshot.controller)
             {
-                BH_LOG_WARN("native identity restore skipped slot=%d userid=%u: controller rebound\n", snapshot.slot,
+                BH_LOG_WARN("identity restore skipped slot=%d userid=%u: controller rebound", snapshot.slot,
                             static_cast<unsigned int>(snapshot.userId));
                 continue;
             }
@@ -226,7 +223,7 @@ void EndPopulationTransaction(bool redisguise)
 {
     if (g_populationTransactionDepth == 0)
     {
-        BH_LOG_WARN("population transaction end without begin\n");
+        BH_LOG_WARN("population transaction: unmatched end");
         return;
     }
 
@@ -427,7 +424,7 @@ void InstallHook(std::unique_ptr<Hook>& hook, void*& target, Pre pre, Post post,
     hook = std::make_unique<Hook>(pre, post);
     if (!hook->Install(target))
     {
-        BH_LOG_WARN("KHook registration failed for %s\n", name);
+        BH_LOG_WARN("hook install failed: %s", name);
         hook.reset();
         target = nullptr;
     }
@@ -455,13 +452,13 @@ void PrepareQuotaHook(const nlohmann::json& gamedata, const cs2_sdk::modules::Mo
     std::vector<bool> wildcards;
     if (signature.empty() || !cs2_sdk::modules::ParseSigString(signature, bytes, wildcards))
     {
-        BH_LOG_WARN("MaintainBotQuota sig missing — quota fix disabled\n");
+        BH_LOG_WARN("MaintainBotQuota disabled: invalid signature");
         return;
     }
     void* target = cs2_sdk::modules::FindPatternIn(serverModule, bytes, wildcards);
     if (!target)
     {
-        BH_LOG_WARN("MaintainBotQuota sig missing or ambiguous — quota fix disabled\n");
+        BH_LOG_WARN("MaintainBotQuota disabled: signature missing or ambiguous");
         return;
     }
     g_quotaHookTarget = target;
@@ -476,14 +473,14 @@ void PrepareCountPotentialVotersHook(const nlohmann::json& gamedata, const cs2_s
     std::vector<bool> wildcards;
     if (signature.empty() || !cs2_sdk::modules::ParseSigString(signature, bytes, wildcards))
     {
-        BH_LOG_WARN("CountPotentialVoters signature missing or malformed\n");
+        BH_LOG_WARN("CountPotentialVoters disabled: invalid signature");
         return;
     }
 
     std::vector<void*> matches = cs2_sdk::modules::FindPatternMatchesIn(serverModule, bytes, wildcards);
     if (matches.size() != 1)
     {
-        BH_LOG_WARN("CountPotentialVoters hook requires exactly one match\n");
+        BH_LOG_WARN("CountPotentialVoters disabled: signature missing or ambiguous");
         return;
     }
 
@@ -500,14 +497,14 @@ void PrepareHandleJoinTeamHook(const nlohmann::json& gamedata, const cs2_sdk::mo
     std::vector<bool> wildcards;
     if (signature.empty() || !cs2_sdk::modules::ParseSigString(signature, bytes, wildcards))
     {
-        BH_LOG_WARN("HandleCommand_JoinTeam signature missing or malformed\n");
+        BH_LOG_WARN("HandleJoinTeam disabled: invalid signature");
         return;
     }
 
     std::vector<void*> matches = cs2_sdk::modules::FindPatternMatchesIn(serverModule, bytes, wildcards);
     if (matches.size() != 1)
     {
-        BH_LOG_WARN("HandleCommand_JoinTeam hook requires exactly one match\n");
+        BH_LOG_WARN("HandleJoinTeam disabled: signature missing or ambiguous");
         return;
     }
 
@@ -524,14 +521,14 @@ void PrepareHumanTeamRestrictionHook(const nlohmann::json& gamedata, const cs2_s
     std::vector<bool> wildcards;
     if (signature.empty() || !cs2_sdk::modules::ParseSigString(signature, bytes, wildcards))
     {
-        BH_LOG_WARN("MpHumanTeam_ApplyRestriction signature missing or malformed\n");
+        BH_LOG_WARN("HumanTeamRestriction disabled: invalid signature");
         return;
     }
 
     std::vector<void*> matches = cs2_sdk::modules::FindPatternMatchesIn(serverModule, bytes, wildcards);
     if (matches.size() != 1)
     {
-        BH_LOG_WARN("MpHumanTeam_ApplyRestriction hook requires exactly one match\n");
+        BH_LOG_WARN("HumanTeamRestriction disabled: signature missing or ambiguous");
         return;
     }
 
@@ -547,14 +544,14 @@ void PreparePackEntitiesHook(const nlohmann::json& gamedata)
     std::vector<bool> wildcards;
     if (signature.empty() || !cs2_sdk::modules::ParseSigString(signature, bytes, wildcards))
     {
-        BH_LOG_WARN("PackEntities signature missing or malformed\n");
+        BH_LOG_WARN("PackEntities disabled: invalid signature");
         return;
     }
 
     cs2_sdk::modules::Initialize();
     if (!cs2_sdk::modules::engine || !cs2_sdk::modules::engine->Code())
     {
-        BH_LOG_WARN("%s code range unresolved - PackEntities hook disabled\n", cs2_sdk::modules::kEngineModuleName);
+        BH_LOG_WARN("PackEntities disabled: %s code unavailable", cs2_sdk::modules::kEngineModuleName);
         return;
     }
 
@@ -563,7 +560,7 @@ void PreparePackEntitiesHook(const nlohmann::json& gamedata)
     std::vector<void*> matches = cs2_sdk::modules::FindPatternMatchesIn(codeModule, bytes, wildcards);
     if (matches.size() != 1)
     {
-        BH_LOG_WARN("PackEntities hook requires exactly one match\n");
+        BH_LOG_WARN("PackEntities disabled: signature missing or ambiguous");
         return;
     }
 
@@ -581,25 +578,25 @@ void PrepareSameMapTeardownHook(const nlohmann::json& gamedata, const cs2_sdk::m
     std::vector<bool> wildcards;
     if (signature.empty() || !cs2_sdk::modules::ParseSigString(signature, bytes, wildcards))
     {
-        BH_LOG_WARN("same-map teardown signature missing or malformed\n");
+        BH_LOG_WARN("SameMapTeardown disabled: invalid signature");
         return;
     }
 
     std::vector<void*> matches = cs2_sdk::modules::FindPatternMatchesIn(serverModule, bytes, wildcards);
     if (matches.size() != 1)
     {
-        BH_LOG_WARN("same-map teardown hook requires exactly one match\n");
+        BH_LOG_WARN("SameMapTeardown disabled: signature missing or ambiguous");
         return;
     }
 
     g_pickNewTeamsOnResetOffset = cs2_sdk::schema::GetFieldOffset("CCSGameRules", "m_bPickNewTeamsOnReset");
     if (g_pickNewTeamsOnResetOffset < 0)
     {
-        BH_LOG_WARN("CCSGameRules::m_bPickNewTeamsOnReset Schema field unavailable - teardown hook disabled\n");
+        BH_LOG_WARN("SameMapTeardown disabled: m_bPickNewTeamsOnReset unresolved");
         return;
     }
     g_sameMapTeardownHookTarget = matches.front();
-    BH_LOG_DEBUG("Schema CCSGameRules::m_bPickNewTeamsOnReset=0x%x\n", g_pickNewTeamsOnResetOffset);
+    BH_LOG_DEBUG("CCSGameRules::m_bPickNewTeamsOnReset=0x%x", g_pickNewTeamsOnResetOffset);
 }
 
 // Resolves the named IsBot callback.
@@ -614,7 +611,7 @@ void PrepareScriptIsBotHook(const nlohmann::json& gamedata, const cs2_sdk::modul
     std::vector<bool> wildcards;
     if (nameReferenceOffset < 0 || !cs2_sdk::modules::ParseSigString(signature, bytes, wildcards))
     {
-        BH_LOG_WARN("ScriptIsBot signature/name reference unavailable - map script bot recognition fix disabled\n");
+        BH_LOG_WARN("ScriptIsBot disabled: invalid signature/name reference");
         return;
     }
 
@@ -630,13 +627,13 @@ void PrepareScriptIsBotHook(const nlohmann::json& gamedata, const cs2_sdk::modul
         if (!cs2_sdk::modules::ContainsRange(image, name, sizeof("IsBot")) || std::memcmp(name, "IsBot", sizeof("IsBot")) != 0) continue;
         if (target)
         {
-            BH_LOG_WARN("ScriptIsBot hook requires exactly one named callback\n");
+            BH_LOG_WARN("ScriptIsBot disabled: callback ambiguous");
             return;
         }
         target = match;
     }
     g_scriptIsBotHookTarget = target;
-    if (!target) BH_LOG_WARN("ScriptIsBot named callback unresolved - map script bot recognition fix disabled\n");
+    if (!target) BH_LOG_WARN("ScriptIsBot disabled: callback unresolved");
 }
 
 } // namespace
@@ -669,7 +666,7 @@ void InstallPrepared()
     else
     {
         g_scriptIsBotHookTarget = nullptr;
-        BH_LOG_WARN("ScriptIsBot fix requires entity resolution and the entity-packing hook - disabled\n");
+        BH_LOG_WARN("ScriptIsBot disabled: PackEntities or entity resolution unavailable");
     }
 }
 
@@ -678,7 +675,7 @@ bool Remove()
 {
     if (g_hookDepth != 0)
     {
-        BH_LOG_ERROR("refusing KHook removal during an identity callback\n");
+        BH_LOG_ERROR("hook removal rejected: identity callback active");
         return false;
     }
     // KHook waits for active calls; holding the packing mutex here would deadlock them.

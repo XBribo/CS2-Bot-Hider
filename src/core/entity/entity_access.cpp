@@ -70,7 +70,7 @@ void ResolveUtilRemoveAndEntSys(const nlohmann::json& gamedata, const cs2_sdk::m
     g_entitySystemGlobal = nullptr;
     if (!serverModule)
     {
-        BH_LOG_WARN("%s module unresolved for signature scan\n", cs2_sdk::modules::kServerModuleName);
+        BH_LOG_WARN("entity resolution disabled: %s unavailable", cs2_sdk::modules::kServerModuleName);
         return;
     }
 
@@ -79,14 +79,14 @@ void ResolveUtilRemoveAndEntSys(const nlohmann::json& gamedata, const cs2_sdk::m
     std::vector<bool> wildcards;
     if (signature.empty() || !cs2_sdk::modules::ParseSigString(signature, bytes, wildcards))
     {
-        BH_LOG_WARN("UTIL_Remove %s sig missing/malformed in gamedata.json\n", cs2_sdk::gameconfig::PlatformName());
+        BH_LOG_WARN("UTIL_Remove signature invalid platform=%s", cs2_sdk::gameconfig::PlatformName());
         return;
     }
 
     auto* hit = static_cast<unsigned char*>(cs2_sdk::modules::FindPatternIn(serverModule, bytes, wildcards));
     if (!hit)
     {
-        BH_LOG_WARN("UTIL_Remove signature missing or ambiguous\n");
+        BH_LOG_WARN("UTIL_Remove signature missing or ambiguous");
         return;
     }
     g_utilRemove = reinterpret_cast<UtilRemoveFn>(hit);

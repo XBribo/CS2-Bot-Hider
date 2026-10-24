@@ -21,22 +21,22 @@ bool LoadFromSchema(char* error, size_t maxlen)
     {
         std::snprintf(error, maxlen, "required CBaseEntity Schema offset unavailable: m_fFlags=%d; identity hooks disabled",
                       offsets::g_baseEntityFlagsOffset);
-        BH_LOG_ERROR("%s\n", error);
+        BH_LOG_ERROR("%s", error);
         return false;
     }
-    BH_LOG_DEBUG("Schema CBaseEntity: m_fFlags=0x%x\n", offsets::g_baseEntityFlagsOffset);
+    BH_LOG_DEBUG("CBaseEntity::m_fFlags=0x%x", offsets::g_baseEntityFlagsOffset);
 
     if (schemaReady)
     {
         int pawnOff = cs2_sdk::schema::GetFieldOffset("CBasePlayerController", "m_hPawn");
         int playerPawnOff = cs2_sdk::schema::GetFieldOffset("CCSPlayerController", "m_hPlayerPawn");
         g_botPawnHandleOffset = playerPawnOff >= 0 ? playerPawnOff : pawnOff;
-        if (g_botPawnHandleOffset < 0) BH_LOG_WARN("bot pawn handle unresolved - FL_BOT override disabled\n");
+        if (g_botPawnHandleOffset < 0) BH_LOG_WARN("FL_BOT override disabled: pawn handle unresolved");
     }
     else
     {
         g_botPawnHandleOffset = -1;
-        BH_LOG_WARN("SchemaSystem unresolved — idle-kick and FL_BOT overrides disabled\n");
+        BH_LOG_WARN("idle-kick and FL_BOT overrides disabled: Schema unavailable");
     }
     return true;
 }

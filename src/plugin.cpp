@@ -111,15 +111,15 @@ void HiderPlugin::OnLevelInit(char const* mapName, char const*, char const*, cha
         if (m_startChangeLevelHook.AddChecked(gameServer))
         {
             m_hookedGameServer = gameServer;
-            BH_LOG_DEBUG("StartChangeLevel hook installed for %p\n", static_cast<void*>(gameServer));
+            BH_LOG_DEBUG("StartChangeLevel attached target=%p", static_cast<void*>(gameServer));
         }
         else
         {
             m_hookedGameServer = nullptr;
-            BH_LOG_WARN("StartChangeLevel hook installation failed for %p\n", static_cast<void*>(gameServer));
+            BH_LOG_WARN("StartChangeLevel hook failed target=%p", static_cast<void*>(gameServer));
         }
     }
-    BH_LOG_DEBUG("OnLevelInit map=%s\n", mapName ? mapName : "?");
+    BH_LOG_DEBUG("level init map=%s", mapName ? mapName : "?");
 }
 
 // Releases all state owned by the current level
@@ -130,7 +130,7 @@ void HiderPlugin::OnLevelShutdown()
     avatar::ProcessOverrides();
     avatar::ResetRuntime();
     BotInfo().ResetAssignments();
-    BH_LOG_DEBUG("OnLevelShutdown — state drained\n");
+    BH_LOG_DEBUG("level shutdown");
 }
 
 // Resolves interfaces and installs every plugin module
@@ -148,7 +148,7 @@ bool HiderPlugin::Load(PluginId id, ISmmAPI* ismm, char* error, size_t maxlen, b
     if (!KHook::__exported__khook)
     {
         std::snprintf(error, maxlen, "KHook export unavailable; virtual hooks disabled");
-        BH_LOG_ERROR("%s\n", error);
+        BH_LOG_ERROR("%s", error);
         log::Close();
         return false;
     }
@@ -169,8 +169,7 @@ bool HiderPlugin::Load(PluginId id, ISmmAPI* ismm, char* error, size_t maxlen, b
     avatar::SetStringTableContainer(networkStringTables);
     if (!networkStringTables)
     {
-        BH_LOG_WARN("network string table interface unavailable - "
-                    "custom avatars disabled\n");
+        BH_LOG_WARN("avatars disabled: string tables unavailable");
     }
 
     gamedata::Prepare();
@@ -197,7 +196,7 @@ bool HiderPlugin::Load(PluginId id, ISmmAPI* ismm, char* error, size_t maxlen, b
     }
     else
     {
-        BH_LOG_WARN("shared memory init failed — CSS bridge disabled\n");
+        BH_LOG_WARN("CSS bridge disabled: shared memory init failed");
     }
 
     // Load bot identity data from JSON config
@@ -205,14 +204,12 @@ bool HiderPlugin::Load(PluginId id, ISmmAPI* ismm, char* error, size_t maxlen, b
     jsonPath += "/addons/BotHider/bot_info.json";
     if (!BotInfo().Load(jsonPath.c_str()))
     {
-        BH_LOG_WARN("bot_info.json not found or parse error at '%s' — "
-                    "bot identity will fall back to curated roster\n",
-                    jsonPath.c_str());
+        BH_LOG_WARN("bot_info unavailable path='%s': using engine names", jsonPath.c_str());
     }
 
     if (!InstallVirtualHooks())
     {
-        BH_LOG_ERROR("failed to install KHook virtual hooks");
+        BH_LOG_ERROR("KHook virtual hooks failed");
         char cleanupError[256]{};
         Unload(cleanupError, sizeof(cleanupError));
         std::snprintf(error, maxlen, "failed to install KHook virtual hooks");
@@ -228,11 +225,10 @@ bool HiderPlugin::Load(PluginId id, ISmmAPI* ismm, char* error, size_t maxlen, b
     if (identity_hooks::HumanTeamRestrictionTarget()) ++installedHooks;
     if (identity_hooks::SameMapTeardownTarget()) ++installedHooks;
     if (identity_hooks::ScriptIsBotTarget()) ++installedHooks;
-    BH_LOG_INFO("Loaded %s\n", GetVersion());
-    BH_LOG_DEBUG("config mode=%s fake_ping=%s range=%d-%d identities=%zu hooks=%d/7 util_remove=%s schema=%s shm=%s avatar=%s\n",
-                 IsBotMode() ? "bot" : "player", settings.fakePingEnabled ? "on" : "off", settings.fakePingMin, settings.fakePingMax,
-                 BotInfo().Count(), installedHooks, entity_access::UtilRemoveTarget() ? "ok" : "fail", "ok",
-                 sharedMemoryReady ? "ok" : "fail", networkStringTables ? "ok" : "fail");
+    BH_LOG_INFO("Loaded %s", GetVersion());
+    BH_LOG_DEBUG("mode=%s ping=%s range=%d-%d identities=%zu hooks=%d/7 cleanup=%s shm=%s avatar=%s", IsBotMode() ? "bot" : "player",
+                 settings.fakePingEnabled ? "on" : "off", settings.fakePingMin, settings.fakePingMax, BotInfo().Count(), installedHooks,
+                 entity_access::UtilRemoveTarget() ? "ok" : "fail", sharedMemoryReady ? "ok" : "fail", networkStringTables ? "ok" : "fail");
     return true;
 }
 
@@ -261,7 +257,7 @@ bool HiderPlugin::Unload(char* error, size_t maxlen)
     if (!RemoveVirtualHooks())
     {
         std::snprintf(error, maxlen, "KHook export unavailable while removing virtual hooks");
-        BH_LOG_ERROR("%s\n", error);
+        BH_LOG_ERROR("%s", error);
         return false;
     }
     m_hookedGameServer = nullptr;
