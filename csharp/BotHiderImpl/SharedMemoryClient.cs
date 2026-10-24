@@ -81,8 +81,8 @@ public sealed class SharedMemoryClient : IBotHiderApi, IDisposable
     private readonly Action<int, string, ulong>? _onVisibleName;
 
     private readonly Action<int, ulong, ulong>? _onVisibleSid;
-    private readonly Action<int, uint>? _onScoreboardFlair;
-    private readonly Action<int, string>? _onCrosshairCode;
+    private readonly Action<int, uint, ulong>? _onScoreboardFlair;
+    private readonly Action<int, string, ulong>? _onCrosshairCode;
     private readonly string?[] _personaNameOverrides = new string?[MaxSlots];
     private readonly ulong[] _personaNameOverrideIncarnations = new ulong[MaxSlots];
     private readonly uint[] _scoreboardFlairs = new uint[MaxSlots];
@@ -92,8 +92,8 @@ public sealed class SharedMemoryClient : IBotHiderApi, IDisposable
     // Captures presentation callbacks that retain the queued slot lifetime.
     public SharedMemoryClient(Action<int, string, ulong>? onVisibleName = null,
                               Action<int, ulong, ulong>? onVisibleSid = null,
-                              Action<int, uint>? onScoreboardFlair = null,
-                              Action<int, string>? onCrosshairCode = null)
+                              Action<int, uint, ulong>? onScoreboardFlair = null,
+                              Action<int, string, ulong>? onCrosshairCode = null)
     {
         _onVisibleName = onVisibleName;
         _onVisibleSid = onVisibleSid;
@@ -245,11 +245,13 @@ public sealed class SharedMemoryClient : IBotHiderApi, IDisposable
     // Write crosshair code to shared memory, empty or "0" to clear
     public bool SetCrosshairCode(int slot, string code)
     {
-        if (!Valid(slot)) return false;
+        if (!IsManagedBot(slot)) return false;
+        ulong incarnation = GetSlotIncarnation(slot);
+        if (incarnation == 0) return false;
         if (code == "0") code = string.Empty;
         if (!TryEncodeFixedUtf8(code, CrosshairLen, out var buf)) return false;
         _view!.WriteArray(OffCrosshair + slot * CrosshairLen, buf, 0, CrosshairLen);
-        _onCrosshairCode?.Invoke(slot, code);
+        _onCrosshairCode?.Invoke(slot, code, incarnation);
         return true;
     }
 
@@ -415,7 +417,7 @@ public sealed class SharedMemoryClient : IBotHiderApi, IDisposable
         _scoreboardFlairs[slot] = itemDefIndex;
         _scoreboardFlairAssigned[slot] = true;
         _scoreboardFlairIncarnations[slot] = incarnation;
-        _onScoreboardFlair?.Invoke(slot, itemDefIndex);
+        _onScoreboardFlair?.Invoke(slot, itemDefIndex, incarnation);
         return true;
     }
 

@@ -74,7 +74,7 @@ bool FakeClientManager::AdoptSlot(int slot, const char* name, uint64_t steamId64
     s.jitter = PingJitter(baseline, m_fakePingMinimum, m_fakePingMaximum);
     s.display = PingDisplay{};
 
-    Personas().MarkSlotManaged(slot, name);
+    Personas().SetSlotName(slot, name);
     Publisher().PublishAdopt(slot, s.syntheticSid, name, crosshairCode, scoreboardFlair, clanTag, clanGroupId);
     Publisher().UpdatePing(slot, m_fakePingEnabled ? baseline : 0);
     return true;

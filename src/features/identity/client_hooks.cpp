@@ -70,8 +70,6 @@ KHook::Return<void> HiderPlugin::HookOnClientConnectedPost( // NOLINT(readabilit
     if (entry && (m_useBotInfoName || !name || !name[0])) displayName = entry->name;
     else if (name && name[0])
         displayName = name;
-    else
-        displayName = entry ? entry->name : Personas().PickFromRoster();
 
     if (displayName.empty())
     {
@@ -122,7 +120,7 @@ KHook::Return<void> HiderPlugin::HookClientPutInServerPost(IServerGameClients*,
 
     (void)type;
     const int index = slot.Get();
-    if (index < 0 || index >= PersonaPool::kMaxSlots || !Personas().IsSlotManaged(index))
+    if (index < 0 || index >= PersonaPool::kMaxSlots || !Manager().IsManaged(index))
     {
         return { KHook::Action::Ignore };
     }
@@ -176,7 +174,7 @@ KHook::Return<void> HiderPlugin::HookClientDisconnectPre( // NOLINT(readability-
     if (m_selfDisabled) return { KHook::Action::Ignore };
 
     const int index = slot.Get();
-    if (index < 0 || index >= PersonaPool::kMaxSlots || !Personas().IsSlotManaged(index))
+    if (index < 0 || index >= PersonaPool::kMaxSlots || !Manager().IsManaged(index))
     {
         return { KHook::Action::Ignore };
     }

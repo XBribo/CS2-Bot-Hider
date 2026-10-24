@@ -267,7 +267,7 @@ KHook::Return<void> HiderPlugin::HookGameFramePost(IServerGameDLL*, bool simulat
         void* client = entity_access::ResolveClientBySlot(slot);
         if (!client) return;
         entity_access::SetEngineName(client, name);
-        Personas().MarkSlotManaged(slot, name);
+        Personas().SetSlotName(slot, name);
         Publisher().UpdatePersonaName(slot, name);
     },
         // Changes the global identity mode
