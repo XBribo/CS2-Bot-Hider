@@ -13,6 +13,7 @@
 #include "core/cs2_sdk/src/core/schema.h"
 #include "core/cs2_sdk/src/core/memory_module.h"
 #include "core/cs2_sdk/src/utils/memory.h"
+#include "core/cs2_sdk/src/utils/hooks.h"
 #include "offsets.h"
 
 #include <cstdint>
@@ -387,19 +388,7 @@ KHook::Return<bool> EndMatchPost(void*) noexcept
     return { KHook::Action::Ignore };
 }
 
-// Exposes registration failure while retaining KHook's typed callback bridge.
-template <typename Return, typename... Args> class NativeHook : public KHook::Function<Return, Args...>
-{
-  public:
-    using KHook::Function<Return, Args...>::Function;
-
-    // Registers the target and reports whether KHook accepted it.
-    bool Install(void* target)
-    {
-        this->Configure(target);
-        return this->_associated_hook_id != KHook::INVALID_HOOK;
-    }
-};
+using cs2_sdk::hooks::NativeHook;
 
 using QuotaHook = NativeHook<int64_t, void*>;
 using VotersHook = NativeHook<int, void*>;
@@ -408,24 +397,23 @@ using JoinTeamHook = NativeHook<bool, void*, unsigned int, uint8_t>;
 using PackHook = NativeHook<void, void*, void*, int, void*, void*>;
 using EndMatchHook = NativeHook<bool, void*>;
 using ScriptIsBotHook = NativeHook<void, void*>;
-std::unique_ptr<QuotaHook> g_quotaHook;
-std::unique_ptr<VotersHook> g_votersHook;
-std::unique_ptr<HumanTeamHook> g_humanTeamHook;
-std::unique_ptr<JoinTeamHook> g_joinTeamHook;
-std::unique_ptr<PackHook> g_packHook;
-std::unique_ptr<EndMatchHook> g_endMatchHook;
-std::unique_ptr<ScriptIsBotHook> g_scriptIsBotHook;
+QuotaHook g_quotaHook;
+VotersHook g_votersHook;
+HumanTeamHook g_humanTeamHook;
+JoinTeamHook g_joinTeamHook;
+PackHook g_packHook;
+EndMatchHook g_endMatchHook;
+ScriptIsBotHook g_scriptIsBotHook;
 
-// Installs one resolved optional hook and clears failed targets from diagnostics.
+// Clears failed targets from diagnostics.
 template <typename Hook, typename Pre, typename Post>
-void InstallHook(std::unique_ptr<Hook>& hook, void*& target, Pre pre, Post post, const char* name)
+void InstallHook(Hook& hook, void*& target, Pre pre, Post post, const char* name)
 {
     if (!target) return;
-    hook = std::make_unique<Hook>(pre, post);
-    if (!hook->Install(target))
+    hook.Remove();
+    if (!hook.Install(target, pre, post))
     {
         BH_LOG_WARN("hook install failed: %s", name);
-        hook.reset();
         target = nullptr;
     }
 }
@@ -580,7 +568,7 @@ void InstallPrepared()
     InstallHook(g_humanTeamHook, g_applyHumanTeamRestrictionHookTarget, HumanTeamPre, HumanTeamPost, "MpHumanTeam_ApplyRestriction");
     InstallHook(g_packHook, g_packEntitiesHookTarget, PackPre, PackPost, "CNetworkGameServer::PackEntities");
     InstallHook(g_endMatchHook, g_sameMapTeardownHookTarget, EndMatchPre, EndMatchPost, "CCSGameRules::EndMatchState");
-    if (g_packHook && entity_access::UtilRemoveTarget())
+    if (g_packHook.Active() && entity_access::UtilRemoveTarget())
     {
         InstallHook(g_scriptIsBotHook, g_scriptIsBotHookTarget, ScriptIsBotPre, ScriptIsBotPost, "CSPlayerController::ScriptIsBot");
     }
@@ -591,7 +579,7 @@ void InstallPrepared()
     }
 }
 
-// Uninstalls all identity detours and releases their shared handle
+// Removes identity detours outside callbacks.
 bool Remove()
 {
     if (g_hookDepth != 0)
@@ -600,13 +588,13 @@ bool Remove()
         return false;
     }
     // KHook waits for active calls; holding the packing mutex here would deadlock them.
-    g_scriptIsBotHook.reset();
-    g_packHook.reset();
-    g_endMatchHook.reset();
-    g_joinTeamHook.reset();
-    g_humanTeamHook.reset();
-    g_votersHook.reset();
-    g_quotaHook.reset();
+    g_scriptIsBotHook.Remove();
+    g_packHook.Remove();
+    g_endMatchHook.Remove();
+    g_joinTeamHook.Remove();
+    g_humanTeamHook.Remove();
+    g_votersHook.Remove();
+    g_quotaHook.Remove();
     ClearBindings();
     return true;
 }
