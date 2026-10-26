@@ -60,6 +60,10 @@ Settings Load(const char* baseDir)
         {
             defaultConfig << "{\n"
                              "    \"identity_mode\": \"player\",\n"
+                             "    \"commands\": {\n"
+                             "        \"require_permissions\": false,\n"
+                             "        \"permission\": \"@bothider/admin\"\n"
+                             "    },\n"
                              "    \"fake_ping\": {\n"
                              "        \"enabled\": true,\n"
                              "        \"min\": 20,\n"

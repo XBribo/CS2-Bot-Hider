@@ -36,9 +36,37 @@ The packaged `addons/BotHider/config.json` selects the identity mode and fake-pi
 | `bh_setsid <slot> <SteamID64>` | Change a bot's SteamID |
 | `bh_setcrosshair <slot> <code>` | Change a bot's crosshair (`0` clears it) |
 | `bh_setflair <slot> <item_def_index>` | Change a bot's scoreboard flair (`0` clears it) |
-| `bh_setavatar <slot> <png_path/0>` | Apply a server-local PNG avatar, or use `0` to clear it (`@css/root` or server console/RCON) |
+| `bh_setavatar <slot> <png_path/0>` | Apply a server-local PNG avatar, or use `0` to clear it |
 | `bh_identity_mode <player/bot>` | Change the managed-bot identity mode |
 | `bh_namesource <0/1>` | **0** = use name from `botprofile.db` (default)<br>**1** = use name from `bot_info.json` (only affects new bots) |
+
+### Command Permissions
+
+All `bh_*` commands, including avatars, are public by default. To require permission, set this in `addons/BotHider/config.json` and reload `BotHiderImpl`:
+
+```json
+"commands": {
+    "require_permissions": true,
+    "permission": "@bothider/admin"
+}
+```
+
+- Players need the configured permission, `@css/root`, or `@css/admin`. Server console and RCON are always allowed.
+- Missing settings keep commands public; invalid or unreadable config uses restricted defaults.
+
+For a BotHider-only group, merge this into CSS `configs/admin_groups.json`, keeping existing groups:
+
+```json
+{
+    "#bothider/admin": {
+        "flags": ["@bothider/admin"]
+    }
+}
+```
+
+Add `"#bothider/admin"` to the admin's `groups` in CSS `configs/admins.json`, then run `css_groups_reload` followed by `css_admins_reload` from the server console.
+
+If you change `commands.permission`, update the group's flag to match. Disabling checks lets any player modify bots and select server-local avatar PNGs.
 
 ------------------------------------------------------------------------
 
@@ -57,7 +85,7 @@ bh_setavatar 1 "E:/game/csgo/addons/avatars/player.png"
 bh_setavatar 1 0
 ```
 
-These commands can be executed from the server console/RCON or by a CounterStrikeSharp administrator with `@css/root`. `bh_status` reports avatar state as `avatar=<applied>/<bytes>`, for example `avatar=True/8011B`.
+This command follows the same configurable permission rules as every other `bh_*` command. `bh_status` reports avatar state as `avatar=<applied>/<bytes>`, for example `avatar=True/8011B`.
 
 The avatar is associated with the bot's final SteamID64. BotHider automatically rebinds it when that bot's SteamID changes, clears the old override when the bot disconnects, and prevents a new bot in the same slot from inheriting it.
 

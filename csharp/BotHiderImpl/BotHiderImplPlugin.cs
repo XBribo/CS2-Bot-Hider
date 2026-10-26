@@ -32,6 +32,7 @@ public partial class BotHiderImplPlugin : BasePlugin
     public override void Load(bool hotReload)
     {
         Server.PrintToConsole($"[BotHider] {PluginBuildInfo.DisplayVersion}, built {PluginBuildInfo.BuildTime}");
+        LoadCommandPermissions();
         // Inject the visible-write actions so SetPersonaName / SetBotSteamId
         // also update the scoreboard
         _client = new SharedMemoryClient(

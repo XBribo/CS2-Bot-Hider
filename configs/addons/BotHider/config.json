@@ -1,5 +1,9 @@
 {
     "identity_mode": "player",
+    "commands": {
+        "require_permissions": false,
+        "permission": "@bothider/admin"
+    },
     "fake_ping": {
         "enabled": true,
         "min": 20,
