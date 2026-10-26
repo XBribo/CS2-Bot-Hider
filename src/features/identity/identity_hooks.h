@@ -17,18 +17,18 @@ struct BotPawnRef
     uint32_t handle = 0xFFFFFFFF;
 };
 
-// Clears FL_BOT for managed pawns during entity packing
+// Clear FL_BOT for managed pawns during packing.
 void ApplyBotFlagOverride(std::vector<BotPawnRef>& modified);
 
-// Restores FL_BOT for pawns changed by the packing scope
+// Restore FL_BOT for the packing scope's pawns.
 void RestoreBotFlagOverride(const std::vector<BotPawnRef>& pawns);
 
-// Checks managed non-HLTV controller ownership.
+// Check managed, non-HLTV controller ownership.
 bool IsManagedBotController(void* controller);
 
 namespace identity_hooks {
 
-// Enters/leaves a nested transaction covering one Valve bot population command
+// Enter/leave a nested population-command identity transaction.
 void BeginPopulationTransaction(bool redisguise);
 void EndPopulationTransaction(bool redisguise);
 bool PopulationTransactionActive();
@@ -45,34 +45,34 @@ class PopulationTransactionScope
     bool m_redisguise;
 };
 
-// Resolves and prepares every optional identity detour
+// Prepare optional identity detours.
 void PrepareAll(const nlohmann::json& gamedata, const cs2_sdk::modules::ModuleInfo& serverModule);
 
-// Installs every successfully prepared identity detour
+// Install prepared identity detours.
 void InstallPrepared();
 
-// Removes every identity callback before plugin state is released.
+// Remove identity hooks before releasing plugin state.
 bool Remove();
 
-// Returns the resolved bot-quota hook target
+// Read the bot-quota hook target.
 void* MaintainQuotaTarget();
 
-// Returns the resolved eligible-voter count hook target
+// Read the voter-count hook target.
 void* CountPotentialVotersTarget();
 
-// Returns the resolved entity-packing hook target
+// Read the entity-packing hook target.
 void* PackEntitiesTarget();
 
-// Returns the resolved team-join hook target
+// Read the team-join hook target.
 void* HandleJoinTeamTarget();
 
-// Returns the resolved human-team restriction hook target
+// Read the human-team restriction hook target.
 void* HumanTeamRestrictionTarget();
 
-// Returns the resolved end-match state-machine target.
+// Read the end-match hook target.
 void* SameMapTeardownTarget();
 
-// Returns the script IsBot target.
+// Read the script IsBot target.
 void* ScriptIsBotTarget();
 
 } // namespace identity_hooks

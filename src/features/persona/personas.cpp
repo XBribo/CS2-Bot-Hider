@@ -1,5 +1,3 @@
-// personas.cpp
-
 #include "personas.h"
 
 #include <mutex>
@@ -15,7 +13,7 @@ PersonaPool g_personaPool; // NOLINT(bugprone-throwing-static-initialization)
 
 PersonaPool& Personas() { return g_personaPool; }
 
-// Stores a slot's display name.
+// Store the slot's display name.
 void PersonaPool::SetSlotName(int slot, const char* name)
 {
     if (slot < 0 || slot >= kMaxSlots) return;

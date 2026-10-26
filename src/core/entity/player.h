@@ -4,7 +4,7 @@
 #include <cstdint>
 
 namespace cs2bh::sdk {
-// Resolves a typed field only when both the entity and its Schema entry exist.
+// Resolve a typed entity field through Schema.
 template <typename T> T* Field(void* entity, const char* className, const char* fieldName)
 {
     const int offset = cs2_sdk::schema::GetFieldOffset(className, fieldName);
@@ -12,9 +12,9 @@ template <typename T> T* Field(void* entity, const char* className, const char* 
     return reinterpret_cast<T*>(static_cast<unsigned char*>(entity) + offset);
 }
 
-// Returns the controller's native pawn handle without assuming a class layout.
+// Read the controller's Schema-resolved pawn handle.
 inline const uint32_t* PawnHandle(void* controller) { return Field<uint32_t>(controller, "CBasePlayerController", "m_hPawn"); }
 
-// Returns the pawn's idle timer without marking this server-only write networked.
+// Access the pawn's server-side idle timer.
 inline float* IdleTime(void* pawn) { return Field<float>(pawn, "CCSPlayerPawnBase", "m_flIdleTimeSinceLastAction"); }
 } // namespace cs2bh::sdk

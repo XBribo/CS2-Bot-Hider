@@ -1,6 +1,4 @@
-// clan_tag.h
-//
-// Holds an optional configured clan presentation pair.
+// Optional clan presentation pair.
 
 #pragma once
 

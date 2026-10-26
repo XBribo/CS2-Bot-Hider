@@ -48,7 +48,7 @@ PLUGIN_EXPOSE(cs2bh::HiderPlugin, cs2bh::g_plugin); // NOLINT(misc-use-anonymous
 
 namespace cs2bh {
 
-// Binds callbacks after all hook members have been constructed.
+// Bind callbacks after hook construction.
 HiderPlugin::HiderPlugin()
     : m_onClientConnectedHook(&IServerGameClients::OnClientConnected), m_clientPutInServerHook(&IServerGameClients::ClientPutInServer),
       m_clientDisconnectHook(&IServerGameClients::ClientDisconnect), m_startChangeLevelHook(&INetworkGameServer::StartChangeLevel),
@@ -64,7 +64,7 @@ HiderPlugin::HiderPlugin()
 
 HiderPlugin::~HiderPlugin() = default;
 
-// Installs all process-wide virtual hooks and rolls back partial registration.
+// Install virtual hooks; roll back partial registration.
 bool HiderPlugin::InstallVirtualHooks()
 {
     if (!m_onClientConnectedHook.AddChecked(g_gameclients) || !m_clientPutInServerHook.AddChecked(g_gameclients) ||
@@ -77,7 +77,7 @@ bool HiderPlugin::InstallVirtualHooks()
     return true;
 }
 
-// Removes all virtual hooks synchronously when no callback is executing.
+// Remove virtual hooks outside active callbacks.
 bool HiderPlugin::RemoveVirtualHooks()
 {
     const bool onClientConnected = m_onClientConnectedHook.RemoveAll();
@@ -89,7 +89,7 @@ bool HiderPlugin::RemoveVirtualHooks()
     return onClientConnected && clientPutInServer && clientDisconnect && gameFrame && dispatchConCommand && startChangeLevel;
 }
 
-// Defers execution to the engine command queue, outside the current frame callback.
+// Queue unload outside the frame callback.
 void HiderPlugin::ProcessPendingUnload()
 {
     if (!m_unloadPending || m_dispatchConCommandHook.HasRegistrations()) return;
@@ -99,7 +99,7 @@ void HiderPlugin::ProcessPendingUnload()
     g_engine->ServerCommand(command);
 }
 
-// Attaches level-scoped hooks and resets transient runtime state
+// Attach level hooks and reset runtime state.
 void HiderPlugin::OnLevelInit(char const* mapName, char const*, char const*, char const*, bool, bool)
 {
     identity_runtime::ClearPendingControllerRemovals();
@@ -122,7 +122,7 @@ void HiderPlugin::OnLevelInit(char const* mapName, char const*, char const*, cha
     BH_LOG_DEBUG("level init map=%s", mapName ? mapName : "?");
 }
 
-// Releases all state owned by the current level
+// Release level state.
 void HiderPlugin::OnLevelShutdown()
 {
     identity_state::ClearAll();
@@ -133,12 +133,12 @@ void HiderPlugin::OnLevelShutdown()
     BH_LOG_DEBUG("level shutdown");
 }
 
-// Resolves interfaces and installs every plugin module
+// Resolve interfaces and install plugin modules.
 bool HiderPlugin::Load(PluginId id, ISmmAPI* ismm, char* error, size_t maxlen, bool /*late*/)
 {
     PLUGIN_SAVEVARS();
 
-    // Load may run again on the same global plugin object
+    // Reset state for plugin reloads.
     m_identityMode = IdentityMode::Player;
     m_unloadPending = false;
 
@@ -180,11 +180,11 @@ bool HiderPlugin::Load(PluginId id, ISmmAPI* ismm, char* error, size_t maxlen, b
 
     Manager().Init();
 
-    // Open the shared-memory bridge
+    // Open the bridge.
     const bool sharedMemoryReady = Publisher().Init();
     if (sharedMemoryReady)
     {
-        // Publish resolved hook/sig addresses for bh_status (0 = unresolved)
+        // Publish hook addresses for bh_status; 0=unresolved.
         Publisher().PublishSignature("UTIL_Remove", entity_access::UtilRemoveTarget());
         Publisher().PublishSignature("MaintainBotQuota", identity_hooks::MaintainQuotaTarget());
         Publisher().PublishSignature("CountPotentialVoters", identity_hooks::CountPotentialVotersTarget());
@@ -199,7 +199,7 @@ bool HiderPlugin::Load(PluginId id, ISmmAPI* ismm, char* error, size_t maxlen, b
         BH_LOG_WARN("CSS bridge disabled: shared memory init failed");
     }
 
-    // Load bot identity data from JSON config
+    // Load bot identities.
     std::string jsonPath = g_SMAPI->GetBaseDir();
     jsonPath += "/addons/BotHider/bot_info.json";
     if (!BotInfo().Load(jsonPath.c_str()))
@@ -232,7 +232,7 @@ bool HiderPlugin::Load(PluginId id, ISmmAPI* ismm, char* error, size_t maxlen, b
     return true;
 }
 
-// Removes hooks and releases every plugin module
+// Remove hooks and release plugin modules.
 bool HiderPlugin::Unload(char* error, size_t maxlen)
 {
     if (!hooks::CanRemoveHooks())

@@ -1,5 +1,3 @@
-// ping_display.h
-
 #pragma once
 
 #include <array>
@@ -15,7 +13,7 @@ class PingDisplay
 
     void RecordSample(int latencyMs);
 
-    // Returns -1 when no value should be written this tick
+    // Produce a ping update; -1 skips this tick.
     int MaybeProduce();
 
     void Reset();

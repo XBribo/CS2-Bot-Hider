@@ -1,6 +1,6 @@
 #pragma once
 
 namespace cs2bh::gamedata {
-// Resolves engine targets and prepares identity hooks without installing them.
+// Resolve engine targets and prepare identity hooks.
 void Prepare();
 } // namespace cs2bh::gamedata

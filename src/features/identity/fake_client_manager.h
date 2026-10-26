@@ -1,5 +1,3 @@
-// fake_client_manager.h
-
 #pragma once
 
 #include "personas.h"
@@ -26,7 +24,7 @@ class FakeClientManager
   public:
     FakeClientManager();
 
-    // Configures fake-ping generation before slots are adopted
+    // Configure fake ping before slot adoption.
     void ConfigureFakePing(bool enabled, int minimumMs, int maximumMs);
 
     void Init();
@@ -34,13 +32,13 @@ class FakeClientManager
     bool AdoptSlot(int slot, const char* name, uint64_t steamId64, const char* crosshairCode,
                    uint32_t scoreboardFlair, const char* clanTag, uint32_t clanGroupId);
 
-    // Release a slot on disconnect / mapchange
+    // Release slot state.
     void ReleaseSlot(int slot);
     void ReleaseAll();
 
     void OnTick();
 
-    // True if the slot has a managed bot bound
+    // Check slot ownership.
     bool IsManaged(int slot) const;
 
     uint64_t GetSyntheticSid(int slot) const;

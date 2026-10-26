@@ -1,6 +1,4 @@
-// slot_publisher.h
-//
-// Owns the shared-memory mapping
+// Shared-memory mapping owner.
 
 #pragma once
 
@@ -30,7 +28,7 @@ class SlotPublisher
 
     ~SlotPublisher();
 
-    // Create + map the shared region
+    // Create the shared mapping.
     bool Init();
     void Shutdown();
 
@@ -47,7 +45,7 @@ class SlotPublisher
     bool ReadAvatarRequest(int slot, AvatarRequest& request) const;
     void PublishAvatarState(int slot, bool applied, uint64_t steamId);
 
-    // Append a signature/hook status entry (addr==0 means unresolved)
+    // Append hook status; addr=0 means unresolved.
     void PublishSignature(const char* name, const void* addr);
 
     // CSS->C++

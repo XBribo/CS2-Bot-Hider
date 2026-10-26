@@ -1,5 +1,3 @@
-// fake_client_manager.cpp
-
 #include "fake_client_manager.h"
 #include "personas.h"
 #include "slot_publisher.h"
@@ -17,7 +15,7 @@ namespace {
 
 FakeClientManager g_manager; // NOLINT(bugprone-throwing-static-initialization)
 
-// Rand
+// Generate a random value.
 uint64_t SimpleRand(uint64_t& state)
 {
     uint64_t x = state ? state : 0x9E3779B97F4A7C15ULL;
@@ -34,7 +32,7 @@ FakeClientManager& Manager() { return g_manager; }
 
 FakeClientManager::FakeClientManager() = default;
 
-// Configures the displayed fake-ping bounds
+// Set fake-ping bounds.
 void FakeClientManager::ConfigureFakePing(bool enabled, int minimumMs, int maximumMs)
 {
     std::lock_guard<std::mutex> g(m_mutex);
@@ -63,13 +61,13 @@ bool FakeClientManager::AdoptSlot(int slot, const char* name, uint64_t steamId64
     std::lock_guard<std::mutex> g(m_mutex);
     auto& s = m_slots[slot];
 
-    // Selects one per-bot baseline inside the configured display range
+    // Select a baseline within the configured range.
     uint64_t state = static_cast<uint64_t>(slot) ^ m_steamIds->Generate(slot);
     const int range = m_fakePingMaximum - m_fakePingMinimum + 1;
     const int baseline = m_fakePingMinimum + static_cast<int>(SimpleRand(state) % static_cast<uint64_t>(range));
 
     s.active = true;
-    // Uses the already validated SteamID selected for this slot
+    // Store the slot's validated SteamID.
     s.syntheticSid = steamId64;
     s.jitter = PingJitter(baseline, m_fakePingMinimum, m_fakePingMaximum);
     s.display = PingDisplay{};

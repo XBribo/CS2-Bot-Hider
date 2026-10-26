@@ -7,6 +7,6 @@ struct Settings
     int fakePingMin = 20;
     int fakePingMax = 90;
 };
-// Reads startup configuration and creates defaults on first install.
+// Load startup settings; create defaults on first install.
 Settings Load(const char* baseDir);
 } // namespace cs2bh::config

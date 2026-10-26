@@ -4,12 +4,12 @@ using HarmonyLib;
 
 namespace BotHiderImpl;
 
-// Harmony postfix on CCSPlayerController.get_IsBot
+// Override IsBot for managed slots.
 
 [HarmonyPatch(typeof(CCSPlayerController), nameof(CCSPlayerController.IsBot), MethodType.Getter)]
 public static class IsBotPatch
 {
-    // Set by the plugin in Load(), cleared in Unload()
+    // Bound for the plugin lifetime.
     internal static IBotHiderApi? Api;
 
     private static void Postfix(CCSPlayerController __instance, ref bool __result)
@@ -27,7 +27,7 @@ public static class IsBotPatch
         }
         catch
         {
-            // Fall back
+            // Preserve the original result.
         }
     }
 }

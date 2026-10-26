@@ -1,6 +1,4 @@
-// steamid_provider.cpp
-//
-// SteamID pool sourced from bot_info.json
+// SteamID pool from bot_info.json.
 
 #include "steamid_provider.h"
 #include <cstdint>
@@ -9,7 +7,7 @@
 
 namespace cs2bh {
 
-// FNV-1a 64-bit over the session id string.
+// Hash the session ID with FNV-1a 64-bit.
 SteamIdProvider::SteamIdProvider(const char* sessionId)
 {
     uint64_t h = 0xCBF29CE484222325ULL;
@@ -23,9 +21,7 @@ SteamIdProvider::SteamIdProvider(const char* sessionId)
     m_sessionSeed = h;
 }
 
-// Splitmix64-style avalanche on (seed XOR slot*phi64), reduced modulo
-// the bot_info.json pool size to pick an entry's SteamID64. Stable per
-// slot within a session; shuffles across sessions via the boot-time seed.
+// Select a pool entry by slot and session seed; stable within the session.
 uint64_t SteamIdProvider::Generate(int botSlot) const noexcept
 {
     const auto& entries = BotInfo().All();

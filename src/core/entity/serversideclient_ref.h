@@ -1,4 +1,3 @@
-// serversideclient_ref.h
 
 #pragma once
 
@@ -7,7 +6,7 @@
 
 namespace cs2bh::ssc {
 
-// offsets — defaults are fallbacks, overridden at load from gamedata.json
+// Fallback offsets; gamedata.json overrides them at load.
 inline int g_nameOffset = 64; // CUtlString
 inline int g_entityIndexOffset = 76; // CEntityIndex (int)
 inline int g_netChannelOffset = 88; // INetChannel*
@@ -18,7 +17,7 @@ inline int g_steamIdOffset = 171; // CSteamID
 inline int g_steamIdMirrorOffset = 179; // mirrored CSteamID
 inline int g_isHltvOffset = 322; // bool
 
-// Read CUtlString { char* m_pString } at member offset
+// Read the CUtlString pointer at the name offset.
 inline const char* ReadName(const void* client)
 {
     if (!client) return nullptr;
@@ -26,7 +25,7 @@ inline const char* ReadName(const void* client)
     return *utl;
 }
 
-// sets m_bFakePlayer = 0
+// Clear the fake-player flags.
 inline void ClearFakePlayer(void* client)
 {
     auto* raw = reinterpret_cast<unsigned char*>(client);
@@ -35,7 +34,7 @@ inline void ClearFakePlayer(void* client)
     raw[g_fakePlayerOffset] = 0;
 }
 
-// sets m_bFakePlayer = 1
+// Set the fake-player flags.
 inline void SetFakePlayer(void* client)
 {
     auto* raw = reinterpret_cast<unsigned char*>(client);
@@ -44,7 +43,7 @@ inline void SetFakePlayer(void* client)
     raw[g_fakePlayerOffset] = 1;
 }
 
-// Writes both SteamID fields used by the current engine
+// Write both engine SteamID fields.
 inline void WriteSteamId(void* client, uint64_t steamId)
 {
     auto* raw = reinterpret_cast<unsigned char*>(client);
@@ -52,14 +51,14 @@ inline void WriteSteamId(void* client, uint64_t steamId)
     std::memcpy(raw + g_steamIdMirrorOffset, &steamId, sizeof(steamId));
 }
 
-// Checks whether the client has the fake-player flag
+// Check the fake-player flag.
 inline bool IsFakePlayerSet(const void* client)
 {
     const auto* raw = reinterpret_cast<const unsigned char*>(client);
     return raw[g_fakePlayerOffset] == 0x01;
 }
 
-// Checks whether the client is SourceTV
+// Check SourceTV identity.
 inline bool IsHltv(const void* client)
 {
     if (!client) return false;

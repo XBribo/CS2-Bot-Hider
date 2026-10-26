@@ -20,7 +20,7 @@ namespace cs2bh {
 
 namespace {
 
-// Checks whether a disconnect may leave its controller behind
+// Check for a retained controller after disconnect.
 bool IsTargetedClientRemovalReason(ENetworkDisconnectionReason reason)
 {
     switch (reason)
@@ -40,7 +40,7 @@ bool IsTargetedClientRemovalReason(ENetworkDisconnectionReason reason)
 
 } // namespace
 
-// Adopts fake clients from the authoritative connected slot
+// Adopt fake clients from the connected slot.
 KHook::Return<void> HiderPlugin::HookOnClientConnectedPost( // NOLINT(readability-make-member-function-const)
     IServerGameClients*,
     CPlayerSlot slot,
@@ -108,7 +108,7 @@ KHook::Return<void> HiderPlugin::HookOnClientConnectedPost( // NOLINT(readabilit
     return { KHook::Action::Ignore };
 }
 
-// Reapplies managed identity after a client enters the server
+// Reapply managed identity on server entry.
 KHook::Return<void> HiderPlugin::HookClientPutInServerPost(IServerGameClients*,
                                                            CPlayerSlot slot,
                                                            char const* name,
@@ -159,7 +159,7 @@ KHook::Return<void> HiderPlugin::HookClientPutInServerPost(IServerGameClients*,
     return { KHook::Action::Ignore };
 }
 
-// Restores and releases managed identity before disconnect teardown
+// Restore and release identity before disconnect teardown.
 KHook::Return<void> HiderPlugin::HookClientDisconnectPre( // NOLINT(readability-make-member-function-const)
     IServerGameClients*,
     CPlayerSlot slot,

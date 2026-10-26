@@ -1,12 +1,10 @@
-// clan_tag.cpp
-
 #include "clan_tag_config.h"
 
 #include <cstdint>
 
 namespace cs2bh {
 
-// Validates the configured tag and its 32-bit Steam group ID as one pair.
+// Validate the tag and 32-bit Steam group ID together.
 ClanTag ParseClanTag(const nlohmann::json& value)
 {
     if (!value.contains("clan_tag") || !value["clan_tag"].is_string() ||

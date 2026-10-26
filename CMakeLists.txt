@@ -1,7 +1,7 @@
 cmake_minimum_required(VERSION 3.20)
 project(BotHider VERSION 0.6.0 LANGUAGES CXX)
 
-# The base version lives here; -DPLUGIN_VERSION overrides it for a build.
+# Override the base version with -DPLUGIN_VERSION.
 if(NOT DEFINED PLUGIN_VERSION)
     set(PLUGIN_VERSION "${PROJECT_VERSION}")
 endif()
@@ -25,7 +25,7 @@ set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 
 find_program(CLANG_FORMAT_EXECUTABLE NAMES clang-format clang-format.exe)
 set(BOT_HIDER_FORMAT_FILES "")
-# Do not traverse the SDK's recursive dependencies when checking plugin formatting.
+# Check formatting in project-owned sources.
 foreach(extension c cc cpp cxx h hh hpp hxx inl)
     file(GLOB plugin_format_top CONFIGURE_DEPENDS
         "${CMAKE_SOURCE_DIR}/src/*.${extension}" "${CMAKE_SOURCE_DIR}/src/core/*.${extension}")

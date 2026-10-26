@@ -28,21 +28,21 @@ namespace {
 
 thread_local std::vector<bool> g_populationCommandFrames;
 
-// Returns whether a console command disconnects a client
+// Check for a client-removal command.
 bool IsKickCommand(const char* name)
 {
     if (!name || !name[0]) return false;
     return !std::strcmp(name, "kickid") || !std::strcmp(name, "kick") || !std::strcmp(name, "bot_kick") || !std::strcmp(name, "banid");
 }
 
-// Returns whether a command adds a bot
+// Check for a bot-add command.
 bool IsBotAddCommand(const char* name)
 {
     if (!name || !name[0]) return false;
     return !std::strcmp(name, "bot_add") || !std::strcmp(name, "bot_add_t") || !std::strcmp(name, "bot_add_ct");
 }
 
-// Finds a managed slot from its current persona name
+// Find a managed slot by persona name.
 int FindManagedSlotByPersonaName(const char* name)
 {
     if (!name || !name[0]) return -1;
@@ -54,7 +54,7 @@ int FindManagedSlotByPersonaName(const char* name)
     return -1;
 }
 
-// Finds a managed slot from its current user ID
+// Find a managed slot by user ID.
 int FindManagedSlotByUserId(const char* value)
 {
     if (!value || !value[0]) return -1;
@@ -74,7 +74,7 @@ int FindManagedSlotByUserId(const char* value)
     return -1;
 }
 
-// Captures the native target without placing its name in the engine text queue.
+// Capture the bot's client, user ID, and lifetime for deferred removal.
 bool QueueManagedBotKick(int slot)
 {
     if (!g_icvar || !Manager().IsManaged(slot) || !g_icvar->FindConCommand("bot_kick").IsValidRef()) return false;
@@ -87,7 +87,7 @@ bool QueueManagedBotKick(int slot)
     return true;
 }
 
-// Dispatches argv directly after rechecking that each queued bot still owns its slot.
+// Validate slot ownership and dispatch bot_kick with separate arguments.
 void DrainPendingBotKicks()
 {
     auto& queued = identity_state::PendingBotKicks();
@@ -104,7 +104,7 @@ void DrainPendingBotKicks()
         void* client = entity_access::ResolveClientBySlot(kick.slot);
         if (!client || client != kick.client || ssc::IsHltv(client)) continue;
         const uint16_t userId = *reinterpret_cast<const uint16_t*>(static_cast<const unsigned char*>(client) + ssc::g_userIdOffset);
-        // Native identity checks still work when the optional shared-memory bridge is unavailable.
+        // Validate lifetime metadata when available.
         if (userId != kick.userId || (kick.incarnation != 0 && Publisher().GetIncarnation(kick.slot) != kick.incarnation)) continue;
 
         const std::string name = Personas().GetSlotName(kick.slot);
@@ -123,7 +123,7 @@ void DrainPendingBotKicks()
 
 } // namespace
 
-// Opens one identity transaction for the complete engine population command.
+// Begin a population-command identity transaction.
 KHook::Return<void>
 HiderPlugin::HookDispatchConCommandPre(ICvar*, ConCommandRef command, const CCommandContext&, const CCommand& arguments) noexcept
 {
@@ -171,7 +171,7 @@ HiderPlugin::HookDispatchConCommandPre(ICvar*, ConCommandRef command, const CCom
     return { KHook::Action::Ignore };
 }
 
-// Closes the transaction after the engine command and any nested quota pass complete.
+// End the transaction after nested quota work completes.
 KHook::Return<void> HiderPlugin::HookDispatchConCommandPost(ICvar*, ConCommandRef, const CCommandContext&, const CCommand&) noexcept
 {
     const hooks::CallbackScope callbackScope;
@@ -182,7 +182,7 @@ KHook::Return<void> HiderPlugin::HookDispatchConCommandPost(ICvar*, ConCommandRe
     return { KHook::Action::Ignore };
 }
 
-// Changes the global managed-bot identity mode
+// Set the global identity mode.
 void HiderPlugin::SetIdentityMode(IdentityMode mode)
 {
     if (m_identityMode == mode) return;
@@ -191,7 +191,7 @@ void HiderPlugin::SetIdentityMode(IdentityMode mode)
     BH_LOG_DEBUG("identity mode=%s", mode == IdentityMode::Bot ? "bot" : "player");
 }
 
-// Restores native bot identity and clears managed state before a level transition
+// Restore native identity and clear state before level change.
 KHook::Return<CServerChangelevelState*>
 HiderPlugin::HookStartChangeLevelPre(INetworkGameServer*,
                                      const char* mapName,
@@ -208,7 +208,7 @@ HiderPlugin::HookStartChangeLevelPre(INetworkGameServer*,
     return { KHook::Action::Ignore, nullptr };
 }
 
-// Drives deferred cleanup and shared-memory commands each frame
+// Process frame cleanup and bridge commands.
 KHook::Return<void> HiderPlugin::HookGameFramePost(IServerGameDLL*, bool simulating, bool /*firstTick*/, bool /*lastTick*/) noexcept
 {
     const hooks::CallbackScope callbackScope;
@@ -243,7 +243,7 @@ KHook::Return<void> HiderPlugin::HookGameFramePost(IServerGameDLL*, bool simulat
     return { KHook::Action::Ignore };
 }
 
-// Keeps shared-memory command routing separate from the frame lifecycle.
+// Route shared-memory commands.
 void HiderPlugin::DrainBridgeCommands()
 {
     Publisher().DrainCommands([this](int slot, uint64_t steamId) {
@@ -258,7 +258,7 @@ void HiderPlugin::DrainBridgeCommands()
     });
 }
 
-// Writes the resolved SteamID before publishing it to the bridge.
+// Apply the resolved SteamID, then publish it.
 void HiderPlugin::ApplySteamIdCommand(int slot, uint64_t steamId)
 {
     if (!Manager().IsManaged(slot)) return;
@@ -276,7 +276,7 @@ void HiderPlugin::ApplySteamIdCommand(int slot, uint64_t steamId)
     entity_access::RefreshClientUserInfo(slot);
 }
 
-// Publishes the name after updating the engine and slot store.
+// Update engine and slot names, then publish.
 void HiderPlugin::ApplyPersonaNameCommand(int slot, const char* name)
 {
     if (!Manager().IsManaged(slot) || !name || !name[0]) return;

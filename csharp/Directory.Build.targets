@@ -1,5 +1,5 @@
 <Project>
-  <!-- Generate constants for both runtime properties and SW2 attributes. -->
+  <!-- Generate shared build metadata. -->
   <Target Name="GeneratePluginBuildInfo" BeforeTargets="CoreCompile" DependsOnTargets="InitializeSourceControlInformation">
     <Error Condition="'$(PluginVersion)' == ''" Text="Cannot read the CMake base version; supply -p:PluginVersion." />
     <PropertyGroup>

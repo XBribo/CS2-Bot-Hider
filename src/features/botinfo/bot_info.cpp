@@ -1,5 +1,3 @@
-// bot_info.cpp
-
 #include "bot_info.h"
 #include "clan_tag_config.h"
 
@@ -20,7 +18,7 @@ namespace cs2bh {
 namespace {
 BotInfoStore g_botInfo; // NOLINT(bugprone-throwing-static-initialization)
 
-// xorshift64* — local RNG.
+// Local xorshift64* generator.
 uint64_t NextRand(uint64_t& s)
 {
     uint64_t x = s ? s : 0x9E3779B97F4A7C15ULL;
@@ -31,7 +29,7 @@ uint64_t NextRand(uint64_t& s)
     return x * 0x2545F4914F6CDD1DULL;
 }
 
-// Parses one 32-bit Steam account ID from a JSON object key
+// Parse a 32-bit account ID from a JSON key.
 bool ParseAccountId(const std::string& text, uint32_t& accountId)
 {
     accountId = 0;
@@ -42,10 +40,10 @@ bool ParseAccountId(const std::string& text, uint32_t& accountId)
 }
 } // namespace
 
-// Returns the global bot identity store
+// Access the global identity store.
 BotInfoStore& BotInfo() { return g_botInfo; }
 
-// Loads enabled identities from the players object
+// Load enabled identities from players.
 bool BotInfoStore::Load(const char* path)
 {
     m_entries.clear();
@@ -101,7 +99,7 @@ bool BotInfoStore::Load(const char* path)
     return !m_entries.empty();
 }
 
-// Selects an available identity, preferring an exact display-name match
+// Pick an available identity, preferring an exact name match.
 const BotEntry* BotInfoStore::PickForBot(const char* engineName)
 {
     if (m_entries.empty()) return nullptr;
@@ -141,7 +139,7 @@ const BotEntry* BotInfoStore::PickForBot(const char* engineName)
     return &m_entries[pick];
 }
 
-// Releases one exact identity assignment
+// Release the selected identity's assignment.
 void BotInfoStore::ReleaseAssignment(const BotEntry* entry)
 {
     if (!entry) return;
@@ -157,7 +155,7 @@ void BotInfoStore::ReleaseAssignment(const BotEntry* entry)
     }
 }
 
-// Clears all active identity assignment counts
+// Clear identity assignment counts.
 void BotInfoStore::ResetAssignments() { m_assignmentCounts.assign(m_entries.size(), 0); }
 
 } // namespace cs2bh

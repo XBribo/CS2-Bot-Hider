@@ -18,7 +18,7 @@ const std::string kGEmptyName;
 
 } // namespace
 
-// Binds bot identity data and the original engine name to one slot
+// Bind slot identity and its original name.
 void BindSlot(int slot, const BotEntry* entry, const char* originalName)
 {
     if (slot < 0 || slot >= PersonaPool::kMaxSlots) return;
@@ -26,21 +26,21 @@ void BindSlot(int slot, const BotEntry* entry, const char* originalName)
     g_originalSlotNames[slot] = originalName ? originalName : "";
 }
 
-// Returns the bot identity entry bound to one slot
+// Read the slot's identity entry.
 const BotEntry* SlotEntry(int slot)
 {
     if (slot < 0 || slot >= PersonaPool::kMaxSlots) return nullptr;
     return g_slotEntries[slot];
 }
 
-// Returns the original engine name captured for one slot
+// Read the slot's original engine name.
 const std::string& OriginalSlotName(int slot)
 {
     if (slot < 0 || slot >= PersonaPool::kMaxSlots) return kGEmptyName;
     return g_originalSlotNames[slot];
 }
 
-// Clears the identity data bound to one slot
+// Clear slot identity.
 void ClearSlot(int slot)
 {
     if (slot < 0 || slot >= PersonaPool::kMaxSlots) return;
@@ -48,13 +48,13 @@ void ClearSlot(int slot)
     g_originalSlotNames[slot].clear();
 }
 
-// Returns the pending controller-removal queue
+// Access the controller-removal queue.
 std::vector<PendingControllerRemoval>& PendingControllerRemovals() { return g_pendingControllerRemovals; }
 
-// Returns the bot commands queued outside the current command dispatch.
+// Access the deferred bot-kick queue.
 std::vector<PendingBotKick>& PendingBotKicks() { return g_pendingBotKicks; }
 
-// Clears all slot bindings and deferred work owned by the current level.
+// Clear level bindings and deferred work.
 void ClearAll()
 {
     g_slotEntries.fill(nullptr);

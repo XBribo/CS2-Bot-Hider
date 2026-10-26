@@ -11,7 +11,7 @@ public enum BotIdentityMode
     Bot = 1,
 }
 
-// Slot is the engine player slot (CCSPlayerController.Slot.Value)
+// Slot parameters use the engine player slot.
 public interface IBotHiderApi
 {
     bool IsManagedBot(int slot);
@@ -26,33 +26,33 @@ public interface IBotHiderApi
 
     string GetCrosshairCode(int slot);
 
-    // Returns whether a custom avatar is currently applied to the managed bot
+    // Check native avatar application.
     bool HasBotAvatar(int slot);
 
-    // Returns the current scoreboard flair item definition index
+    // Read the flair item definition index.
     uint GetScoreboardFlair(int slot);
 
-    // Resolved hook/signature addresses (addr==0 means unresolved)
+    // Hook addresses; 0=unresolved.
     (string Name, ulong Addr)[] GetSignatures();
 
-    // returns false if the slot is out of range.
+    // Set SteamID64; false for invalid slots.
     bool SetBotSteamId(int slot, ulong steamId64);
 
-    // Set crosshair code, empty or "0" to clear
+    // Set crosshair; empty or "0" clears it.
     bool SetCrosshairCode(int slot, string code);
 
-    // Reads and applies a PNG avatar file, or clears it when pngPath is "0"
+    // Apply a PNG avatar; "0" clears it.
     bool SetBotAvatar(int slot, string pngPath);
 
-    // Normalizes the name to at most 31 UTF-8 bytes and rejects an empty result
+    // Normalize to at most 31 UTF-8 bytes; empty names fail.
     bool SetPersonaName(int slot, string name);
 
-    // returns false if the slot/flair is invalid
+    // Set flair; false for invalid slots or flair.
     bool SetScoreboardFlair(int slot, uint itemDefIndex);
 
-    // Changes the global managed-bot identity mode
+    // Set the global identity mode.
     bool SetIdentityMode(BotIdentityMode mode);
 
-    // Display-name source toggle; true=bot_info.json name, false=botprofile name (affects newly created bots)
+    // New-bot names: true=bot_info.json, false=botprofile.
     bool SetNameSource(bool useBotInfo);
 }

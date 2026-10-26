@@ -13,6 +13,6 @@ extern IServerGameDLL* g_server;
 extern INetworkServerService* g_pNetworkServerService;
 extern ISchemaSystem* g_schemaSystem;
 namespace cs2bh::interfaces {
-// Acquires the interfaces required before hook preparation.
+// Acquire interfaces for hook preparation.
 bool Init(SourceMM::ISmmAPI* ismm, char* error, size_t maxlen);
 } // namespace cs2bh::interfaces

@@ -17,7 +17,7 @@ internal static class Program
         IndentSize = 4
     };
 
-    // Runs the standalone flair generator.
+    // Run the flair generator.
     private static async Task<int> Main(string[] args)
     {
         Console.OutputEncoding = Encoding.UTF8;
@@ -64,7 +64,7 @@ internal static class Program
         }
     }
 
-    // Parses the input path, overwrite flag, and request delay.
+    // Parse input, overwrite, and delay options.
     private static GeneratorOptions ParseArguments(string[] args)
     {
         string inputPath = DefaultInputPath;
@@ -99,7 +99,7 @@ internal static class Program
         return new GeneratorOptions(Path.GetFullPath(inputPath), overwrite, delayMs);
     }
 
-    // Loads and validates the bot information JSON object.
+    // Load and validate bot_info JSON.
     private static async Task<JsonObject> LoadJsonAsync(
         string path,
         CancellationToken cancellationToken)
@@ -112,7 +112,7 @@ internal static class Program
             throw new JsonException("The root of bot_info.json must be an object.");
     }
 
-    // Selects valid entries that still need a flair lookup.
+    // Select entries for flair lookup.
     private static List<BotEntry> ReadEntries(JsonObject root, bool overwrite)
     {
         if (root["players"] is not JsonObject players)
@@ -139,7 +139,7 @@ internal static class Program
         return entries;
     }
 
-    // Queries profiles sequentially and checkpoints updated flair values.
+    // Query profiles sequentially and checkpoint flair updates.
     private static async Task PopulateFlairsAsync(
         Cs2GcClient gcClient,
         JsonObject root,
@@ -191,7 +191,7 @@ internal static class Program
         }
     }
 
-    // Prints timestamped progress with average speed and estimated time remaining.
+    // Print timestamped progress, speed, and ETA.
     private static void WriteProgress(
         int processed,
         int total,
@@ -211,14 +211,14 @@ internal static class Program
             $"{speed:F2}/s | ETA {FormatDuration(eta)}");
     }
 
-    // Formats a duration without wrapping total hours at 24.
+    // Format elapsed time using total hours.
     private static string FormatDuration(TimeSpan duration)
     {
         int totalHours = (int)duration.TotalHours;
         return $"{totalHours:00}:{duration.Minutes:00}:{duration.Seconds:00}";
     }
 
-    // Retries transient GC profile timeouts up to three times.
+    // Query GC profiles with up to three attempts.
     private static async Task<uint> QueryWithRetriesAsync(
         Cs2GcClient gcClient,
         uint accountId,
@@ -244,7 +244,7 @@ internal static class Program
         throw new TimeoutException($"Profile {accountId} did not respond after 3 attempts.");
     }
 
-    // Atomically writes the updated JSON file in UTF-8 without a BOM.
+    // Atomically save UTF-8 JSON (BOM-free).
     private static async Task SaveJsonAsync(
         string path,
         JsonObject root,
@@ -271,7 +271,7 @@ internal static class Program
         }
     }
 
-    // Reads either a 32-bit account ID or a full individual SteamID64.
+    // Parse an account ID or individual SteamID64.
     private static bool TryReadAccountId(string text, out uint accountId)
     {
         accountId = 0;
@@ -288,7 +288,7 @@ internal static class Program
         return true;
     }
 
-    // Reads an unsigned integer from an optional JSON value.
+    // Read an optional unsigned JSON integer.
     private static uint ReadUInt32(JsonNode? node)
     {
         return node is not null && uint.TryParse(node.ToString(), out uint value)

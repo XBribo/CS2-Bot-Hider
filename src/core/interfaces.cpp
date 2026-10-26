@@ -13,7 +13,7 @@ IServerGameClients* g_gameclients = nullptr;
 IServerGameDLL* g_server = nullptr;
 ISchemaSystem* g_schemaSystem = nullptr;
 namespace cs2bh::interfaces {
-// Resolves required engine and server interfaces through Metamod.
+// Resolve engine and server interfaces through Metamod.
 bool Init(ISmmAPI* ismm, char* error, size_t maxlen)
 {
     GET_V_IFACE_CURRENT(GetEngineFactory, g_engine, IVEngineServer, INTERFACEVERSION_VENGINESERVER);

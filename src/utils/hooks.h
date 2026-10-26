@@ -12,7 +12,7 @@ namespace cs2bh::hooks {
 inline thread_local uint32_t g_callbackDepth = 0;
 inline thread_local uint32_t g_dispatchDepth = 0;
 
-// Tracks execution inside a KHook callback.
+// Track callback depth.
 class CallbackScope
 {
   public:
@@ -20,14 +20,14 @@ class CallbackScope
     ~CallbackScope() { --g_callbackDepth; }
 };
 
-// Prevents synchronous removal while DispatchConCommand is still executing.
+// Track dispatch depth for safe hook removal.
 inline void BeginDispatch() noexcept { ++g_dispatchDepth; }
 inline void EndDispatch() noexcept
 {
     if (g_dispatchDepth != 0) --g_dispatchDepth;
 }
 
-// Returns whether KHook detours can be removed synchronously on this thread.
+// Check synchronous removal safety on this thread.
 inline bool CanRemoveHooks() noexcept { return g_callbackDepth == 0 && g_dispatchDepth == 0; }
 
 template <typename CLASS, typename RETURN, typename... ARGS> class CheckedVirtual : public KHook::Virtual<CLASS, RETURN, ARGS...>
@@ -37,7 +37,7 @@ template <typename CLASS, typename RETURN, typename... ARGS> class CheckedVirtua
   public:
     using Base::Base;
 
-    // Adds one object and verifies that KHook assigned a hook ID.
+    // Register an object and verify its hook ID.
     bool AddChecked(CLASS* object)
     {
         if (!object || !KHook::__exported__khook || this->_vtbl_index < 0) return false;
@@ -48,14 +48,14 @@ template <typename CLASS, typename RETURN, typename... ARGS> class CheckedVirtua
         return this->_addr_hook_ids.find(hookAddress) != this->_addr_hook_ids.end();
     }
 
-    // Reports registrations not yet acknowledged as removed by KHook.
+    // Check remaining KHook registrations.
     bool HasRegistrations()
     {
         std::lock_guard guard(this->_hooks_stored);
         return !this->_addr_hook_ids.empty();
     }
 
-    // Async removal keeps contexts and object filters alive for in-flight POST callbacks.
+    // Retain contexts and filters during async POST callbacks.
     bool RemoveAll(bool asynchronous = false)
     {
         std::vector<std::pair<KHook::HookID_t, void*>> hooks;

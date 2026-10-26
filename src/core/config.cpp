@@ -5,7 +5,7 @@
 #include <string>
 #include <nlohmann/json.hpp>
 namespace cs2bh::config {
-// Parses identity and fake-ping settings without changing their defaults.
+// Load identity and ping settings with defaults.
 Settings Load(const char* baseDir)
 {
     Settings settings;
@@ -54,7 +54,7 @@ Settings Load(const char* baseDir)
     }
     else
     {
-        // Creates the documented defaults on first install
+        // Write first-install defaults.
         std::ofstream defaultConfig(configPath, std::ios::trunc);
         if (defaultConfig.is_open())
         {

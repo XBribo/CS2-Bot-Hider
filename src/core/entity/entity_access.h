@@ -8,40 +8,40 @@
 
 namespace cs2bh::entity_access {
 
-// Resolves UTIL_Remove and its entity-system reference
+// Resolve UTIL_Remove and its entity-system reference.
 void ResolveUtilRemoveAndEntSys(const nlohmann::json& gamedata, const cs2_sdk::modules::ModuleInfo& serverModule);
 
-// Returns the resolved UTIL_Remove target
+// Read the UTIL_Remove target.
 void* UtilRemoveTarget();
 
-// Removes one entity through the resolved engine function
+// Remove an entity through the engine.
 bool RemoveEntity(void* instance);
 
-// Returns the resolved controller pawn-handle offset
+// Read the controller pawn-handle offset.
 int BotPawnHandleOffset();
 
-// Resolves one server-side client from its slot
+// Resolve a server-side client by slot.
 void* ResolveClientBySlot(int slot);
 
-// Publishes changed userinfo for one client slot
+// Publish changed client userinfo.
 bool RefreshClientUserInfo(int slot);
 
-// Resolves one entity instance and optionally copies its class name
+// Resolve an entity and optionally copy its class name.
 void* ResolveEntityInstance(int entityIndex, char* classnameOut, size_t classnameCap);
 
-// Returns whether an entity is already entering deletion
+// Check entity deletion state.
 bool IsEntityBeingDeleted(void* instance);
 
-// Marks one flattened entity field as changed
+// Notify a flattened entity field change.
 void MarkEntityFieldChanged(void* instance, unsigned int offset);
 
-// Resets the idle timer for the pawn owned by one client
+// Reset the client's pawn idle timer.
 void ResetIdleTimerForClient(void* client);
 
-// Updates the engine-side name for one client
+// Update the engine-side client name.
 const char* SetEngineName(void* client, const char* newName);
 
-// Clears resolved interfaces and runtime targets
+// Clear resolved interfaces and targets.
 void Reset();
 
 } // namespace cs2bh::entity_access

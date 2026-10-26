@@ -108,14 +108,14 @@ void ResolveUtilRemoveAndEntSys(const nlohmann::json& gamedata, const cs2_sdk::m
 
 namespace {
 
-// Clears the output even when the protected read fails.
+// Read a pointer; clear output on failure.
 bool SafeReadPointer(const void* address, void** output)
 {
     *output = nullptr;
     return cs2_sdk::memory::Read(address, 0, *output);
 }
 
-// Copies one indirectly referenced string with guarded reads on Windows
+// Copy a referenced string with Windows SEH protection.
 bool SafeReadString(const void* address, char* output, size_t capacity)
 {
 #ifdef _WIN32

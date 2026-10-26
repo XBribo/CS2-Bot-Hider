@@ -1,6 +1,4 @@
-// steamid_provider.h
-//
-// Pool of pre-defined SteamID64 values used to brand fake clients
+// SteamID64 pool for fake clients.
 
 #pragma once
 
@@ -13,7 +11,7 @@ class SteamIdProvider
   public:
     explicit SteamIdProvider(const char* sessionId);
 
-    // Returns a SteamID64
+    // Select a SteamID64 for the slot.
     uint64_t Generate(int botSlot) const noexcept;
 
   private:

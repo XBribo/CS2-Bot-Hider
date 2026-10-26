@@ -27,25 +27,25 @@ struct PendingBotKick
     uint64_t incarnation = 0;
 };
 
-// Binds bot identity data and the original engine name to one slot
+// Bind slot identity and its original name.
 void BindSlot(int slot, const BotEntry* entry, const char* originalName);
 
-// Returns the bot identity entry bound to one slot
+// Read the slot's identity entry.
 const BotEntry* SlotEntry(int slot);
 
-// Returns the original engine name captured for one slot
+// Read the slot's original engine name.
 const std::string& OriginalSlotName(int slot);
 
-// Clears the identity data bound to one slot
+// Clear slot identity.
 void ClearSlot(int slot);
 
-// Returns the pending controller-removal queue
+// Access the controller-removal queue.
 std::vector<PendingControllerRemoval>& PendingControllerRemovals();
 
-// Returns the identity-checked bot commands waiting for a game frame.
+// Access the deferred bot-kick queue.
 std::vector<PendingBotKick>& PendingBotKicks();
 
-// Clears all slot bindings, pending controller removals and bot commands.
+// Clear slot bindings and deferred work.
 void ClearAll();
 
 } // namespace identity_state

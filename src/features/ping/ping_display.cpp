@@ -1,5 +1,3 @@
-// ping_display.cpp
-
 #include "ping_display.h"
 
 #include <algorithm>
@@ -45,8 +43,6 @@ void PingDisplay::Reset()
     m_idx = m_sum = m_filled = m_ticksSinceWrite = 0;
     m_lastWritten = 0;
 }
-
-// ─────────────────────────────────────────────────────────────────────
 
 PingJitter::PingJitter(int baselineMs, int minimumMs, int maximumMs) : m_baseline(baselineMs), m_minimum(minimumMs), m_maximum(maximumMs)
 {

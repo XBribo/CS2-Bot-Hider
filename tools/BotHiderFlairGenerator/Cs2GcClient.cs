@@ -30,7 +30,7 @@ internal sealed class Cs2GcClient : IAsyncDisposable
     private readonly uint _loginId =
         unchecked((uint)RandomNumberGenerator.GetInt32(1, int.MaxValue));
 
-    // Initializes Steam handlers and callback subscriptions.
+    // Initialize Steam handlers and callbacks.
     public Cs2GcClient()
     {
         _callbacks = new CallbackManager(_steamClient);
@@ -45,7 +45,7 @@ internal sealed class Cs2GcClient : IAsyncDisposable
         _callbacks.Subscribe<SteamGameCoordinator.MessageCallback>(OnGcMessage);
     }
 
-    // Connects through QR authentication and waits for the CS2 GC session.
+    // Authenticate by QR and await CS2 GC readiness.
     public async Task ConnectAsync(CancellationToken cancellationToken)
     {
         _callbackPump = Task.Run(PumpCallbacks, CancellationToken.None);
@@ -53,7 +53,7 @@ internal sealed class Cs2GcClient : IAsyncDisposable
         await _gcReady.Task.WaitAsync(TimeSpan.FromMinutes(3), cancellationToken);
     }
 
-    // Queries the featured display item for one Steam account.
+    // Query an account's featured item.
     public async Task<uint> GetFeaturedDisplayItemAsync(
         uint accountId,
         TimeSpan timeout,
@@ -94,7 +94,7 @@ internal sealed class Cs2GcClient : IAsyncDisposable
         }
     }
 
-    // Stops Steam and the callback pump.
+    // Stop Steam and its callback pump.
     public async ValueTask DisposeAsync()
     {
         _shutdown.Cancel();
@@ -105,14 +105,14 @@ internal sealed class Cs2GcClient : IAsyncDisposable
         _shutdown.Dispose();
     }
 
-    // Processes Steam callbacks until shutdown.
+    // Pump Steam callbacks until shutdown.
     private void PumpCallbacks()
     {
         while (!_shutdown.IsCancellationRequested)
             _callbacks.RunWaitCallbacks(TimeSpan.FromMilliseconds(500));
     }
 
-    // Starts an interactive Steam QR authentication session.
+    // Start Steam QR authentication.
     private async void OnConnected(SteamClient.ConnectedCallback callback)
     {
         try
@@ -140,7 +140,7 @@ internal sealed class Cs2GcClient : IAsyncDisposable
         }
     }
 
-    // Logs on with the in-memory refresh token from QR authentication
+    // Log on with the QR session's in-memory token.
     private void LogOnWithRefreshToken()
     {
         _steamUser.LogOn(new SteamUser.LogOnDetails
@@ -151,7 +151,7 @@ internal sealed class Cs2GcClient : IAsyncDisposable
         });
     }
 
-    // Reports an unexpected Steam disconnect.
+    // Handle an unexpected Steam disconnect.
     private void OnDisconnected(SteamClient.DisconnectedCallback callback)
     {
         if (_retryingConnectionManager)
@@ -164,7 +164,7 @@ internal sealed class Cs2GcClient : IAsyncDisposable
             FailSession("Disconnected from Steam.");
     }
 
-    // Launches the CS2 GC session after Steam login succeeds.
+    // Start CS2 GC after Steam login.
     private void OnLoggedOn(SteamUser.LoggedOnCallback callback)
     {
         if (callback.Result == EResult.TryAnotherCM &&
@@ -192,7 +192,7 @@ internal sealed class Cs2GcClient : IAsyncDisposable
         _ = SendDelayedGcHelloAsync();
     }
 
-    // Reports a Steam logoff while the generator is active.
+    // Handle Steam logoff.
     private void OnLoggedOff(SteamUser.LoggedOffCallback callback)
     {
         if (_retryingConnectionManager)
@@ -201,7 +201,7 @@ internal sealed class Cs2GcClient : IAsyncDisposable
             FailSession($"Logged off from Steam: {callback.Result}");
     }
 
-    // Handles GC readiness and player profile responses.
+    // Handle GC readiness and profile responses.
     private void OnGcMessage(SteamGameCoordinator.MessageCallback callback)
     {
         if (callback.AppID != AppId)
@@ -220,7 +220,7 @@ internal sealed class Cs2GcClient : IAsyncDisposable
         }
     }
 
-    // Waits briefly before sending the CS2 base client hello.
+    // Delay the CS2 client hello.
     private async Task SendDelayedGcHelloAsync()
     {
         try
@@ -233,7 +233,7 @@ internal sealed class Cs2GcClient : IAsyncDisposable
         }
     }
 
-    // Sends the CS2 base client hello to establish the GC session.
+    // Send the CS2 client hello.
     private void SendBaseClientHello()
     {
         var hello = new ClientGCMsgProtobuf<BaseClientHello>(
@@ -241,7 +241,7 @@ internal sealed class Cs2GcClient : IAsyncDisposable
         _gameCoordinator.Send(hello, AppId);
     }
 
-    // Completes the active request when its account appears in the response.
+    // Complete the matching profile request.
     private void CompleteProfileRequest(PlayersProfile response)
     {
         TaskCompletionSource<uint>? completion;
@@ -261,7 +261,7 @@ internal sealed class Cs2GcClient : IAsyncDisposable
             completion.TrySetResult(profile.Medals?.FeaturedDisplayItemDefIndex ?? 0);
     }
 
-    // Draws the current Steam login URL as an ASCII QR code.
+    // Render the Steam login URL as an ASCII QR code.
     private static void DrawQrCode(QrAuthSession authSession)
     {
         Console.WriteLine("Scan this QR code with the Steam mobile app:");
@@ -279,7 +279,7 @@ internal sealed class Cs2GcClient : IAsyncDisposable
         Console.WriteLine($"QR image: {pngPath}");
     }
 
-    // Fails connection and any active profile request.
+    // Fail connection and pending profile requests.
     private void FailSession(string message)
     {
         var exception = new InvalidOperationException(message);

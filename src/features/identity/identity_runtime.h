@@ -4,31 +4,31 @@
 
 namespace cs2bh::identity_runtime {
 
-// Applies the requested native or disguised identity to all managed clients
+// Apply native or disguised identity to managed clients.
 void ApplyManagedDisguise(bool disguised);
 
-// Selects a non-colliding SteamID for one managed slot
+// Select a collision-free SteamID.
 uint64_t MakeUniqueSteamId(int slot, uint64_t desired);
 
-// Synchronizes the controller fake-client bit for one slot
+// Sync the controller's fake-client bit.
 bool SetControllerFakeClientFlag(int slot, bool fakeClient);
 
-// Restores native identity for managed bots before engine-owned teardown
+// Restore native bot identity before engine teardown.
 int RestoreManagedClientsForEngineTeardown();
 
-// Queues one client controller for identity-checked removal
+// Queue identity-checked controller removal.
 bool QueueControllerRemovalForClient(void* client, int slot);
 
-// Processes queued controller removals
+// Process queued controller removals.
 void DrainPendingControllerRemovals();
 
-// Clears queued controller removals
+// Clear queued controller removals.
 void ClearPendingControllerRemovals();
 
-// Identifies SourceTV before its server-side flag is initialized
+// Detect SourceTV during initialization.
 bool IsHltvConnection(const char* name, const char* networkId);
 
-// Releases one managed slot after it resolves to SourceTV
+// Release managed slots identified as SourceTV.
 bool ReleaseManagedHltvSlot(int slot, void* client);
 
 } // namespace cs2bh::identity_runtime

@@ -32,7 +32,7 @@ namespace cs2bh {
 
 namespace {
 
-// Returns whether a SteamID is used by another connected client
+// Check SteamID collisions with connected clients.
 bool IsSteamIdInUseByOther(uint64_t steamId, int exceptSlot)
 {
     if (steamId == 0 || !g_pNetworkServerService) return false;
@@ -53,7 +53,7 @@ bool IsSteamIdInUseByOther(uint64_t steamId, int exceptSlot)
     return false;
 }
 
-// Generates a random value for SteamID pool selection
+// Generate a random value for SteamID selection.
 uint64_t NextSteamIdRandom()
 {
     static uint64_t state = static_cast<uint64_t>(std::chrono::steady_clock::now().time_since_epoch().count()) | 1ULL;
@@ -65,7 +65,7 @@ uint64_t NextSteamIdRandom()
     return x * 0x2545F4914F6CDD1DULL;
 }
 
-// Resolves the current pawn for one managed bot slot
+// Resolve a managed bot's current pawn.
 BotPawnRef ResolveManagedBotPawn(int slot)
 {
     BotPawnRef result;
@@ -101,7 +101,7 @@ BotPawnRef ResolveManagedBotPawn(int slot)
     return result;
 }
 
-// Checks whether a current client still references one controller
+// Check whether a client references the controller.
 bool IsControllerReferencedByClient(void* controller, uint16_t* userIdOut)
 {
     for (int slot = 0; slot < PersonaPool::kMaxSlots; ++slot)
@@ -127,7 +127,7 @@ bool IsControllerReferencedByClient(void* controller, uint16_t* userIdOut)
 
 } // namespace
 
-// Checks managed non-HLTV controller ownership.
+// Check managed, non-HLTV controller ownership.
 bool IsManagedBotController(void* controller)
 {
     if (!controller || offsets::g_baseEntityFlagsOffset < 0) return false;
@@ -150,7 +150,7 @@ bool IsManagedBotController(void* controller)
     return false;
 }
 
-// Clears FL_BOT for managed pawns during entity packing
+// Clear FL_BOT for managed pawns during packing.
 void ApplyBotFlagOverride(std::vector<BotPawnRef>& modified)
 {
     if (offsets::g_baseEntityFlagsOffset < 0) return;
@@ -160,7 +160,7 @@ void ApplyBotFlagOverride(std::vector<BotPawnRef>& modified)
         BotPawnRef pawn = ResolveManagedBotPawn(slot);
         if (!pawn.instance) continue;
         auto* flags = reinterpret_cast<uint32_t*>(reinterpret_cast<unsigned char*>(pawn.instance) + offsets::g_baseEntityFlagsOffset);
-        // A pawn reached through another slot already has FL_BOT cleared.
+        // Process shared pawns once.
         if ((*flags & offsets::kEntityFlagBot) == 0) continue;
         *flags &= ~offsets::kEntityFlagBot;
         entity_access::MarkEntityFieldChanged(pawn.instance, static_cast<uint32_t>(offsets::g_baseEntityFlagsOffset));
@@ -168,7 +168,7 @@ void ApplyBotFlagOverride(std::vector<BotPawnRef>& modified)
     }
 }
 
-// Restores FL_BOT on every still-current pawn
+// Restore FL_BOT on lifetime-matched pawns.
 void RestoreBotFlagOverride(const std::vector<BotPawnRef>& pawns)
 {
     if (offsets::g_baseEntityFlagsOffset < 0) return;
@@ -194,7 +194,7 @@ void RestoreBotFlagOverride(const std::vector<BotPawnRef>& pawns)
 
 namespace identity_runtime {
 
-// Switches bot flags while retaining the managed SteamID.
+// Update bot flags and preserve the managed SteamID.
 void ApplyManagedDisguise(bool disguised)
 {
     for (int slot = 0; slot < PersonaPool::kMaxSlots; ++slot)
@@ -218,7 +218,7 @@ void ApplyManagedDisguise(bool disguised)
     }
 }
 
-// Selects a non-colliding SteamID for one managed slot
+// Select a collision-free SteamID.
 uint64_t MakeUniqueSteamId(int slot, uint64_t desired)
 {
     if (desired != 0 && !IsSteamIdInUseByOther(desired, slot))
@@ -249,7 +249,7 @@ uint64_t MakeUniqueSteamId(int slot, uint64_t desired)
     return desired;
 }
 
-// Synchronizes the controller fake-client bit for one slot
+// Sync the controller's fake-client bit.
 bool SetControllerFakeClientFlag(int slot, bool fakeClient)
 {
     if (offsets::g_baseEntityFlagsOffset < 0) return false;
@@ -277,7 +277,7 @@ bool SetControllerFakeClientFlag(int slot, bool fakeClient)
     return true;
 }
 
-// Restores native identity for managed bots before engine-owned teardown
+// Restore native bot identity before engine teardown.
 int RestoreManagedClientsForEngineTeardown()
 {
     int restored = 0;
@@ -295,7 +295,7 @@ int RestoreManagedClientsForEngineTeardown()
     return restored;
 }
 
-// Queues one client controller for identity-checked removal
+// Queue identity-checked controller removal.
 bool QueueControllerRemovalForClient(void* client, int slot)
 {
     if (!client) return false;
@@ -332,7 +332,7 @@ bool QueueControllerRemovalForClient(void* client, int slot)
     return true;
 }
 
-// Processes queued controller removals
+// Process queued controller removals.
 void DrainPendingControllerRemovals()
 {
     auto& pending = identity_state::PendingControllerRemovals();
@@ -377,16 +377,16 @@ void DrainPendingControllerRemovals()
     }
 }
 
-// Clears queued controller removals
+// Clear queued controller removals.
 void ClearPendingControllerRemovals() { identity_state::PendingControllerRemovals().clear(); }
 
-// Identifies SourceTV before its server-side flag is initialized
+// Detect SourceTV during initialization.
 bool IsHltvConnection(const char* name, const char* networkId)
 {
     return (name && std::strcmp(name, "SourceTV") == 0) || (networkId && std::strcmp(networkId, "HLTV") == 0);
 }
 
-// Releases one managed slot after it resolves to SourceTV
+// Release managed slots identified as SourceTV.
 bool ReleaseManagedHltvSlot(int slot, void* client)
 {
     if (slot < 0 || slot >= PersonaPool::kMaxSlots || !client || !Manager().IsManaged(slot) || !ssc::IsHltv(client))

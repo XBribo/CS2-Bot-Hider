@@ -1,6 +1,4 @@
-// clan_tag_config.h
-//
-// Parses Clan Tag fields from bot_info.json entries.
+// Clan fields from bot_info.json.
 
 #pragma once
 
@@ -10,7 +8,7 @@
 
 namespace cs2bh {
 
-// Returns an empty pair when either configured clan field is missing or invalid.
+// Parse a clan pair; return empty for missing or invalid fields.
 ClanTag ParseClanTag(const nlohmann::json& value);
 
 } // namespace cs2bh

@@ -1,6 +1,4 @@
-// plugin.h
-//
-// Metamod:Source plugin entry
+// Metamod plugin entry.
 
 #pragma once
 
@@ -40,21 +38,21 @@ class HiderPlugin : public ISmmPlugin, public IMetamodListener
     bool Load(PluginId id, ISmmAPI* ismm, char* error, size_t maxlen, bool late) override;
     bool Unload(char* error, size_t maxlen) override;
 
-    // Returns plugin author metadata.
+    // Plugin author.
     const char* GetAuthor() override;
-    // Returns the plugin name.
+    // Plugin name.
     const char* GetName() override;
-    // Returns the plugin description.
+    // Plugin description.
     const char* GetDescription() override;
-    // Returns the plugin project URL.
+    // Project URL.
     const char* GetURL() override;
-    // Returns the plugin license.
+    // Plugin license.
     const char* GetLicense() override;
-    // Returns the version supplied by the build.
+    // Build version.
     const char* GetVersion() override;
-    // Returns the compilation date and time.
+    // Build timestamp.
     const char* GetDate() override;
-    // Returns the plugin log tag.
+    // Log tag.
     const char* GetLogTag() override;
 
     // IMetamodListener
@@ -80,18 +78,18 @@ class HiderPlugin : public ISmmPlugin, public IMetamodListener
     HookStartChangeLevelPre(INetworkGameServer*, const char* mapName, const char* landmark, void* changelevelState) noexcept;
     KHook::Return<void> HookGameFramePost(IServerGameDLL*, bool simulating, bool firstTick, bool lastTick) noexcept;
 
-    // ICvar::DispatchConCommand — wrap Valve population commands in one identity transaction
+    // Wrap Valve population commands in an identity transaction.
     KHook::Return<void>
     HookDispatchConCommandPre(ICvar*, ConCommandRef command, const CCommandContext&, const CCommand& arguments) noexcept;
     KHook::Return<void>
     HookDispatchConCommandPost(ICvar*, ConCommandRef command, const CCommandContext&, const CCommand& arguments) noexcept;
 
-    // Changes the global managed-bot identity mode
+    // Set the global identity mode.
     void SetIdentityMode(IdentityMode mode);
     bool IsDisguiseEnabled() const { return m_identityMode == IdentityMode::Player; }
     bool IsBotMode() const { return m_identityMode == IdentityMode::Bot; }
 
-    // Toggle the display-name source: true=bot_info.json name, false=botprofile name
+    // Name source: true=bot_info.json, false=botprofile.
     void SetUseBotInfoName(bool useBotInfo) { m_useBotInfoName = useBotInfo; }
 
   private:
@@ -107,13 +105,13 @@ class HiderPlugin : public ISmmPlugin, public IMetamodListener
 
     bool InstallVirtualHooks();
     bool RemoveVirtualHooks();
-    // Queues the deferred Metamod unload after the command hook has detached.
+    // Queue unload after the command hook detaches.
     void ProcessPendingUnload();
-    // Dispatches shared-memory commands to their managed-state writers.
+    // Dispatch shared-memory commands.
     void DrainBridgeCommands();
-    // Applies a collision-resolved SteamID to one managed client.
+    // Apply a collision-free SteamID.
     void ApplySteamIdCommand(int slot, uint64_t steamId);
-    // Updates the engine and published name for one managed client.
+    // Update and publish a managed client's name.
     void ApplyPersonaNameCommand(int slot, const char* name);
 
     INetworkGameServer* m_hookedGameServer = nullptr;
@@ -127,7 +125,7 @@ class HiderPlugin : public ISmmPlugin, public IMetamodListener
     unsigned int m_tickCounter = 0; // throttles per-tick idle-timer reset
     IdentityMode m_identityMode = IdentityMode::Player;
 
-    // Display-name source: false=botprofile name, true=bot_info.json name
+    // Name source: false=botprofile, true=bot_info.json.
     bool m_useBotInfoName = false;
 };
 

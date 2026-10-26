@@ -4,14 +4,14 @@ using CounterStrikeSharp.API.Modules.Memory;
 
 namespace BotHiderImpl;
 
-// Applies configured clan presentation while retaining each controller's original pair.
+// Override clan fields and retain the controller's original values.
 internal sealed class ClanTagPresenter
 {
     private readonly ClanPresentationState?[] _states = new ClanPresentationState?[64];
     private readonly int[] _userIds = new int[64];
     private readonly uint[] _controllerHandles = new uint[64];
 
-    // Applies the selected identity's clan pair to this exact controller.
+    // Apply the identity's clan pair to the controller.
     public void Apply(int slot, CCSPlayerController player, (string Tag, uint GroupId) clan)
     {
         if (player.UserId is not int userId) return;
@@ -43,7 +43,7 @@ internal sealed class ClanTagPresenter
         }
     }
 
-    // Restores the captured clan only while the original controller still owns the slot.
+    // Restore clan fields on the matching controller and user ID.
     public void Restore(int slot)
     {
         var state = _states[slot];
@@ -66,12 +66,12 @@ internal sealed class ClanTagPresenter
         _states[slot] = null;
     }
 
-    // Reads both controller clan fields as one presentation value.
+    // Read the clan tag and group ID.
     private static ClanValue ReadClan(CCSPlayerController player)
         => new(player.Clan ?? string.Empty,
                Schema.GetRef<uint>(player.Handle, "CCSPlayerController", "m_unClanId32bit"));
 
-    // Publishes the clan tag and group ID together.
+    // Publish both clan fields.
     private static void WriteClan(CCSPlayerController player, ClanValue value)
     {
         player.Clan = value.Tag;
@@ -83,13 +83,13 @@ internal sealed class ClanTagPresenter
 
 internal readonly record struct ClanValue(string Tag, uint GroupId);
 
-// Retains the controller's original clan pair until the configured override is released.
+// Retain original clan fields during an override.
 internal sealed class ClanPresentationState
 {
     private ClanValue? _base;
     private bool _pending;
 
-    // Applies or restores both clan fields and retries failed notifications.
+    // Apply or restore clan fields; retry failed notifications.
     public void Apply(ClanValue? requested, Func<ClanValue> read, Action<ClanValue> write)
     {
         if (requested == null && _base == null) return;

@@ -1,6 +1,4 @@
-// bot_info.h
-//
-// Loads bot identity data from addons/BotHider/bot_info.json
+// Bot identities from addons/BotHider/bot_info.json.
 
 #pragma once
 
@@ -26,25 +24,25 @@ struct BotEntry
 class BotInfoStore
 {
   public:
-    // Load from disk. Returns false + logs on failure
+    // Load identities; log failures and return false.
     bool Load(const char* path);
 
-    // Selects an available identity, preferring an exact display-name match
+    // Pick an available identity, preferring an exact name match.
     const BotEntry* PickForBot(const char* engineName);
 
-    // Release an entry's assignment (slot freed / mapchange).
+    // Release an identity assignment.
     void ReleaseAssignment(const BotEntry* entry);
 
-    // Clears all active identity assignment counts
+    // Clear identity assignment counts.
     void ResetAssignments();
 
-    // Returns the number of enabled identity entries
+    // Count enabled identities.
     size_t Count() const { return m_entries.size(); }
 
-    // Returns every enabled identity entry
+    // Read enabled identities.
     const std::vector<BotEntry>& All() const { return m_entries; }
 
-    // Converts a 32-bit account ID to SteamID64
+    // SteamID64 base for 32-bit account IDs.
     static constexpr uint64_t kSteamId64Base = 76561197960265728ULL;
 
   private:
@@ -54,7 +52,7 @@ class BotInfoStore
     uint64_t m_rngState = 0;
 };
 
-// Returns the global bot identity store
+// Access the global identity store.
 BotInfoStore& BotInfo();
 
 } // namespace cs2bh

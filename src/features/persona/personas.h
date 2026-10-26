@@ -1,5 +1,3 @@
-// personas.h
-
 #pragma once
 
 #include <array>
@@ -11,7 +9,7 @@ namespace cs2bh {
 class PersonaPool
 {
   public:
-    // Stores a slot's display name.
+    // Store the slot's display name.
     void SetSlotName(int slot, const char* name);
     void ClearSlot(int slot);
     std::string GetSlotName(int slot) const;

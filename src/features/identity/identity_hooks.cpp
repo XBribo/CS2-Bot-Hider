@@ -70,7 +70,7 @@ bool IsValidController(void* controller, const char* className, uint32_t handle)
 class ScopedNativeBotIdentityRestore
 {
   public:
-    // Skips network updates for read-only queries.
+    // Control network notifications during temporary identity changes.
     explicit ScopedNativeBotIdentityRestore(bool markNetworkChanges = true) : m_markNetworkChanges(markNetworkChanges) { Capture(); }
     ~ScopedNativeBotIdentityRestore() { Restore(); }
 
@@ -256,7 +256,7 @@ thread_local std::vector<std::unique_ptr<ScopedNativeBotIdentityRestore>> g_vote
 thread_local std::vector<std::unique_ptr<ScopedNativeBotIdentityRestore>> g_scriptIsBotFrames;
 thread_local std::vector<BotPawnRef> g_packedPawns;
 
-// Keeps each PRE paired with its POST even when callbacks nest or change identity mode.
+// Pair PRE/POST state across nesting and mode changes.
 void BeginPopulationFrame(std::vector<bool>& frames, bool enabled)
 {
     frames.push_back(enabled);
@@ -264,7 +264,7 @@ void BeginPopulationFrame(std::vector<bool>& frames, bool enabled)
     if (enabled) BeginPopulationTransaction(true);
 }
 
-// Restores the transaction belonging to this invocation, not the current identity mode.
+// Restore this invocation's captured transaction state.
 void EndPopulationFrame(std::vector<bool>& frames)
 {
     const bool enabled = frames.back();
@@ -273,7 +273,7 @@ void EndPopulationFrame(std::vector<bool>& frames)
     --g_hookDepth;
 }
 
-// Restores bot identity before quota evaluation without bypassing other consumers.
+// Restore bot identity for quota evaluation; preserve hook chaining.
 KHook::Return<int64_t> QuotaPre(void*) noexcept
 {
     BeginPopulationFrame(g_quotaFrames, g_plugin.IsDisguiseEnabled());
@@ -287,7 +287,7 @@ KHook::Return<int64_t> QuotaPost(void*) noexcept
     return { KHook::Action::Ignore };
 }
 
-// Captures bot identity for each nested voter count.
+// Capture identity per nested voter count.
 KHook::Return<int> VotersPre(void*) noexcept
 {
     ++g_hookDepth;
@@ -295,7 +295,7 @@ KHook::Return<int> VotersPre(void*) noexcept
     return { KHook::Action::Ignore };
 }
 
-// Restores the matching voter-count snapshot.
+// Restore the matching voter-count snapshot.
 KHook::Return<int> VotersPost(void*) noexcept
 {
     g_voterFrames.pop_back();
@@ -335,7 +335,7 @@ KHook::Return<int64_t> HumanTeamPost() noexcept
     return { KHook::Action::Ignore };
 }
 
-// Restores native identity only for managed non-HLTV team joins.
+// Restore native identity for managed, non-HLTV team joins.
 KHook::Return<bool> JoinTeamPre(void* controller, unsigned int, uint8_t) noexcept
 {
     const bool enabled = g_plugin.IsDisguiseEnabled() && IsManagedBotController(controller);
@@ -350,7 +350,7 @@ KHook::Return<bool> JoinTeamPost(void*, unsigned int, uint8_t) noexcept
     return { KHook::Action::Ignore };
 }
 
-// Serializes packing and clears FL_BOT only for the outermost invocation.
+// Serialize packing; clear FL_BOT at the outermost call.
 KHook::Return<void> PackPre(void*, void*, int, void*, void*) noexcept
 {
     g_packEntitiesMutex.lock();
@@ -359,7 +359,7 @@ KHook::Return<void> PackPre(void*, void*, int, void*, void*) noexcept
     return { KHook::Action::Ignore };
 }
 
-// Restores FL_BOT after all nested packing calls have finished.
+// Restore FL_BOT after the outermost packing call.
 KHook::Return<void> PackPost(void*, void*, int, void*, void*) noexcept
 {
     if (--g_packEntitiesDepth == 0)
@@ -372,7 +372,7 @@ KHook::Return<void> PackPost(void*, void*, int, void*, void*) noexcept
     return { KHook::Action::Ignore };
 }
 
-// Restores native identity only while the end-match state machine can reset teams.
+// Restore native identity during end-match team resets.
 KHook::Return<bool> EndMatchPre(void* gameRules) noexcept
 {
     const bool enabled = g_plugin.IsDisguiseEnabled() && gameRules && g_pickNewTeamsOnResetOffset >= 0 &&
@@ -381,7 +381,7 @@ KHook::Return<bool> EndMatchPre(void* gameRules) noexcept
     return { KHook::Action::Ignore };
 }
 
-// Redisguises surviving clients after the engine finishes its end-match work.
+// Reapply disguise after end-match processing.
 KHook::Return<bool> EndMatchPost(void*) noexcept
 {
     EndPopulationFrame(g_teardownFrames);
@@ -405,7 +405,7 @@ PackHook g_packHook;
 EndMatchHook g_endMatchHook;
 ScriptIsBotHook g_scriptIsBotHook;
 
-// Clears failed targets from diagnostics.
+// Clear failed diagnostic targets.
 template <typename Hook, typename Pre, typename Post>
 void InstallHook(Hook& hook, void*& target, Pre pre, Post post, const char* name)
 {
@@ -418,7 +418,7 @@ void InstallHook(Hook& hook, void*& target, Pre pre, Post post, const char* name
     }
 }
 
-// Clears the resolved targets after hook removal.
+// Clear targets after hook removal.
 void ClearBindings()
 {
     g_quotaHookTarget = nullptr;
@@ -431,7 +431,7 @@ void ClearBindings()
     g_pickNewTeamsOnResetOffset = -1;
 }
 
-// Resolves and prepares the bot quota detour
+// Prepare the bot-quota detour.
 void PrepareQuotaHook(const nlohmann::json& gamedata, const cs2_sdk::modules::ModuleInfo& serverModule)
 {
     if (!serverModule) return;
@@ -440,7 +440,7 @@ void PrepareQuotaHook(const nlohmann::json& gamedata, const cs2_sdk::modules::Mo
     if (!g_quotaHookTarget) BH_LOG_WARN("%s", error);
 }
 
-// Resolves and prepares the eligible-voter count detour
+// Prepare the voter-count detour.
 void PrepareCountPotentialVotersHook(const nlohmann::json& gamedata, const cs2_sdk::modules::ModuleInfo& serverModule)
 {
     if (!serverModule) return;
@@ -450,7 +450,7 @@ void PrepareCountPotentialVotersHook(const nlohmann::json& gamedata, const cs2_s
     if (!g_countPotentialVotersHookTarget) BH_LOG_WARN("%s", error);
 }
 
-// Resolves and prepares the team-join identity detour
+// Prepare the team-join detour.
 void PrepareHandleJoinTeamHook(const nlohmann::json& gamedata, const cs2_sdk::modules::ModuleInfo& serverModule)
 {
     if (!serverModule) return;
@@ -460,7 +460,7 @@ void PrepareHandleJoinTeamHook(const nlohmann::json& gamedata, const cs2_sdk::mo
     if (!g_handleJoinTeamHookTarget) BH_LOG_WARN("%s", error);
 }
 
-// Resolves and prepares the human-team restriction detour
+// Prepare the human-team restriction detour.
 void PrepareHumanTeamRestrictionHook(const nlohmann::json& gamedata, const cs2_sdk::modules::ModuleInfo& serverModule)
 {
     if (!serverModule) return;
@@ -470,7 +470,7 @@ void PrepareHumanTeamRestrictionHook(const nlohmann::json& gamedata, const cs2_s
     if (!g_applyHumanTeamRestrictionHookTarget) BH_LOG_WARN("%s", error);
 }
 
-// Resolves and prepares the entity-packing detour
+// Prepare the entity-packing detour.
 void PreparePackEntitiesHook(const nlohmann::json& gamedata)
 {
     cs2_sdk::modules::Initialize();
@@ -486,7 +486,7 @@ void PreparePackEntitiesHook(const nlohmann::json& gamedata)
     if (!g_packEntitiesHookTarget) BH_LOG_WARN("%s", error);
 }
 
-// Resolves the state-machine entry and its Schema-controlled team-reset condition.
+// Resolve the end-match entry and Schema team-reset flag.
 void PrepareSameMapTeardownHook(const nlohmann::json& gamedata, const cs2_sdk::modules::ModuleInfo& serverModule)
 {
     if (!serverModule) return;
@@ -508,7 +508,7 @@ void PrepareSameMapTeardownHook(const nlohmann::json& gamedata, const cs2_sdk::m
     BH_LOG_DEBUG("CCSGameRules::m_bPickNewTeamsOnReset=0x%x", g_pickNewTeamsOnResetOffset);
 }
 
-// Resolves the named IsBot callback.
+// Resolve the script IsBot callback.
 void PrepareScriptIsBotHook(const nlohmann::json& gamedata, const cs2_sdk::modules::ModuleInfo& serverModule)
 {
     g_scriptIsBotHookTarget = nullptr;
@@ -547,7 +547,7 @@ void PrepareScriptIsBotHook(const nlohmann::json& gamedata, const cs2_sdk::modul
 
 } // namespace
 
-// Resolves and prepares every optional identity detour
+// Prepare optional identity detours.
 void PrepareAll(const nlohmann::json& gamedata, const cs2_sdk::modules::ModuleInfo& serverModule)
 {
     PrepareQuotaHook(gamedata, serverModule);
@@ -559,7 +559,7 @@ void PrepareAll(const nlohmann::json& gamedata, const cs2_sdk::modules::ModuleIn
     PrepareScriptIsBotHook(gamedata, serverModule);
 }
 
-// Installs every successfully prepared identity detour
+// Install prepared identity detours.
 void InstallPrepared()
 {
     InstallHook(g_quotaHook, g_quotaHookTarget, QuotaPre, QuotaPost, "CCSBotManager::MaintainBotQuota");
@@ -579,7 +579,7 @@ void InstallPrepared()
     }
 }
 
-// Removes identity detours outside callbacks.
+// Remove identity detours outside callbacks.
 bool Remove()
 {
     if (g_hookDepth != 0)
@@ -587,7 +587,7 @@ bool Remove()
         BH_LOG_ERROR("hook removal rejected: identity callback active");
         return false;
     }
-    // KHook waits for active calls; holding the packing mutex here would deadlock them.
+    // KHook waits for active calls with the packing mutex unlocked.
     g_scriptIsBotHook.Remove();
     g_packHook.Remove();
     g_endMatchHook.Remove();
@@ -599,25 +599,25 @@ bool Remove()
     return true;
 }
 
-// Returns the resolved bot-quota hook target
+// Read the bot-quota hook target.
 void* MaintainQuotaTarget() { return g_quotaHookTarget; }
 
-// Returns the resolved eligible-voter count hook target
+// Read the voter-count hook target.
 void* CountPotentialVotersTarget() { return g_countPotentialVotersHookTarget; }
 
-// Returns the resolved entity-packing hook target
+// Read the entity-packing hook target.
 void* PackEntitiesTarget() { return g_packEntitiesHookTarget; }
 
-// Returns the resolved team-join hook target
+// Read the team-join hook target.
 void* HandleJoinTeamTarget() { return g_handleJoinTeamHookTarget; }
 
-// Returns the resolved human-team restriction hook target
+// Read the human-team restriction hook target.
 void* HumanTeamRestrictionTarget() { return g_applyHumanTeamRestrictionHookTarget; }
 
-// Returns the resolved same-map teardown helper target
+// Read the end-match hook target.
 void* SameMapTeardownTarget() { return g_sameMapTeardownHookTarget; }
 
-// Returns the script IsBot target.
+// Read the script IsBot target.
 void* ScriptIsBotTarget() { return g_scriptIsBotHookTarget; }
 
 } // namespace cs2bh::identity_hooks

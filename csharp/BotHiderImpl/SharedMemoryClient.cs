@@ -7,8 +7,7 @@ using BotHiderApi;
 
 namespace BotHiderImpl;
 
-// Reads BotHider's shared-memory data region and posts write commands
-// src/slot_shm.h
+// Shared-memory client for src/bridge/slot_shm.h.
 public sealed class SharedMemoryClient : IBotHiderApi, IDisposable
 {
     private static readonly string MappingName = "CS2BotHider_Slots_" + Environment.ProcessId.ToString(CultureInfo.InvariantCulture);
@@ -42,11 +41,11 @@ public sealed class SharedMemoryClient : IBotHiderApi, IDisposable
     private const int MaxSigs = 8;
     // Scoreboard flair region
     private const int OffScoreboardFlair = 10400;  // uint32[64]
-    // Base identity and native slot incarnation region
+    // Base identity and slot lifetime
     private const int OffBaseSyntheticSid = 10656;  // uint64[64]
     private const int OffBasePersonaName = 11168;  // char[64][32]
     private const int OffIncarnation = 13216;  // uint64[64]
-    // Custom avatar request and native application state
+    // Avatar requests and application state
     private const int OffAvatarSequence = 13728;  // uint32[64]
     private const int OffAvatarLength = 13984;  // uint32[64]
     private const int OffAvatarIncarnation = 14240;  // uint64[64]
@@ -54,7 +53,7 @@ public sealed class SharedMemoryClient : IBotHiderApi, IDisposable
     private const int OffAvatarAppliedSid = 14816;  // uint64[64]
     private const int OffCommandIncarnation = 15328; // uint64[CmdCount]
     private const int OffAvatarData = 16384;  // byte[64][16 KiB]
-    // Configured clan presentation region
+    // Clan presentation
     private const int OffClanGroupId = 1_064_960; // uint32[64]
     private const int OffClanTag = 1_065_216; // char[64][128]
     private const int ClanTagLen = 128;
@@ -89,7 +88,7 @@ public sealed class SharedMemoryClient : IBotHiderApi, IDisposable
     private readonly bool[] _scoreboardFlairAssigned = new bool[MaxSlots];
     private readonly ulong[] _scoreboardFlairIncarnations = new ulong[MaxSlots];
 
-    // Captures presentation callbacks that retain the queued slot lifetime.
+    // Bind lifetime-aware presentation callbacks.
     public SharedMemoryClient(Action<int, string, ulong>? onVisibleName = null,
                               Action<int, ulong>? onSteamIdQueued = null,
                               Action<int, uint, ulong>? onScoreboardFlair = null,
@@ -101,7 +100,7 @@ public sealed class SharedMemoryClient : IBotHiderApi, IDisposable
         _onCrosshairCode = onCrosshairCode;
     }
 
-    // Try to open the existing mapping. Returns false if BotHider isn't loaded yet
+    // Open and validate the native mapping.
     public bool TryConnect()
     {
         if (_view != null) return true;
@@ -125,7 +124,7 @@ public sealed class SharedMemoryClient : IBotHiderApi, IDisposable
         catch (Exception) { Dispose(); return false; }
     }
 
-    // Reopens the native memfd without taking ownership of its original descriptor.
+    // Open a separate handle to the native memfd.
     private static MemoryMappedFile OpenLinuxMapping()
     {
         foreach (string path in Directory.EnumerateFiles("/proc/self/fd"))
@@ -139,7 +138,7 @@ public sealed class SharedMemoryClient : IBotHiderApi, IDisposable
 
     private bool Valid(int slot) => _view != null && slot >= 0 && slot < MaxSlots;
 
-    // Returns whether the shared memory bridge is connected
+    // Check or establish the bridge connection.
     public bool IsConnected()
     {
         if (_view != null) return true;
@@ -154,11 +153,11 @@ public sealed class SharedMemoryClient : IBotHiderApi, IDisposable
     public ulong GetBotSteamId(int slot) =>
         Valid(slot) ? _view!.ReadUInt64(OffSyntheticSid + slot * 8) : 0UL;
 
-    // Returns the native persona SteamID before C# presentation overrides
+    // Read the base native SteamID.
     public ulong GetBaseBotSteamId(int slot) =>
         Valid(slot) ? _view!.ReadUInt64(OffBaseSyntheticSid + slot * 8) : 0UL;
 
-    // Returns the native lifetime identity for the current managed slot
+    // Read the slot's lifetime ID.
     public ulong GetSlotIncarnation(int slot) =>
         Valid(slot) ? _view!.ReadUInt64(OffIncarnation + slot * 8) : 0UL;
 
@@ -193,11 +192,11 @@ public sealed class SharedMemoryClient : IBotHiderApi, IDisposable
         return ReadFixedUtf8(slot, OffPersonaName, NameLen);
     }
 
-    // Returns the native persona name before C# presentation overrides
+    // Read the base native name.
     public string GetBasePersonaName(int slot)
         => ReadFixedUtf8(slot, OffBasePersonaName, NameLen);
 
-    // Reads one fixed-size NUL-terminated UTF-8 field
+    // Read a fixed-size NUL-terminated UTF-8 field.
     private string ReadFixedUtf8(int slot, int baseOffset, int fieldLength)
     {
         if (!Valid(slot)) return string.Empty;
@@ -214,14 +213,14 @@ public sealed class SharedMemoryClient : IBotHiderApi, IDisposable
     public string GetCrosshairCode(int slot)
         => ReadFixedUtf8(slot, OffCrosshair, CrosshairLen);
 
-    // Returns the configured clan pair for the selected native identity.
+    // Read the identity's clan pair.
     public (string Tag, uint GroupId) GetClan(int slot)
         => IsManagedBot(slot)
             ? (ReadFixedUtf8(slot, OffClanTag, ClanTagLen),
                _view!.ReadUInt32(OffClanGroupId + slot * sizeof(uint)))
             : (string.Empty, 0);
 
-    // Returns whether native has applied an avatar to the current SteamID
+    // Check avatar application for the current SteamID.
     public bool HasBotAvatar(int slot)
     {
         if (!IsManagedBot(slot) || _view!.ReadByte(OffAvatarApplied + slot) == 0)
@@ -230,7 +229,7 @@ public sealed class SharedMemoryClient : IBotHiderApi, IDisposable
         return appliedSid != 0 && appliedSid == GetBotSteamId(slot);
     }
 
-    // Returns the configured PNG size for the current slot incarnation
+    // Read PNG size for the current slot lifetime.
     public int GetConfiguredAvatarSize(int slot)
     {
         if (!IsManagedBot(slot) ||
@@ -242,7 +241,7 @@ public sealed class SharedMemoryClient : IBotHiderApi, IDisposable
         return checked((int)length);
     }
 
-    // Write crosshair code to shared memory, empty or "0" to clear
+    // Set crosshair; empty or "0" clears it.
     public bool SetCrosshairCode(int slot, string code)
     {
         if (!IsManagedBot(slot)) return false;
@@ -255,7 +254,7 @@ public sealed class SharedMemoryClient : IBotHiderApi, IDisposable
         return true;
     }
 
-    // Returns the assigned or newly randomized scoreboard flair
+    // Cache flair for the slot lifetime.
     public uint GetScoreboardFlair(int slot)
     {
         if (!IsManagedBot(slot)) return 0U;
@@ -270,7 +269,7 @@ public sealed class SharedMemoryClient : IBotHiderApi, IDisposable
         return _scoreboardFlairs[slot];
     }
 
-    // Read the resolved hook/signature status table
+    // Read hook addresses.
     public (string Name, ulong Addr)[] GetSignatures()
     {
         if (_view == null) TryConnect();
@@ -294,7 +293,7 @@ public sealed class SharedMemoryClient : IBotHiderApi, IDisposable
 
     // IBotHiderApi: write side
 
-    // Queues a SteamID request without exposing an unconfirmed display value.
+    // Queue SteamID assignment; publish after native resolution.
     public bool SetBotSteamId(int slot, ulong steamId64)
     {
         if (!Valid(slot)) return false;
@@ -303,7 +302,7 @@ public sealed class SharedMemoryClient : IBotHiderApi, IDisposable
         return ok;
     }
 
-    // Associates the name override and deferred write with the queued lifetime.
+    // Bind the name override to the queued lifetime.
     public bool SetPersonaName(int slot, string name)
     {
         if (!Valid(slot)) return false;
@@ -319,7 +318,7 @@ public sealed class SharedMemoryClient : IBotHiderApi, IDisposable
         return ok;
     }
 
-    // Builds a visible name bounded by the shared-memory UTF-8 field
+    // Normalize a visible name to the UTF-8 field limit.
     private static string BuildBoundedVisiblePersonaName(string? source)
     {
         if (string.IsNullOrWhiteSpace(source))
@@ -365,7 +364,7 @@ public sealed class SharedMemoryClient : IBotHiderApi, IDisposable
         return string.Concat(boundedElements);
     }
 
-    // Returns whether a text element contains only invisible runes
+    // Check for an all-invisible text element.
     private static bool IsInvisiblePersonaElement(string element)
     {
         foreach (Rune rune in element.EnumerateRunes())
@@ -376,7 +375,7 @@ public sealed class SharedMemoryClient : IBotHiderApi, IDisposable
         return true;
     }
 
-    // Returns whether a text element contains only whitespace and invisible runes
+    // Check for whitespace and invisible runes.
     private static bool IsWhitespacePersonaElement(string element)
     {
         bool hasWhitespace = false;
@@ -393,7 +392,7 @@ public sealed class SharedMemoryClient : IBotHiderApi, IDisposable
         return hasWhitespace;
     }
 
-    // Returns whether a rune should be removed from a presentation name
+    // Check for a filtered name rune.
     private static bool IsInvisiblePersonaRune(Rune rune)
     {
         return Rune.GetUnicodeCategory(rune) is
@@ -408,7 +407,7 @@ public sealed class SharedMemoryClient : IBotHiderApi, IDisposable
             UnicodeCategory.EnclosingMark;
     }
 
-    // Overrides the C#-side scoreboard flair for a managed bot
+    // Override a managed bot's flair.
     public bool SetScoreboardFlair(int slot, uint itemDefIndex)
     {
         if (!IsManagedBot(slot) || itemDefIndex > ushort.MaxValue) return false;
@@ -421,7 +420,7 @@ public sealed class SharedMemoryClient : IBotHiderApi, IDisposable
         return true;
     }
 
-    // Changes the global managed-bot identity mode
+    // Set the global identity mode.
     public bool SetIdentityMode(BotIdentityMode mode)
     {
         if (mode is not BotIdentityMode.Player and not BotIdentityMode.Bot) return false;
@@ -430,7 +429,7 @@ public sealed class SharedMemoryClient : IBotHiderApi, IDisposable
         return PostCommand(CmdSetIdentityMode, SlotAll, (ulong)mode, null, out _);
     }
 
-    // Global display-name source toggle (1=bot_info name, 0=botprofile name)
+    // Name source: 1=bot_info, 0=botprofile.
     public bool SetNameSource(bool useBotInfo)
     {
         if (_view == null) TryConnect();
@@ -438,7 +437,7 @@ public sealed class SharedMemoryClient : IBotHiderApi, IDisposable
         return PostCommand(CmdSetNameSource, SlotAll, useBotInfo ? 1UL : 0UL, null, out _);
     }
 
-    // Returns the same incarnation stamped into the native command queue.
+    // Queue a command with its target lifetime ID.
     private bool PostCommand(byte type, int slot, ulong sid, string? name, out ulong incarnation)
     {
         incarnation = 0;
@@ -471,11 +470,11 @@ public sealed class SharedMemoryClient : IBotHiderApi, IDisposable
         return true;
     }
 
-    // Reads and queues one validated PNG avatar file
+    // Queue a validated PNG avatar.
     public bool SetBotAvatar(int slot, string pngPath)
         => TrySetBotAvatar(slot, pngPath, out _);
 
-    // Reads and queues one PNG avatar file with a validation error
+    // Validate and queue a PNG avatar; report errors.
     public bool TrySetBotAvatar(int slot, string pngPath, out string error)
     {
         error = string.Empty;
@@ -554,14 +553,14 @@ public sealed class SharedMemoryClient : IBotHiderApi, IDisposable
         return true;
     }
 
-    // Queues removal of the custom avatar for one slot
+    // Queue avatar removal.
     internal bool ClearAvatarRequest(int slot)
     {
         if (!Valid(slot)) return false;
         return WriteAvatarRequest(slot, 0UL, ReadOnlySpan<byte>.Empty);
     }
 
-    // Writes one avatar request using a per-slot seqlock
+    // Write an avatar request under the slot seqlock.
     private bool WriteAvatarRequest(int slot, ulong incarnation, ReadOnlySpan<byte> bytes)
     {
         if (!Valid(slot) || bytes.Length > AvatarMaxBytes) return false;
@@ -586,7 +585,7 @@ public sealed class SharedMemoryClient : IBotHiderApi, IDisposable
         return true;
     }
 
-    // Reads stable avatar request metadata without copying PNG data
+    // Read stable avatar metadata.
     private bool TryReadAvatarMetadata(int slot, out uint sequence,
                                        out uint length, out ulong incarnation)
     {
@@ -618,7 +617,7 @@ public sealed class SharedMemoryClient : IBotHiderApi, IDisposable
         return false;
     }
 
-    // Encodes a fixed-size UTF-8 field without truncating a character
+    // Encode complete UTF-8 characters within a fixed field.
     private static bool TryEncodeFixedUtf8(string value, int fieldLength, out byte[] buffer)
     {
         buffer = new byte[fieldLength];
@@ -629,7 +628,7 @@ public sealed class SharedMemoryClient : IBotHiderApi, IDisposable
         return true;
     }
 
-    // Drops local flair state when C++ releases a slot
+    // Clear flair state for released slot lifetimes.
     private void ClearReleasedScoreboardFlairs(bool[] managed)
     {
         for (int slot = 0; slot < MaxSlots; slot++)
