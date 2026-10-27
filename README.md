@@ -1,60 +1,65 @@
+<div align="center">
+
 # BotHider
 
 **Make Bot Vivid Again**
 
-> Developer guide: [TECH.md](TECH.md).
+<p>
+  <a href="https://github.com/XBribo/CS2-Bot-Hider/releases/latest"><img src="https://img.shields.io/github/v/release/XBribo/CS2-Bot-Hider?style=flat-square" alt="Release"></a>
+  <a href="https://github.com/XBribo/CS2-Bot-Hider/releases/latest"><img src="https://img.shields.io/badge/platforms-Windows%20%7C%20Linux-0078D4?style=flat-square" alt="Platforms"></a>
+  <a href="LICENSE"><img src="https://img.shields.io/badge/license-AGPL--3.0-blue?style=flat-square" alt="License"></a>
+</p>
 
-## Your stars⭐ are my motivation to keep updating
+[Quick Start](#quick-start) · [Configuration](#configuration) · [Commands](#commands) · [Customization](#customization) · [Developer Guide](TECH.md)
 
-------------------------------------------------------------------------
+</div>
 
-## Overview
+A Counter-Strike 2 plugin that removes the scoreboard's `BOT` tag and gives bots custom SteamID64s, names, ping, crosshairs, scoreboard flair, clan tags, and PNG avatars.
 
-`BotHider` is a plugin for **Counter-Strike 2** that makes bots look like real human players.
+### Signature Status
 
-- Removes the `BOT` tag from the scoreboard
-- Each bot gets its own SteamID64, display name, ping, crosshair, scoreboard flair, and optional custom PNG avatar
+[![CS2 Bot Signatures Tracker](https://raw.githubusercontent.com/XBribo/cs2-bot-signatures/main/.github/docs/summary.svg)](https://github.com/XBribo/cs2-bot-signatures)
 
-------------------------------------------------------------------------
-
-## Install
+## Quick Start
 
 1. Install Metamod:Source and CounterStrikeSharp.
 2. Download the Windows or Linux package from [Releases](https://github.com/XBribo/CS2-Bot-Hider/releases/latest).
-3. Copy its `addons/` folder into `game/csgo/` and restart the server.
+3. Copy `addons/` into `game/csgo/` and restart the server.
 
-The packaged `addons/BotHider/config.json` selects the identity mode and fake-ping behavior. Use `"player"` for synthetic-player presentation or `"bot"` to retain Valve's bot flags. Fake ping stays within the configured range. Missing settings use defaults.
+## Configuration
 
-------------------------------------------------------------------------
+Edit `game/csgo/addons/BotHider/config.json`. See the [default config](configs/addons/BotHider/config.json).
 
-## Console Commands
+| Setting | Default | Description |
+| --- | --- | --- |
+| `identity_mode` | `"player"` | Player-like presentation; `"bot"` retains Valve's bot flags |
+| `fake_ping.enabled` | `true` | Fake ping between `fake_ping.min` and `fake_ping.max` (20–90 ms by default) |
+| `commands.require_permissions` | `false` | Require admin permission for all `bh_*` commands |
+| `commands.permission` | `"@bothider/admin"` | Required flag when checks are enabled |
+
+> **Public servers:** all commands are public by default. Set `commands.require_permissions` to `true` and reload `BotHiderImpl` to restrict access.
+
+## Commands
+
+Use engine player slots (`0–63`) from `bh_status`. Quote names and paths containing spaces.
 
 | Command | Description |
-| --------- | ------------- |
-| `bh_status` | Show every bot's details |
-| `bh_setname <slot> <name>` | Change a bot's name |
-| `bh_setsid <slot> <SteamID64>` | Change a bot's SteamID |
-| `bh_setcrosshair <slot> <code>` | Change a bot's crosshair (`0` clears it) |
-| `bh_setflair <slot> <item_def_index>` | Change a bot's scoreboard flair (`0` clears it) |
-| `bh_setavatar <slot> <png_path/0>` | Apply a server-local PNG avatar, or use `0` to clear it |
-| `bh_identity_mode <player/bot>` | Change the managed-bot identity mode |
-| `bh_namesource <0/1>` | **0** = use name from `botprofile.db` (default)<br>**1** = use name from `bot_info.json` (only affects new bots) |
+| --- | --- |
+| `bh_status` | List managed bots and details |
+| `bh_setname <slot> <name>` | Set display name |
+| `bh_setsid <slot> <SteamID64>` | Set SteamID64 |
+| `bh_setcrosshair <slot> <code>` | Set crosshair; `0` clears |
+| `bh_setflair <slot> <item_def_index>` | Set scoreboard flair; `0` clears |
+| `bh_setavatar <slot> <png_path\|0>` | Set server-local PNG avatar; `0` clears |
+| `bh_identity_mode <player\|bot>` | Set identity mode |
+| `bh_namesource <0\|1>` | Names from `botprofile.db` (**0**, default) or `bot_info.json` (**1**); new bots only |
 
-### Command Permissions
+<details>
+<summary><strong>Permissions and admin groups</strong></summary>
 
-All `bh_*` commands, including avatars, are public by default. To require permission, set this in `addons/BotHider/config.json` and reload `BotHiderImpl`:
+When checks are enabled, players need `commands.permission`, `@css/root`, or `@css/admin`. Console and RCON bypass checks. Missing settings keep commands public; invalid or unreadable config restricts access.
 
-```json
-"commands": {
-    "require_permissions": true,
-    "permission": "@bothider/admin"
-}
-```
-
-- Players need the configured permission, `@css/root`, or `@css/admin`. Server console and RCON are always allowed.
-- Missing settings keep commands public; invalid or unreadable config uses restricted defaults.
-
-For a BotHider-only group, merge this into CSS `configs/admin_groups.json`, keeping existing groups:
+Add a BotHider group to CSS `configs/admin_groups.json`, preserving existing groups:
 
 ```json
 {
@@ -64,110 +69,62 @@ For a BotHider-only group, merge this into CSS `configs/admin_groups.json`, keep
 }
 ```
 
-Add `"#bothider/admin"` to the admin's `groups` in CSS `configs/admins.json`, then run `css_groups_reload` followed by `css_admins_reload` from the server console.
+Add `"#bothider/admin"` to the admin's `groups` in CSS `configs/admins.json`. Run `css_groups_reload`, then `css_admins_reload` from the server console.
 
-If you change `commands.permission`, update the group's flag to match. Disabling checks lets any player modify bots and select server-local avatar PNGs.
+Keep the group's flag in sync with `commands.permission`.
 
-------------------------------------------------------------------------
+</details>
 
-## Custom Bot Avatars
+## Customization
 
-BotHider can apply a server-local PNG file as the avatar of a managed bot. The file must:
+### Bot Identities
 
-- Be a valid, non-empty PNG
-- Be no larger than **16 KiB**
-- Be readable by the game server
+Edit `game/csgo/addons/BotHider/bot_info.json`, then restart the server and respawn bots:
 
-Use the engine player slot shown by `bh_status`. Quote paths that contain spaces:
+```json
+{
+  "players": {
+    "73936547": {
+      "player_name": "s1mple",
+      "crosshair_code": "CSGO-pE5f8-6RQvk-HLpdN-KW3J6-BQwLA",
+      "scoreboard_flair": 6034,
+      "clan_tag": "DRAGODINDE",
+      "clan_group_id": 33294804
+    }
+  }
+}
+```
+
+- **Identity:** `players` keys are nonzero 32-bit account IDs, auto-converted to SteamID64. Use unique IDs; duplicates may be replaced.
+- **Name:** `player_name` is required. Exact engine-name matches take priority; otherwise, an unused entry is chosen, reusing one if needed. `bh_namesource 1` applies the entry's name to new bots.
+- **Crosshair and flair:** optional. Missing, invalid, or `0` flair stays empty. Look up flair IDs in [cs2-econ-id-index](https://github.com/unicbm/cs2-econ-id-index).
+- **Clan tag:** `clan_tag` and the 32-bit `clan_group_id` must both be valid. Requires `sv_clantags_enabled 1`.
+
+### Custom Avatars
+
+Use a valid server-local PNG up to **16 KiB**, readable by the server:
 
 ```text
 bh_setavatar 1 "E:/game/csgo/addons/avatars/player.png"
 bh_setavatar 1 0
 ```
 
-This command follows the same configurable permission rules as every other `bh_*` command. `bh_status` reports avatar state as `avatar=<applied>/<bytes>`, for example `avatar=True/8011B`.
+`bh_status` shows avatar state and size, e.g. `avatar=True/8011B`.
 
-The avatar is associated with the bot's final SteamID64. BotHider automatically rebinds it when that bot's SteamID changes, clears the old override when the bot disconnects, and prevents a new bot in the same slot from inheriting it.
+> The scoreboard updates, but the compact score strip may keep a cached avatar.
 
-CS2 uses separate caches for some HUD surfaces. `ServerAvatarOverrides` updates the scoreboard avatar, but the compact score strip can retain its previous cached avatar and is not guaranteed to refresh immediately.
+## Credits
 
-------------------------------------------------------------------------
+Thanks to the [replica](https://github.com/44076-meow/replica) project.
 
-## Custom Identities (bot_info.json)
+Created by [XBribo](https://github.com/XBribo), with thanks to [un1](https://github.com/unicbm), [ed0ard](https://github.com/ed0ard), [御坂17032号](https://github.com/Misaka17032), [Miksen](https://github.com/mrc4tt), and all contributors.
 
-Edit `game/csgo/addons/BotHider/bot_info.json` to define bot identities:
+[![BotHider contributors](https://contrib.rocks/image?repo=XBribo/CS2-Bot-Hider)](https://github.com/XBribo/CS2-Bot-Hider/graphs/contributors)
 
-```json
-{
-  "players": {
-    "73936547": {
-        "player_name": "s1mple",
-        "crosshair_code": "CSGO-pE5f8-6RQvk-HLpdN-KW3J6-BQwLA",
-        "scoreboard_flair": 6034
-    },
-    "153400465": {
-        "player_name": "ZywOo",
-        "crosshair_code": "CSGO-FqJYj-kLuW3-V2QZ3-xbkQK-PHPYE",
-        "scoreboard_flair": 5226,
-        "clan_tag": "DRAGODINDE",
-        "clan_group_id": 33294804
-    }
-  }
-}
-```
-
-- **players keys**: Nonzero 32-bit account IDs, converted to SteamID64 automatically.
-- **player_name**: Required name, used to match the engine's bot name.
-- **crosshair_code**: The crosshair share code to apply to the bot (optional).
-- **scoreboard_flair**: The item definition index used as the bot's scoreboard flair (optional, `0` clears it).
-- **clan_tag**, **clan_group_id**: Optional pair for the bot's displayed Steam group tag and 32-bit group ID. Both must be present; invalid or incomplete pairs are ignored.
-
-Clan tags also require the server setting `sv_clantags_enabled 1`.
-
-If `scoreboard_flair` is missing, invalid, or set to `0`, BotHider leaves the scoreboard flair empty.
-Use [unicbm/cs2-econ-id-index](https://github.com/unicbm/cs2-econ-id-index) to look up valid scoreboard flair item definition IDs.
-
-BotHider prefers an exact `player_name` match with the engine's bot name; otherwise it picks an unused entry, reusing one if necessary. Set `bh_namesource 1` to use the selected entry's name for newly created bots.
-
-------------------------------------------------------------------------
-
-## FAQ
-
-**Q: Why does a bot use a different identity from the one I edited?**
-
-A: Account IDs are keys inside `players`, not a `steamid` field. Set `player_name` to the bot's `botprofile.db` name for a preferred match. Restart the server after editing and spawn the bot again. `bh_namesource` controls display names, not identity selection.
-
-**Q: Can I give the same SteamID to multiple bots?**
-
-A: Give each bot a distinct account ID. If the requested SteamID is already in use, BotHider selects another available ID, so the final SteamID may differ from the configured one.
-
-**Q: Can I change a bot's identity in game?**
-
-A: Yes. Use `bh_setsid <slot> <SteamID64>` and `bh_setname <slot> <name>` to assign a new SteamID or name to a bot already in the game.
-
-For API integration and build instructions, see [TECH.md](TECH.md).
-
-------------------------------------------------------------------------
-
-## Special thanks
-
-- [replica](https://github.com/44076-meow/replica)
-- [un1](https://github.com/unicbm)
-- [ed0ard](https://github.com/ed0ard)
-- [御坂17032号](https://github.com/Misaka17032)
-- [Miksen](https://github.com/mrc4tt)
-
-------------------------------------------------------------------------
+Star BotHider to support development.
 
 ## License
 
 CS2-Bot-Hider is licensed under the GNU Affero General Public License version 3 (AGPL-3.0).
 Commercial use involving closed-source distribution or hosted services may require a separate license.
-See the LICENSE file for details.
-
-------------------------------------------------------------------------
-
-## Author
-
-- **XBribo**
-- Other contributors
+See [LICENSE](LICENSE) for details.
