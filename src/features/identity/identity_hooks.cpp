@@ -12,17 +12,14 @@
 #include "serversideclient_ref.h"
 #include "core/cs2_sdk/src/core/schema.h"
 #include "core/cs2_sdk/src/core/memory_module.h"
-#include "core/cs2_sdk/src/utils/memory.h"
 #include "core/cs2_sdk/src/utils/hooks.h"
 #include "offsets.h"
 
 #include <cstdint>
 #include <array>
-#include <cstring>
 #include <memory>
 #include <mutex>
 #include <utility>
-#include <string>
 #include <vector>
 
 #include <entity2/entityinstance.h>
@@ -512,37 +509,10 @@ void PrepareSameMapTeardownHook(const nlohmann::json& gamedata, const cs2_sdk::m
 void PrepareScriptIsBotHook(const nlohmann::json& gamedata, const cs2_sdk::modules::ModuleInfo& serverModule)
 {
     g_scriptIsBotHookTarget = nullptr;
-    if (!serverModule || !cs2_sdk::modules::server) return;
-    constexpr const char* kTargetName = "CSPlayerController::ScriptIsBot";
-    const std::string signature = cs2_sdk::gameconfig::FindPlatformSig(gamedata, kTargetName);
-    const int nameReferenceOffset = cs2_sdk::gameconfig::FindPlatformOffset(gamedata, kTargetName, -1);
-    std::vector<uint8_t> bytes;
-    std::vector<bool> wildcards;
-    if (nameReferenceOffset < 0 || !cs2_sdk::modules::ParseSigString(signature, bytes, wildcards))
-    {
-        BH_LOG_WARN("ScriptIsBot disabled: invalid signature/name reference");
-        return;
-    }
-
-    const auto& image = cs2_sdk::modules::server->Image();
-    void* target = nullptr;
-    for (void* match : cs2_sdk::modules::FindPatternMatchesIn(serverModule, bytes, wildcards, 0))
-    {
-        const auto* reference = static_cast<unsigned char*>(match) + nameReferenceOffset;
-        if (!cs2_sdk::modules::ContainsRange(serverModule, reference, 7)) continue;
-        // Validates a RIP-relative LEA.
-        if ((reference[0] & 0xFB) != 0x48 || reference[1] != 0x8D || (reference[2] & 0xC7) != 0x05) continue;
-        const void* name = cs2_sdk::memory::ResolveRelativeAddress(reference, 3, 7);
-        if (!cs2_sdk::modules::ContainsRange(image, name, sizeof("IsBot")) || std::memcmp(name, "IsBot", sizeof("IsBot")) != 0) continue;
-        if (target)
-        {
-            BH_LOG_WARN("ScriptIsBot disabled: callback ambiguous");
-            return;
-        }
-        target = match;
-    }
-    g_scriptIsBotHookTarget = target;
-    if (!target) BH_LOG_WARN("ScriptIsBot disabled: callback unresolved");
+    if (!serverModule) return;
+    char error[256]{};
+    g_scriptIsBotHookTarget = cs2_sdk::gameconfig::ResolveSig(gamedata, serverModule, "CSPlayerController::ScriptIsBot", error, sizeof(error));
+    if (!g_scriptIsBotHookTarget) BH_LOG_WARN("%s", error);
 }
 
 } // namespace
