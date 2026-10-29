@@ -159,19 +159,12 @@ Returns `bool`. Changes apply to runtime state.
 
 ### Identity Updates
 
-- API calls run on the game thread through C exports. Identity and global setters report acceptance; client presentation follows on `Server.NextFrame`.
-- Name setters publish the accepted name. Crosshair and flair overrides persist in slot state across provider reloads.
-- Names are trimmed, stripped of invisible-only text elements, and limited to `BotHiderContract.MaxPlayerNameUtf8Bytes` at Unicode text-element boundaries. A non-empty normalized name is required.
-- Explicit SteamID64 conflicts and unavailable collision checks reject the request and preserve the current identity. Automatic assignment selects an available configured identity.
+- Call the API on the game thread. Display updates are asynchronous.
+- `GetPersonaName` returns the final applied name.
+- Names are normalized to at most 31 UTF-8 bytes; empty names are rejected.
+- SteamID64 conflicts or failed availability checks leave the current identity unchanged. New bots use available configured identities.
 - Player mode requires the active server's change-level hook. Failed level-hook rebinding switches to Bot mode.
 - `BotHiderImpl` patches `CCSPlayerController.IsBot` to return `true` for managed bots. Use `IsManagedBot` to check BotHider ownership.
-
-### Paired Reloads
-
-- `BotHider` and `BotHiderImpl` ship together; their C layouts and exports form a private contract.
-- Unload `BotHiderImpl`, unload `BotHider`, then load `BotHider` and `BotHiderImpl` in that order.
-- `BotHider` unload is rejected while the provider is attached. Disposed API references remain unavailable; acquire the capability again after reload.
-- `BotHider` reload re-adopts existing bots from configured identities and resets runtime overrides.
 
 ### Avatars
 
