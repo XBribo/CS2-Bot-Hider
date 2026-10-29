@@ -11,7 +11,7 @@ public enum BotIdentityMode
     Bot = 1,
 }
 
-// Calls run on the game thread; slot parameters use the engine player slot.
+// Game-thread API; player slots are 0-63.
 public interface IBotHiderApi
 {
     bool IsManagedBot(int slot);
@@ -26,7 +26,7 @@ public interface IBotHiderApi
 
     string GetCrosshairCode(int slot);
 
-    // Check native avatar application.
+    // Check avatar application.
     bool HasBotAvatar(int slot);
 
     // Read the flair item definition index.

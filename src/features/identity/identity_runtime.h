@@ -4,7 +4,7 @@
 
 namespace cs2bh::identity_runtime {
 
-// Apply native or disguised identity to managed clients.
+// Apply the selected identity mode.
 void ApplyManagedDisguise(bool disguised);
 
 enum class SteamIdAvailability
@@ -23,7 +23,7 @@ uint64_t SelectSteamIdForBot(int slot, uint64_t desired);
 // Sync the controller's fake-client bit.
 bool SetControllerFakeClientFlag(int slot, bool fakeClient);
 
-// Restore native bot identity before engine teardown.
+// Restore bot identity before teardown.
 int RestoreManagedClientsForEngineTeardown();
 
 // Queue identity-checked controller removal.

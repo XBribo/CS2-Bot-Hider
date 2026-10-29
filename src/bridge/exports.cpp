@@ -1,4 +1,4 @@
-#include "native_bridge.h"
+#include "bridge.h"
 
 #include "plugin.h"
 #include "slot_publisher.h"
@@ -25,7 +25,7 @@ bool Target(int slot, uint64_t incarnation)
     return state.managed && incarnation != 0 && incarnation == state.incarnation;
 }
 
-// Keep C++ exceptions inside the native boundary.
+// Contain C++ exceptions.
 template <typename F> int Apply(F&& operation) noexcept
 {
     try

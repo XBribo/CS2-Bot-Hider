@@ -1,6 +1,6 @@
 #pragma once
 
-#include "native_bridge.h"
+#include "bridge.h"
 
 #include <array>
 #include <cstdint>
@@ -8,7 +8,7 @@
 
 namespace cs2bh {
 
-// Internal slot access uses indices validated by engine callbacks or the C bridge.
+// Callers validate slot indices.
 class SlotPublisher
 {
   public:

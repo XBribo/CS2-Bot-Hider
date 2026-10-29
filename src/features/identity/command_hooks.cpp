@@ -203,7 +203,7 @@ bool HiderPlugin::SetIdentityMode(IdentityMode mode)
     return true;
 }
 
-// Restore native identity and clear state before level change.
+// Restore bot identity before level change.
 KHook::Return<CServerChangelevelState*>
 HiderPlugin::HookStartChangeLevelPre(INetworkGameServer*,
                                      const char* mapName,

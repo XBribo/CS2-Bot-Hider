@@ -11,7 +11,6 @@ inline constexpr int kClanTagLen = 128;
 inline constexpr int kMaxSigs = 8;
 inline constexpr int kAvatarMaxBytes = 16 * 1024;
 
-// C# mirrors these fixed-width, eight-byte-aligned layouts.
 struct SlotSnapshot
 {
     uint64_t steamId = 0;

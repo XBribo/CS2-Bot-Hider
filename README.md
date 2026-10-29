@@ -26,7 +26,7 @@ A Counter-Strike 2 plugin that removes the scoreboard's `BOT` tag and gives bots
 2. Download the Windows or Linux package from [Releases](https://github.com/XBribo/CS2-Bot-Hider/releases/latest).
 3. Copy `addons/` into `game/csgo/` and restart the server.
 
-For paired reloads, unload `BotHiderImpl` before native `BotHider`; load them in reverse order using matching package files.
+For paired reloads, unload `BotHiderImpl` before `BotHider`; load them in reverse order using matching package files.
 
 ## Configuration
 
@@ -43,7 +43,7 @@ Edit `game/csgo/addons/BotHider/config.json`. See the [default config](configs/a
 
 ## Commands
 
-Use engine player slots (`0–63`) from `bh_status`. Quote names and paths containing spaces.
+Use player slots (`0–63`) from `bh_status`. Quote names and paths containing spaces.
 
 | Command | Description |
 | --- | --- |

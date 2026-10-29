@@ -58,7 +58,7 @@ C# provider and API contract:
 dotnet build csharp/BotHiderImpl/BotHiderImpl.csproj -c Release -o build/csharp
 ```
 
-Native output: `<build-directory>/package/addons/`. Use `build.ps1` for complete packages.
+C++ output: `<build-directory>/package/addons/`. Use `build.ps1` for complete packages.
 
 ## C# Integration
 
@@ -118,7 +118,7 @@ See CounterStrikeSharp's [shared plugin API guide](https://docs.cssharp.dev/docs
 
 ## API Reference
 
-Contract: [IBotHiderApi.cs](csharp/BotHiderApi/IBotHiderApi.cs). Use engine player slots (`CCSPlayerController.Slot.Value`) and check ownership with `IsManagedBot(slot)`.
+Contract: [IBotHiderApi.cs](csharp/BotHiderApi/IBotHiderApi.cs). Use player slots (`CCSPlayerController.Slot`) and check ownership with `IsManagedBot(slot)`.
 
 ### Read State
 
@@ -159,8 +159,8 @@ Returns `bool`. Changes apply to runtime state.
 
 ### Identity Updates
 
-- API calls run on the game thread through native C exports. Identity and global setters return native acceptance; client presentation follows on `Server.NextFrame`.
-- Name setters publish the engine-accepted name. Crosshair and flair overrides persist in native slot state across provider reloads.
+- API calls run on the game thread through C exports. Identity and global setters report acceptance; client presentation follows on `Server.NextFrame`.
+- Name setters publish the accepted name. Crosshair and flair overrides persist in slot state across provider reloads.
 - Names are trimmed, stripped of invisible-only text elements, and limited to `BotHiderContract.MaxPlayerNameUtf8Bytes` at Unicode text-element boundaries. A non-empty normalized name is required.
 - Explicit SteamID64 conflicts and unavailable collision checks reject the request and preserve the current identity. Automatic assignment selects an available configured identity.
 - Player mode requires the active server's change-level hook. Failed level-hook rebinding switches to Bot mode.
@@ -168,10 +168,10 @@ Returns `bool`. Changes apply to runtime state.
 
 ### Paired Reloads
 
-- Native and managed components ship together; their C layouts and exports form a private contract.
-- Unload `BotHiderImpl`, unload native `BotHider`, then load native `BotHider` and `BotHiderImpl` in that order.
-- Native unload is rejected while the provider is attached. Disposed API references remain unavailable; acquire the capability again after reload.
-- Native reload re-adopts existing bots from configured identities and resets runtime overrides.
+- `BotHider` and `BotHiderImpl` ship together; their C layouts and exports form a private contract.
+- Unload `BotHiderImpl`, unload `BotHider`, then load `BotHider` and `BotHiderImpl` in that order.
+- `BotHider` unload is rejected while the provider is attached. Disposed API references remain unavailable; acquire the capability again after reload.
+- `BotHider` reload re-adopts existing bots from configured identities and resets runtime overrides.
 
 ### Avatars
 

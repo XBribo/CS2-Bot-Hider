@@ -5,8 +5,7 @@ using BotHiderApi;
 
 namespace BotHiderImpl;
 
-// The native plugin and this provider ship together and run on the game thread.
-internal sealed unsafe class NativeClient : IBotHiderApi, IDisposable
+internal sealed unsafe class BridgeClient : IBotHiderApi, IDisposable
 {
     private const int MaxSlots = 64;
     private const int AvatarMaxBytes = 16 * 1024;
@@ -51,7 +50,7 @@ internal sealed unsafe class NativeClient : IBotHiderApi, IDisposable
     private delegate* unmanaged[Cdecl]<int, int> _setMode;
     private delegate* unmanaged[Cdecl]<int, int> _setNameSource;
 
-    public NativeClient(string libraryPath,
+    public BridgeClient(string libraryPath,
                         Action<int, string, ulong>? onVisibleName = null,
                         Action<int, ulong>? onSteamId = null,
                         Action<int, uint, ulong>? onScoreboardFlair = null,
@@ -189,7 +188,7 @@ internal sealed unsafe class NativeClient : IBotHiderApi, IDisposable
         error = string.Empty;
         if (!ReadSlot(slot, out var s))
         {
-            error = "native bridge is unavailable";
+            error = "bridge is unavailable";
             return false;
         }
         if (s.Managed == 0)
@@ -223,7 +222,7 @@ internal sealed unsafe class NativeClient : IBotHiderApi, IDisposable
         {
             if (_setAvatar(slot, s.Incarnation, data, bytes.Length) != 0) return true;
         }
-        error = "native avatar request rejected: check the managed slot and PNG data";
+        error = "avatar request rejected: check the managed slot and PNG data";
         return false;
     }
 
@@ -317,7 +316,7 @@ internal sealed unsafe class NativeClient : IBotHiderApi, IDisposable
     {
         if (_disposed) return;
         if (Environment.CurrentManagedThreadId != _threadId)
-            throw new InvalidOperationException("Dispose the native client on the game thread.");
+            throw new InvalidOperationException("Dispose on the game thread.");
         _disposed = true;
         if (_library == 0) return;
         _detach();

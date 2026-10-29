@@ -20,7 +20,7 @@ public partial class BotHiderImplPlugin : BasePlugin
     public static PluginCapability<IBotHiderApi> Capability { get; } =
         new("bothider:api");
 
-    private NativeClient? _client;
+    private BridgeClient? _client;
     private IBotHiderApi? _api;
     private readonly string[] _appliedCrosshair = new string[64];
     private readonly uint[] _appliedScoreboardFlair = new uint[64];
@@ -34,7 +34,7 @@ public partial class BotHiderImplPlugin : BasePlugin
         Server.PrintToConsole($"[BotHider] {PluginBuildInfo.DisplayVersion}, built {PluginBuildInfo.BuildTime}");
         LoadCommandPermissions();
         // Bind scoreboard updates.
-        _client = new NativeClient(
+        _client = new BridgeClient(
             Path.Combine(Server.GameDirectory, "addons", "BotHider", "bin",
                 OperatingSystem.IsWindows() ? "win64" : "linuxsteamrt64",
                 OperatingSystem.IsWindows() ? "BotHider.dll" : "BotHider.so"),
@@ -46,7 +46,7 @@ public partial class BotHiderImplPlugin : BasePlugin
         {
             _client.Dispose();
             _client = null;
-            throw new InvalidOperationException("Load the matching native BotHider plugin before BotHiderImpl.");
+            throw new InvalidOperationException("Load the matching BotHider plugin before BotHiderImpl.");
         }
         try
         {
@@ -319,7 +319,7 @@ public partial class BotHiderImplPlugin : BasePlugin
     }
 
     // Sync the controller's published name and SteamID.
-    private static void ReconcileVisibleIdentity(NativeClient client, int slot,
+    private static void ReconcileVisibleIdentity(BridgeClient client, int slot,
                                                  CCSPlayerController player)
     {
         string name = client.GetPersonaName(slot);
@@ -390,9 +390,9 @@ public partial class BotHiderImplPlugin : BasePlugin
 
 internal sealed class BotHiderCapabilityApi : IBotHiderApi
 {
-    private readonly NativeClient _client;
+    private readonly BridgeClient _client;
 
-    public BotHiderCapabilityApi(NativeClient client)
+    public BotHiderCapabilityApi(BridgeClient client)
     {
         _client = client;
     }
@@ -415,7 +415,7 @@ internal sealed class BotHiderCapabilityApi : IBotHiderApi
     // Read the crosshair code.
     public string GetCrosshairCode(int slot) => _client.GetCrosshairCode(slot);
 
-    // Check native avatar application.
+    // Check avatar application.
     public bool HasBotAvatar(int slot) => _client.HasBotAvatar(slot);
 
     // Read the flair item definition index.

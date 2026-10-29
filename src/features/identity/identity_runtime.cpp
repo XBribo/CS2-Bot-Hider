@@ -284,7 +284,7 @@ bool SetControllerFakeClientFlag(int slot, bool fakeClient)
     return true;
 }
 
-// Restore native bot identity before engine teardown.
+// Restore bot identity before teardown.
 int RestoreManagedClientsForEngineTeardown()
 {
     int restored = 0;
