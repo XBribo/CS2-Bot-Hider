@@ -132,11 +132,9 @@ bool HiderPlugin::AttachGameServerHook()
 // Release level state.
 void HiderPlugin::OnLevelShutdown()
 {
-    identity_state::ClearAll();
-    Manager().ReleaseAll();
+    identity_state::ReleaseAll();
     avatar::ProcessOverrides();
     avatar::ResetRuntime();
-    BotInfo().ResetAssignments();
     BH_LOG_DEBUG("level shutdown");
 }
 
@@ -284,8 +282,7 @@ bool HiderPlugin::Unload(char* error, size_t maxlen)
     m_hookedGameServer = nullptr;
     m_unloadPending = false;
     identity_runtime::RestoreManagedClientsForEngineTeardown();
-    identity_state::ClearAll();
-    Manager().ReleaseAll();
+    identity_state::ReleaseAll();
     avatar::ProcessOverrides();
     avatar::ResetRuntime();
     Manager().Shutdown();

@@ -146,9 +146,7 @@ KHook::Return<void> HiderPlugin::HookClientPutInServerPost(IServerGameClients*,
         identity_runtime::SetControllerFakeClientFlag(index, true);
         ssc::WriteSteamId(client, 0);
         entity_access::RefreshClientUserInfo(index);
-        BotInfo().ReleaseAssignment(identity_state::SlotEntry(index));
-        identity_state::ClearSlot(index);
-        Manager().ReleaseSlot(index);
+        identity_state::ReleaseSlot(index);
         return { KHook::Action::Ignore };
     }
 
@@ -201,9 +199,7 @@ KHook::Return<void> HiderPlugin::HookClientDisconnectPre( // NOLINT(readability-
         }
     }
 
-    BotInfo().ReleaseAssignment(identity_state::SlotEntry(index));
-    identity_state::ClearSlot(index);
-    Manager().ReleaseSlot(index);
+    identity_state::ReleaseSlot(index);
 
     return { KHook::Action::Ignore };
 }

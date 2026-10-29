@@ -3,7 +3,6 @@
 #include "plugin.h"
 
 #include "avatar_override.h"
-#include "bot_info.h"
 #include "core/interfaces.h"
 #include "entity_access.h"
 #include "fake_client_manager.h"
@@ -210,10 +209,8 @@ HiderPlugin::HookStartChangeLevelPre(INetworkGameServer*,
 {
     const hooks::CallbackScope callbackScope;
     const int restoredClients = identity_runtime::RestoreManagedClientsForEngineTeardown();
-    identity_state::ClearAll();
-    Manager().ReleaseAll();
+    identity_state::ReleaseAll();
     avatar::ProcessOverrides();
-    BotInfo().ResetAssignments();
     BH_LOG_DEBUG("level change restored=%d map='%s' landmark='%s'", restoredClients, mapName ? mapName : "?", landmark ? landmark : "");
     return { KHook::Action::Ignore, nullptr };
 }

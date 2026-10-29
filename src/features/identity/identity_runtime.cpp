@@ -2,7 +2,6 @@
 #include "identity_runtime.h"
 
 #include "ISmmPlugin.h"
-#include "bot_info.h"
 #include "entity_access.h"
 #include "fake_client_manager.h"
 #include "identity_hooks.h"
@@ -332,9 +331,7 @@ bool ReleaseManagedHltvSlot(int slot, void* client)
     }
     entity_access::RefreshClientUserInfo(slot);
 
-    BotInfo().ReleaseAssignment(identity_state::SlotEntry(slot));
-    identity_state::ClearSlot(slot);
-    Manager().ReleaseSlot(slot);
+    identity_state::ReleaseSlot(slot);
 
     BH_LOG_DEBUG("slot=%d released: HLTV", slot);
     return true;
