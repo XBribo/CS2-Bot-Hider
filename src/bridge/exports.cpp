@@ -1,7 +1,7 @@
 #include "bridge.h"
 
 #include "plugin.h"
-#include "slot_publisher.h"
+#include "fake_client_manager.h"
 
 #include <cstring>
 
@@ -14,14 +14,14 @@
 namespace {
 using namespace cs2bh;
 
-bool Connected() { return Publisher().IsReady() && Publisher().HasProvider(); }
+bool Connected() { return Manager().IsReady() && Manager().HasProvider(); }
 
 bool ValidSlot(int slot) { return Connected() && slot >= 0 && slot < bridge::kMaxSlots; }
 
 bool Target(int slot, uint64_t incarnation)
 {
     if (!ValidSlot(slot)) return false;
-    const auto& state = Publisher().Slot(slot);
+    const auto& state = Manager().Slot(slot);
     return state.managed && incarnation != 0 && incarnation == state.incarnation;
 }
 
@@ -47,25 +47,25 @@ template <size_t N> bool CopyInput(char (&buffer)[N], const char* text, int leng
 }
 } // namespace
 
-BH_EXPORT int BH_Attach() noexcept { return cs2bh::Publisher().Attach() ? 1 : 0; }
+BH_EXPORT int BH_Attach() noexcept { return cs2bh::Manager().Attach() ? 1 : 0; }
 
 BH_EXPORT void BH_Detach() noexcept
 {
-    if (cs2bh::Publisher().IsReady()) cs2bh::Publisher().Detach();
+    if (cs2bh::Manager().IsReady()) cs2bh::Manager().Detach();
 }
 
 BH_EXPORT int BH_GetSlot(int slot, cs2bh::bridge::SlotSnapshot* output, int size) noexcept
 {
     if (!ValidSlot(slot) || !output || size != static_cast<int>(sizeof(*output))) return 0;
-    *output = cs2bh::Publisher().Slot(slot);
+    *output = cs2bh::Manager().Slot(slot);
     return 1;
 }
 
 BH_EXPORT int BH_GetSignatures(cs2bh::bridge::Signature* output, int capacity) noexcept
 {
-    if (!Connected() || !output || capacity < cs2bh::Publisher().SignatureCount()) return 0;
-    int count = cs2bh::Publisher().SignatureCount();
-    std::memcpy(output, cs2bh::Publisher().Signatures(), count * sizeof(*output));
+    if (!Connected() || !output || capacity < cs2bh::Manager().SignatureCount()) return 0;
+    int count = cs2bh::Manager().SignatureCount();
+    std::memcpy(output, cs2bh::Manager().Signatures(), count * sizeof(*output));
     return count;
 }
 
@@ -90,7 +90,7 @@ BH_EXPORT int BH_SetCrosshair(int slot, uint64_t incarnation, const char* code, 
     return Apply([&] {
         char buffer[cs2bh::bridge::kCrosshairLen];
         if (!Target(slot, incarnation) || !CopyInput(buffer, code, length)) return false;
-        cs2bh::Publisher().UpdateCrosshair(slot, buffer);
+        cs2bh::Manager().UpdateCrosshair(slot, buffer);
         return true;
     });
 }
@@ -98,7 +98,7 @@ BH_EXPORT int BH_SetCrosshair(int slot, uint64_t incarnation, const char* code, 
 BH_EXPORT int BH_SetFlair(int slot, uint64_t incarnation, uint32_t flair) noexcept
 {
     if (!Target(slot, incarnation) || flair > UINT16_MAX) return 0;
-    cs2bh::Publisher().UpdateScoreboardFlair(slot, flair);
+    cs2bh::Manager().UpdateScoreboardFlair(slot, flair);
     return 1;
 }
 
@@ -109,7 +109,7 @@ BH_EXPORT int BH_SetAvatar(int slot, uint64_t incarnation, const unsigned char* 
         static constexpr unsigned char signature[] = { 0x89, 'P', 'N', 'G', 0x0d, 0x0a, 0x1a, 0x0a };
         if (length && (!data || length < static_cast<int>(sizeof(signature)) || std::memcmp(data, signature, sizeof(signature))))
             return false;
-        cs2bh::Publisher().SetAvatarRequest(slot, data, static_cast<uint32_t>(length));
+        cs2bh::Manager().SetAvatarRequest(slot, data, static_cast<uint32_t>(length));
         return true;
     });
 }

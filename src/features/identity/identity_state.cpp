@@ -1,6 +1,6 @@
 #include "identity_state.h"
 
-#include "personas.h"
+#include "bridge.h"
 
 #include <array>
 #include <string>
@@ -10,8 +10,8 @@ namespace cs2bh::identity_state {
 
 namespace {
 
-std::array<const BotEntry*, PersonaPool::kMaxSlots> g_slotEntries{};
-std::array<std::string, PersonaPool::kMaxSlots> g_originalSlotNames{};
+std::array<const BotEntry*, bridge::kMaxSlots> g_slotEntries{};
+std::array<std::string, bridge::kMaxSlots> g_originalSlotNames{};
 std::vector<PendingControllerRemoval> g_pendingControllerRemovals;
 std::vector<PendingBotKick> g_pendingBotKicks;
 
@@ -25,16 +25,10 @@ void BindSlot(int slot, const BotEntry* entry, const char* originalName)
 }
 
 // Read the slot's identity entry.
-const BotEntry* SlotEntry(int slot)
-{
-    return g_slotEntries[slot];
-}
+const BotEntry* SlotEntry(int slot) { return g_slotEntries[slot]; }
 
 // Read the slot's original engine name.
-const std::string& OriginalSlotName(int slot)
-{
-    return g_originalSlotNames[slot];
-}
+const std::string& OriginalSlotName(int slot) { return g_originalSlotNames[slot]; }
 
 // Clear slot identity.
 void ClearSlot(int slot)

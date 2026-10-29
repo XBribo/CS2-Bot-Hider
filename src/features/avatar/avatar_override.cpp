@@ -3,9 +3,7 @@
 
 #include "ISmmPlugin.h"
 #include "fake_client_manager.h"
-#include "personas.h"
 #include "plugin.h" // NOLINT(misc-include-cleaner)
-#include "slot_publisher.h"
 
 #include <array>
 #include <cstdint>
@@ -28,7 +26,7 @@ struct AvatarRuntimeState
 };
 
 INetworkStringTableContainer* g_networkStringTables = nullptr;
-std::array<AvatarRuntimeState, PersonaPool::kMaxSlots> g_avatarStates{};
+std::array<AvatarRuntimeState, bridge::kMaxSlots> g_avatarStates{};
 INetworkStringTable* g_lastAvatarTable = nullptr;
 
 // Formats a SteamID64 key for ServerAvatarOverrides
@@ -141,8 +139,8 @@ void ResetRuntime()
 {
     g_avatarStates.fill(AvatarRuntimeState{});
     g_lastAvatarTable = nullptr;
-    for (int slot = 0; slot < PersonaPool::kMaxSlots; ++slot)
-        Publisher().PublishAvatarState(slot, false, 0);
+    for (int slot = 0; slot < bridge::kMaxSlots; ++slot)
+        Manager().PublishAvatarState(slot, false, 0);
 }
 
 // Apply pending avatars on the game thread.
@@ -156,20 +154,19 @@ void ProcessOverrides()
     {
         g_avatarStates.fill(AvatarRuntimeState{});
         g_lastAvatarTable = table;
-        for (int slot = 0; slot < PersonaPool::kMaxSlots; ++slot)
-            Publisher().PublishAvatarState(slot, false, 0);
+        for (int slot = 0; slot < bridge::kMaxSlots; ++slot)
+            Manager().PublishAvatarState(slot, false, 0);
     }
 
-    for (int slot = 0; slot < PersonaPool::kMaxSlots; ++slot)
+    for (int slot = 0; slot < bridge::kMaxSlots; ++slot)
     {
-        const auto& request = Publisher().GetAvatarRequest(slot);
+        const auto& request = Manager().GetAvatarRequest(slot);
         const uint32_t sequence = request.sequence;
         const uint32_t length = request.length;
         const uint64_t incarnation = request.incarnation;
 
         AvatarRuntimeState& state = g_avatarStates[slot];
-        bool currentRequest =
-            Manager().IsManaged(slot) && length > 0 && incarnation != 0 && incarnation == Publisher().GetIncarnation(slot);
+        bool currentRequest = Manager().IsManaged(slot) && length > 0 && incarnation != 0 && incarnation == Manager().GetIncarnation(slot);
         uint64_t steamId = currentRequest ? Manager().GetSyntheticSid(slot) : 0;
         if (!currentRequest || steamId == 0)
         {
@@ -182,7 +179,7 @@ void ProcessOverrides()
             state.processedSteamId = 0;
             state.appliedSteamId = 0;
             state.applied = false;
-            Publisher().PublishAvatarState(slot, false, 0);
+            Manager().PublishAvatarState(slot, false, 0);
             continue;
         }
 
@@ -196,7 +193,7 @@ void ProcessOverrides()
         state.processedSteamId = steamId;
         state.appliedSteamId = 0;
         state.applied = false;
-        Publisher().PublishAvatarState(slot, false, 0);
+        Manager().PublishAvatarState(slot, false, 0);
 
         if (!EnsureReliableAvatarData()) continue;
 
@@ -210,7 +207,7 @@ void ProcessOverrides()
 
         state.appliedSteamId = steamId;
         state.applied = true;
-        Publisher().PublishAvatarState(slot, true, steamId);
+        Manager().PublishAvatarState(slot, true, steamId);
         BH_LOG_DEBUG("avatar applied slot=%d sid=%llu bytes=%u index=%d", slot, steamId, request.length, index);
     }
 }

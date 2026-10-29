@@ -9,7 +9,6 @@
 #include "identity_hooks.h"
 #include "identity_runtime.h"
 #include "identity_state.h"
-#include "personas.h"
 #include "serversideclient_ref.h"
 #include "steam/steamtypes.h"
 
@@ -57,7 +56,7 @@ KHook::Return<void> HiderPlugin::HookOnClientConnectedPost( // NOLINT(readabilit
     }
 
     const int index = slot.Get();
-    if (index < 0 || index >= PersonaPool::kMaxSlots || Manager().IsManaged(index))
+    if (index < 0 || index >= bridge::kMaxSlots || Manager().IsManaged(index))
     {
         return { KHook::Action::Ignore };
     }
@@ -101,7 +100,7 @@ bool HiderPlugin::AdoptClient(int index, void* client, const char* name)
 
 void HiderPlugin::AdoptExistingBots()
 {
-    for (int slot = 0; slot < PersonaPool::kMaxSlots; ++slot)
+    for (int slot = 0; slot < bridge::kMaxSlots; ++slot)
     {
         void* client = entity_access::ResolveClientBySlot(slot);
         if (!client || !ssc::IsFakePlayerSet(client) || ssc::IsHltv(client)) continue;
@@ -109,7 +108,7 @@ void HiderPlugin::AdoptExistingBots()
         if (identity_runtime::IsHltvConnection(name, nullptr)) continue;
         if (AdoptClient(slot, client, name))
         {
-            const std::string visibleName = Personas().GetSlotName(slot);
+            const std::string visibleName = Manager().GetSlotName(slot);
             entity_access::SetEngineName(client, visibleName.c_str());
         }
     }
@@ -125,7 +124,7 @@ KHook::Return<void> HiderPlugin::HookClientPutInServerPost(IServerGameClients*,
     const hooks::CallbackScope callbackScope;
     (void)type;
     const int index = slot.Get();
-    if (index < 0 || index >= PersonaPool::kMaxSlots || !Manager().IsManaged(index))
+    if (index < 0 || index >= bridge::kMaxSlots || !Manager().IsManaged(index))
     {
         return { KHook::Action::Ignore };
     }
@@ -160,7 +159,7 @@ KHook::Return<void> HiderPlugin::HookClientPutInServerPost(IServerGameClients*,
     }
     ssc::WriteSteamId(client, desiredSteamId);
 
-    std::string visibleName = Personas().GetSlotName(index);
+    std::string visibleName = Manager().GetSlotName(index);
     if (visibleName.empty() && name) visibleName = name;
     if (!visibleName.empty())
     {
@@ -185,7 +184,7 @@ KHook::Return<void> HiderPlugin::HookClientDisconnectPre( // NOLINT(readability-
 {
     const hooks::CallbackScope callbackScope;
     const int index = slot.Get();
-    if (index < 0 || index >= PersonaPool::kMaxSlots || !Manager().IsManaged(index))
+    if (index < 0 || index >= bridge::kMaxSlots || !Manager().IsManaged(index))
     {
         return { KHook::Action::Ignore };
     }

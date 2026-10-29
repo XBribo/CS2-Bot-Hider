@@ -14,7 +14,6 @@
 #include "fake_client_manager.h"
 #include "identity_hooks.h"
 #include "playerslot.h"
-#include "slot_publisher.h"
 #include "steam/steamtypes.h"
 #include "offsets.h"
 #include "core/cs2_sdk/src/core/memory_module.h"
@@ -205,23 +204,21 @@ bool HiderPlugin::Load(PluginId id, ISmmAPI* ismm, char* error, size_t maxlen, b
     m_identityMode = settings.botMode ? IdentityMode::Bot : IdentityMode::Player;
 
     Manager().Init();
-
-    Publisher().Init();
-    Publisher().PublishSignature("UTIL_Remove", entity_access::UtilRemoveTarget());
-    Publisher().PublishSignature("MaintainBotQuota", identity_hooks::MaintainQuotaTarget());
-    Publisher().PublishSignature("CountPotentialVoters", identity_hooks::CountPotentialVotersTarget());
-    Publisher().PublishSignature("PackEntities", identity_hooks::PackEntitiesTarget());
-    Publisher().PublishSignature("HandleJoinTeam", identity_hooks::HandleJoinTeamTarget());
-    Publisher().PublishSignature("HumanTeamRestriction", identity_hooks::HumanTeamRestrictionTarget());
-    Publisher().PublishSignature("SameMapTeardown", identity_hooks::SameMapTeardownTarget());
-    Publisher().PublishSignature("ScriptIsBot", identity_hooks::ScriptIsBotTarget());
+    Manager().PublishSignature("UTIL_Remove", entity_access::UtilRemoveTarget());
+    Manager().PublishSignature("MaintainBotQuota", identity_hooks::MaintainQuotaTarget());
+    Manager().PublishSignature("CountPotentialVoters", identity_hooks::CountPotentialVotersTarget());
+    Manager().PublishSignature("PackEntities", identity_hooks::PackEntitiesTarget());
+    Manager().PublishSignature("HandleJoinTeam", identity_hooks::HandleJoinTeamTarget());
+    Manager().PublishSignature("HumanTeamRestriction", identity_hooks::HumanTeamRestrictionTarget());
+    Manager().PublishSignature("SameMapTeardown", identity_hooks::SameMapTeardownTarget());
+    Manager().PublishSignature("ScriptIsBot", identity_hooks::ScriptIsBotTarget());
 
     // Load bot identities.
     std::string jsonPath = g_SMAPI->GetBaseDir();
     jsonPath += "/addons/BotHider/bot_info.json";
     if (!BotInfo().Load(jsonPath.c_str()))
     {
-        BH_LOG_WARN("bot_info unavailable path='%s': using engine names", jsonPath.c_str());
+        BH_LOG_WARN("bot_info unavailable path='%s': bot identities disabled", jsonPath.c_str());
     }
 
     if (!InstallVirtualHooks())
@@ -253,12 +250,12 @@ bool HiderPlugin::Load(PluginId id, ISmmAPI* ismm, char* error, size_t maxlen, b
 // Remove hooks and release plugin modules.
 bool HiderPlugin::Unload(char* error, size_t maxlen)
 {
-    if (Publisher().HasProvider())
+    if (Manager().HasProvider())
     {
         std::snprintf(error, maxlen, "unload BotHiderImpl before BotHider");
         return false;
     }
-    Publisher().BeginShutdown();
+    Manager().BeginShutdown();
     if (!hooks::CanRemoveHooks())
     {
         if (!m_unloadPending)
@@ -291,7 +288,7 @@ bool HiderPlugin::Unload(char* error, size_t maxlen)
     Manager().ReleaseAll();
     avatar::ProcessOverrides();
     avatar::ResetRuntime();
-    Publisher().Shutdown();
+    Manager().Shutdown();
     avatar::SetStringTableContainer(nullptr);
     entity_access::Reset();
     cs2_sdk::schema::Reset();

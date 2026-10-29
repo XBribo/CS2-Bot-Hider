@@ -7,7 +7,6 @@
 #include "fake_client_manager.h"
 #include "identity_runtime.h"
 #include "nlohmann/json.hpp"
-#include "personas.h"
 #include "plugin.h"
 #include "serversideclient_ref.h"
 #include "core/cs2_sdk/src/core/schema.h"
@@ -77,7 +76,7 @@ class ScopedBotIdentityRestore
 
     void Capture()
     {
-        for (int slot = 0; slot < PersonaPool::kMaxSlots; ++slot)
+        for (int slot = 0; slot < bridge::kMaxSlots; ++slot)
         {
             if (!Manager().IsManaged(slot)) continue;
 

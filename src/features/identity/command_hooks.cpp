@@ -10,9 +10,7 @@
 #include "identity_hooks.h"
 #include "identity_runtime.h"
 #include "identity_state.h"
-#include "personas.h"
 #include "serversideclient_ref.h"
-#include "slot_publisher.h"
 
 #include <cstdint>
 #include <cstdlib>
@@ -46,10 +44,10 @@ bool IsBotAddCommand(const char* name)
 int FindManagedSlotByPersonaName(const char* name)
 {
     if (!name || !name[0]) return -1;
-    for (int slot = 0; slot < PersonaPool::kMaxSlots; ++slot)
+    for (int slot = 0; slot < bridge::kMaxSlots; ++slot)
     {
         if (!Manager().IsManaged(slot)) continue;
-        if (Personas().GetSlotName(slot) == name) return slot;
+        if (Manager().GetSlotName(slot) == name) return slot;
     }
     return -1;
 }
@@ -63,7 +61,7 @@ int FindManagedSlotByUserId(const char* value)
     const long userId = std::strtol(value, &end, 10);
     if (!end || end == value || end[0] != '\0' || userId < 0 || userId > UINT16_MAX) return -1;
 
-    for (int slot = 0; slot < PersonaPool::kMaxSlots; ++slot)
+    for (int slot = 0; slot < bridge::kMaxSlots; ++slot)
     {
         if (!Manager().IsManaged(slot)) continue;
         void* client = entity_access::ResolveClientBySlot(slot);
@@ -77,14 +75,14 @@ int FindManagedSlotByUserId(const char* value)
 // Capture the bot's client, user ID, and lifetime for deferred removal.
 bool QueueManagedBotKick(int slot)
 {
-    if (slot < 0 || slot >= PersonaPool::kMaxSlots) return false;
+    if (slot < 0 || slot >= bridge::kMaxSlots) return false;
     if (!g_icvar || !Manager().IsManaged(slot) || !g_icvar->FindConCommand("bot_kick").IsValidRef()) return false;
     void* client = entity_access::ResolveClientBySlot(slot);
-    if (!client || ssc::IsHltv(client) || Personas().GetSlotName(slot).empty()) return false;
+    if (!client || ssc::IsHltv(client) || Manager().GetSlotName(slot).empty()) return false;
 
     const uint16_t userId = *reinterpret_cast<const uint16_t*>(static_cast<const unsigned char*>(client) + ssc::g_userIdOffset);
     identity_state::PendingBotKicks().push_back(
-        { .slot = slot, .client = client, .userId = userId, .incarnation = Publisher().GetIncarnation(slot) });
+        { .slot = slot, .client = client, .userId = userId, .incarnation = Manager().GetIncarnation(slot) });
     return true;
 }
 
@@ -106,9 +104,9 @@ void DrainPendingBotKicks()
         if (!client || client != kick.client || ssc::IsHltv(client)) continue;
         const uint16_t userId = *reinterpret_cast<const uint16_t*>(static_cast<const unsigned char*>(client) + ssc::g_userIdOffset);
         // Validate lifetime metadata when available.
-        if (userId != kick.userId || (kick.incarnation != 0 && Publisher().GetIncarnation(kick.slot) != kick.incarnation)) continue;
+        if (userId != kick.userId || (kick.incarnation != 0 && Manager().GetIncarnation(kick.slot) != kick.incarnation)) continue;
 
-        const std::string name = Personas().GetSlotName(kick.slot);
+        const std::string name = Manager().GetSlotName(kick.slot);
         if (name.empty()) continue;
         const char* argv[] = { "bot_kick", name.c_str() };
         const CCommand arguments(2, argv);
@@ -229,7 +227,7 @@ KHook::Return<void> HiderPlugin::HookGameFramePost(IServerGameDLL*, bool simulat
     if (!simulating) return { KHook::Action::Ignore };
 
     identity_runtime::DrainPendingControllerRemovals();
-    for (int slot = 0; slot < PersonaPool::kMaxSlots; ++slot)
+    for (int slot = 0; slot < bridge::kMaxSlots; ++slot)
     {
         if (!Manager().IsManaged(slot)) continue;
         void* client = entity_access::ResolveClientBySlot(slot);
@@ -242,7 +240,7 @@ KHook::Return<void> HiderPlugin::HookGameFramePost(IServerGameDLL*, bool simulat
 
     if ((++m_tickCounter & 63U) == 0U)
     {
-        for (int slot = 0; slot < PersonaPool::kMaxSlots; ++slot)
+        for (int slot = 0; slot < bridge::kMaxSlots; ++slot)
         {
             if (!Manager().IsManaged(slot)) continue;
             void* client = entity_access::ResolveClientBySlot(slot);
@@ -277,20 +275,18 @@ bool HiderPlugin::ApplySteamIdCommand(int slot, uint64_t steamId)
     }
     ssc::WriteSteamId(client, steamId);
     Manager().SetSyntheticSid(slot, steamId);
-    Publisher().UpdateSyntheticSid(slot, steamId);
     entity_access::RefreshClientUserInfo(slot);
     return true;
 }
 
-// Update engine and slot names, then publish.
+// Update engine and slot names.
 bool HiderPlugin::ApplyPersonaNameCommand(int slot, const char* name)
 {
     void* client = entity_access::ResolveClientBySlot(slot);
     if (!client) return false;
     const char* appliedName = entity_access::SetEngineName(client, name);
     if (!appliedName || !appliedName[0]) return false;
-    Personas().SetSlotName(slot, appliedName);
-    Publisher().UpdatePersonaName(slot, appliedName);
+    Manager().SetSlotName(slot, appliedName);
     return true;
 }
 

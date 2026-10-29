@@ -67,8 +67,6 @@ add_library(
     src/features/avatar/avatar_override.cpp
     src/features/botinfo/bot_info.cpp
     src/features/clantag/clan_tag.cpp
-    src/features/persona/personas.cpp
-    src/features/steamid/steamid_provider.cpp
     src/features/ping/ping_display.cpp
     src/features/identity/fake_client_manager.cpp
     src/features/identity/client_hooks.cpp
@@ -76,7 +74,6 @@ add_library(
     src/features/identity/identity_hooks.cpp
     src/features/identity/identity_runtime.cpp
     src/features/identity/identity_state.cpp
-    src/bridge/slot_publisher.cpp
     src/bridge/exports.cpp
     src/core/entity/entity_access.cpp
     src/core/offsets.cpp
@@ -97,12 +94,10 @@ target_include_directories(BotHider PRIVATE
     src/features/botinfo
     src/features/clantag
     src/features/identity
-    src/features/persona
     src/bridge
     src/core
     src/core/entity
     src/features/ping
-    src/features/steamid
     src/utils
 )
 

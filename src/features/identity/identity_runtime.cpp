@@ -7,7 +7,6 @@
 #include "fake_client_manager.h"
 #include "identity_hooks.h"
 #include "identity_state.h"
-#include "personas.h"
 #include "serversideclient_ref.h"
 #include "offsets.h"
 
@@ -70,7 +69,7 @@ BotPawnRef ResolveManagedBotPawn(int slot)
 // Check whether a client references the controller.
 bool IsControllerReferencedByClient(void* controller, uint16_t* userIdOut)
 {
-    for (int slot = 0; slot < PersonaPool::kMaxSlots; ++slot)
+    for (int slot = 0; slot < bridge::kMaxSlots; ++slot)
     {
         void* client = entity_access::ResolveClientBySlot(slot);
         if (!client) continue;
@@ -98,7 +97,7 @@ bool IsManagedBotController(void* controller)
 {
     if (!controller) return false;
 
-    for (int slot = 0; slot < PersonaPool::kMaxSlots; ++slot)
+    for (int slot = 0; slot < bridge::kMaxSlots; ++slot)
     {
         if (!Manager().IsManaged(slot)) continue;
         void* client = entity_access::ResolveClientBySlot(slot);
@@ -119,8 +118,8 @@ bool IsManagedBotController(void* controller)
 // Clear FL_BOT for managed pawns during packing.
 void ApplyBotFlagOverride(std::vector<BotPawnRef>& modified)
 {
-    modified.reserve(PersonaPool::kMaxSlots);
-    for (int slot = 0; slot < PersonaPool::kMaxSlots; ++slot)
+    modified.reserve(bridge::kMaxSlots);
+    for (int slot = 0; slot < bridge::kMaxSlots; ++slot)
     {
         BotPawnRef pawn = ResolveManagedBotPawn(slot);
         if (!pawn.instance) continue;
@@ -161,7 +160,7 @@ namespace identity_runtime {
 // Update bot flags and preserve the managed SteamID.
 void ApplyManagedDisguise(bool disguised)
 {
-    for (int slot = 0; slot < PersonaPool::kMaxSlots; ++slot)
+    for (int slot = 0; slot < bridge::kMaxSlots; ++slot)
     {
         if (!Manager().IsManaged(slot)) continue;
         void* client = entity_access::ResolveClientBySlot(slot);
@@ -203,7 +202,7 @@ bool CollectOccupiedSteamIds(int slot, std::unordered_set<uint64_t>& occupied)
         std::memcpy(&otherSteamId, static_cast<const unsigned char*>(client) + ssc::g_steamIdOffset, sizeof(otherSteamId));
         if (otherSteamId) occupied.insert(otherSteamId);
     }
-    for (int otherSlot = 0; otherSlot < PersonaPool::kMaxSlots; ++otherSlot)
+    for (int otherSlot = 0; otherSlot < bridge::kMaxSlots; ++otherSlot)
     {
         if (otherSlot != slot && Manager().IsManaged(otherSlot)) occupied.insert(Manager().GetSyntheticSid(otherSlot));
     }
@@ -247,7 +246,7 @@ bool SetControllerFakeClientFlag(int slot, bool fakeClient)
 int RestoreManagedClientsForEngineTeardown()
 {
     int restored = 0;
-    for (int slot = 0; slot < PersonaPool::kMaxSlots; ++slot)
+    for (int slot = 0; slot < bridge::kMaxSlots; ++slot)
     {
         if (!Manager().IsManaged(slot)) continue;
         void* client = entity_access::ResolveClientBySlot(slot);
@@ -355,7 +354,7 @@ bool IsHltvConnection(const char* name, const char* networkId)
 // Release managed slots identified as SourceTV.
 bool ReleaseManagedHltvSlot(int slot, void* client)
 {
-    if (slot < 0 || slot >= PersonaPool::kMaxSlots || !client || !Manager().IsManaged(slot) || !ssc::IsHltv(client))
+    if (slot < 0 || slot >= bridge::kMaxSlots || !client || !Manager().IsManaged(slot) || !ssc::IsHltv(client))
     {
         return false;
     }
