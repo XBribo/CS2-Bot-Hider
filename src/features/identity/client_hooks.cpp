@@ -71,30 +71,22 @@ KHook::Return<void> HiderPlugin::HookOnClientConnectedPost( // NOLINT(readabilit
 
 bool HiderPlugin::AdoptClient(int index, void* client, const char* name)
 {
-    const BotEntry* entry = BotInfo().PickForBot(name);
-    std::string displayName;
-    if (entry && (m_useBotInfoName || !name || !name[0])) displayName = entry->name;
-    else if (name && name[0])
-        displayName = name;
-
-    if (displayName.empty())
+    std::unordered_set<uint64_t> occupied;
+    if (!identity_runtime::CollectOccupiedSteamIds(index, occupied))
     {
-        BotInfo().ReleaseAssignment(entry);
+        BH_LOG_WARN("bot identity skipped slot=%d: availability check failed", index);
         return false;
     }
-
-    const uint64_t configuredSteamId = entry && entry->steamId64 != 0 ? entry->steamId64 : 0;
-    const char* crosshairCode = entry ? entry->crosshairCode.c_str() : nullptr;
-    const uint32_t scoreboardFlair = entry ? entry->scoreboardFlair : 0;
-    const char* clanTag = entry ? entry->clanTag.tag.c_str() : nullptr;
-    const uint32_t clanGroupId = entry ? entry->clanTag.groupId : 0;
-    const uint64_t steamId = identity_runtime::SelectSteamIdForBot(index, configuredSteamId);
-    if (steamId == 0)
+    const BotEntry* entry = BotInfo().PickForBot(name, occupied);
+    if (!entry)
     {
-        BotInfo().ReleaseAssignment(entry);
+        BH_LOG_WARN("bot identity skipped slot=%d: configured pool exhausted", index);
         return false;
     }
-    Manager().AdoptSlot(index, displayName.c_str(), steamId, crosshairCode, scoreboardFlair, clanTag, clanGroupId);
+    const char* displayName = m_useBotInfoName || !name || !name[0] ? entry->name.c_str() : name;
+    const uint64_t steamId = entry->steamId64;
+    Manager().AdoptSlot(index, displayName, steamId, entry->crosshairCode.c_str(), entry->scoreboardFlair, entry->clanTag.tag.c_str(),
+                        entry->clanTag.groupId);
     identity_state::BindSlot(index, entry, name);
     ssc::WriteSteamId(client, steamId);
 

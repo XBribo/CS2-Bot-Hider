@@ -7,7 +7,7 @@
 #include <cstdint>
 #include <string>
 #include <vector>
-#include <unordered_map>
+#include <unordered_set>
 
 namespace cs2bh {
 
@@ -24,16 +24,16 @@ struct BotEntry
 class BotInfoStore
 {
   public:
-    // Load identities; log failures and return false.
+    // Load configured identities.
     bool Load(const char* path);
 
     // Pick an available identity, preferring an exact name match.
-    const BotEntry* PickForBot(const char* engineName);
+    const BotEntry* PickForBot(const char* engineName, const std::unordered_set<uint64_t>& occupied);
 
     // Release an identity assignment.
     void ReleaseAssignment(const BotEntry* entry);
 
-    // Clear identity assignment counts.
+    // Clear identity assignments.
     void ResetAssignments();
 
     // Count enabled identities.
@@ -47,8 +47,7 @@ class BotInfoStore
 
   private:
     std::vector<BotEntry> m_entries;
-    std::unordered_map<std::string, std::vector<size_t>> m_byName;
-    std::vector<uint32_t> m_assignmentCounts;
+    std::vector<bool> m_assigned;
     uint64_t m_rngState = 0;
 };
 

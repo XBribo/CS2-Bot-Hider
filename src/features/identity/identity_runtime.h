@@ -1,6 +1,7 @@
 #pragma once
 
 #include <cstdint>
+#include <unordered_set>
 
 namespace cs2bh::identity_runtime {
 
@@ -17,8 +18,8 @@ enum class SteamIdAvailability
 // Checks SteamID availability.
 SteamIdAvailability CheckSteamIdAvailability(int slot, uint64_t steamId);
 
-// Selects an automatic identity.
-uint64_t SelectSteamIdForBot(int slot, uint64_t desired);
+// Collect live SteamIDs and managed reservations for this allocation.
+bool CollectOccupiedSteamIds(int slot, std::unordered_set<uint64_t>& occupied);
 
 // Sync the controller's fake-client bit.
 bool SetControllerFakeClientFlag(int slot, bool fakeClient);

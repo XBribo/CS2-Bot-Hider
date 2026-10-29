@@ -12,7 +12,6 @@
 #include "offsets.h"
 
 #include <algorithm>
-#include <chrono>
 #include <cstdint>
 #include <cstring>
 #include <string>
@@ -31,18 +30,6 @@ extern INetworkServerService* g_pNetworkServerService;
 namespace cs2bh {
 
 namespace {
-
-// Generate a random value for SteamID selection.
-uint64_t NextSteamIdRandom()
-{
-    static uint64_t state = static_cast<uint64_t>(std::chrono::steady_clock::now().time_since_epoch().count()) | 1ULL;
-    uint64_t x = state;
-    x ^= x >> 12;
-    x ^= x << 25;
-    x ^= x >> 27;
-    state = x;
-    return x * 0x2545F4914F6CDD1DULL;
-}
 
 // Resolve a managed bot's current pawn.
 BotPawnRef ResolveManagedBotPawn(int slot)
@@ -195,19 +182,17 @@ void ApplyManagedDisguise(bool disguised)
     }
 }
 
-SteamIdAvailability CheckSteamIdAvailability(int slot, uint64_t steamId)
+bool CollectOccupiedSteamIds(int slot, std::unordered_set<uint64_t>& occupied)
 {
-    if (steamId == 0 || !g_pNetworkServerService)
-    {
-        return SteamIdAvailability::CheckFailed;
-    }
+    occupied.clear();
+    if (!g_pNetworkServerService) return false;
     auto* gameServer = g_pNetworkServerService->GetIGameServer();
-    if (!gameServer) return SteamIdAvailability::CheckFailed;
+    if (!gameServer) return false;
     auto* clients = reinterpret_cast<CUtlVector<void*>*>(reinterpret_cast<unsigned char*>(gameServer) + offsets::g_clientListOffset);
     const int count = clients->Count();
     if (count < 0 || count > 256 || slot < 0 || slot >= count || !clients->Element(slot))
     {
-        return SteamIdAvailability::CheckFailed;
+        return false;
     }
     for (int otherSlot = 0; otherSlot < count; ++otherSlot)
     {
@@ -216,46 +201,20 @@ SteamIdAvailability CheckSteamIdAvailability(int slot, uint64_t steamId)
         if (!client) continue;
         uint64_t otherSteamId = 0;
         std::memcpy(&otherSteamId, static_cast<const unsigned char*>(client) + ssc::g_steamIdOffset, sizeof(otherSteamId));
-        if (otherSteamId == steamId) return SteamIdAvailability::InUse;
+        if (otherSteamId) occupied.insert(otherSteamId);
     }
-    return SteamIdAvailability::Available;
+    for (int otherSlot = 0; otherSlot < PersonaPool::kMaxSlots; ++otherSlot)
+    {
+        if (otherSlot != slot && Manager().IsManaged(otherSlot)) occupied.insert(Manager().GetSyntheticSid(otherSlot));
+    }
+    return true;
 }
 
-// Selects an available configured SteamID.
-uint64_t SelectSteamIdForBot(int slot, uint64_t desired)
+SteamIdAvailability CheckSteamIdAvailability(int slot, uint64_t steamId)
 {
-    if (desired != 0)
-    {
-        const auto availability = CheckSteamIdAvailability(slot, desired);
-        if (availability == SteamIdAvailability::Available) return desired;
-        if (availability == SteamIdAvailability::CheckFailed)
-        {
-            BH_LOG_WARN("automatic SteamID assignment skipped slot=%d: availability check failed", slot);
-            return 0;
-        }
-    }
-
-    std::vector<uint64_t> available;
-    available.reserve(BotInfo().Count());
-    for (const BotEntry& entry : BotInfo().All())
-    {
-        if (entry.steamId64 == 0 || std::ranges::find(available, entry.steamId64) != available.end())
-        {
-            continue;
-        }
-        const auto availability = CheckSteamIdAvailability(slot, entry.steamId64);
-        if (availability == SteamIdAvailability::CheckFailed)
-        {
-            BH_LOG_WARN("automatic SteamID assignment skipped slot=%d: availability check failed", slot);
-            return 0;
-        }
-        if (availability == SteamIdAvailability::InUse) continue;
-        available.push_back(entry.steamId64);
-    }
-    if (!available.empty()) return available[NextSteamIdRandom() % available.size()];
-
-    BH_LOG_WARN("automatic SteamID assignment skipped slot=%d: no available configured identity", slot);
-    return 0;
+    std::unordered_set<uint64_t> occupied;
+    if (steamId == 0 || !CollectOccupiedSteamIds(slot, occupied)) return SteamIdAvailability::CheckFailed;
+    return occupied.contains(steamId) ? SteamIdAvailability::InUse : SteamIdAvailability::Available;
 }
 
 // Sync the controller's fake-client bit.

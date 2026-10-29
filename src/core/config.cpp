@@ -38,16 +38,21 @@ Settings Load(const char* baseDir)
 
                 int minimum = settings.fakePingMin;
                 int maximum = settings.fakePingMax;
-                if (fakePing.contains("min") && fakePing["min"].is_number_integer()) minimum = fakePing["min"].get<int>();
-                if (fakePing.contains("max") && fakePing["max"].is_number_integer()) maximum = fakePing["max"].get<int>();
-                if (minimum >= 1 && maximum <= 999 && minimum <= maximum)
+                const auto readPing = [&](const char* key, int& output) {
+                    const auto it = fakePing.find(key);
+                    if (it == fakePing.end()) return true;
+                    if (!it->is_number_integer() || *it < 1 || *it > 999) return false;
+                    output = it->get<int>();
+                    return true;
+                };
+                if (readPing("min", minimum) && readPing("max", maximum) && minimum <= maximum)
                 {
                     settings.fakePingMin = minimum;
                     settings.fakePingMax = maximum;
                 }
                 else
                 {
-                    BH_LOG_WARN("ping range=%d-%d invalid: using 20-90", minimum, maximum);
+                    BH_LOG_WARN("ping range invalid: using 20-90");
                 }
             }
         }
