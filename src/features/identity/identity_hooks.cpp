@@ -242,7 +242,7 @@ thread_local std::vector<bool> g_joinTeamFrames;
 thread_local std::vector<bool> g_teardownFrames;
 thread_local std::vector<std::unique_ptr<ScopedBotIdentityRestore>> g_voterFrames;
 thread_local std::vector<std::unique_ptr<ScopedBotIdentityRestore>> g_scriptIsBotFrames;
-thread_local std::vector<BotPawnRef> g_packedPawns;
+thread_local std::vector<entity_access::PawnRef> g_packedPawns;
 
 // Pair PRE/POST state across nesting and mode changes.
 void BeginPopulationFrame(std::vector<bool>& frames, bool enabled)

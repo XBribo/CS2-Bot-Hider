@@ -215,29 +215,34 @@ bool RemoveEntity(void* instance)
     return true;
 }
 
-int BotPawnHandleOffset() { return offsets::g_botPawnHandleOffset; }
-
-void ResetIdleTimerForClient(void* client)
+PawnRef ResolveClientPawn(void* client)
 {
-    if (!client) return;
+    if (!client || offsets::g_botPawnHandleOffset < 0) return {};
 
     const int entityIndex = *reinterpret_cast<int*>(reinterpret_cast<unsigned char*>(client) + ssc::g_entityIndexOffset);
     char className[64];
     void* controller = ResolveEntityInstance(entityIndex, className, sizeof(className));
-    if (!controller || std::strcmp(className, "cs_player_controller") != 0)
+    if (!controller || std::strcmp(className, "cs_player_controller") != 0 || IsEntityBeingDeleted(controller))
     {
-        return;
+        return {};
     }
 
-    const auto* handleField = sdk::PawnHandle(controller);
-    if (!handleField) return;
-    const uint32_t pawnHandle = *handleField;
-    if (pawnHandle == 0xFFFFFFFF) return;
+    const uint32_t pawnHandle =
+        *reinterpret_cast<const uint32_t*>(static_cast<const unsigned char*>(controller) + offsets::g_botPawnHandleOffset);
+    if (pawnHandle == 0xFFFFFFFF) return {};
     const int pawnIndex = CEntityHandle(pawnHandle).GetEntryIndex();
     void* pawn = ResolveEntityInstance(pawnIndex, nullptr, 0);
-    if (!pawn) return;
+    if (!pawn || IsEntityBeingDeleted(pawn)) return {};
+    if (static_cast<uint32_t>(reinterpret_cast<CEntityInstance*>(pawn)->GetRefEHandle().ToInt()) != pawnHandle) return {};
 
-    if (auto* idleTime = sdk::IdleTime(pawn)) *idleTime = 0.0F;
+    return { pawn, pawnHandle };
+}
+
+void ResetIdleTimerForClient(void* client)
+{
+    const PawnRef pawn = ResolveClientPawn(client);
+    if (!pawn.instance) return;
+    if (auto* idleTime = sdk::IdleTime(pawn.instance)) *idleTime = 0.0F;
 }
 
 const char* SetEngineName(void* client, const char* newName)

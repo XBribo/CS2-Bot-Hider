@@ -30,42 +30,6 @@ namespace cs2bh {
 
 namespace {
 
-// Resolve a managed bot's current pawn.
-BotPawnRef ResolveManagedBotPawn(int slot)
-{
-    BotPawnRef result;
-    const int pawnHandleOffset = entity_access::BotPawnHandleOffset();
-    if (pawnHandleOffset < 0 || !Manager().IsManaged(slot)) return result;
-
-    void* client = entity_access::ResolveClientBySlot(slot);
-    if (!client) return result;
-
-    const int controllerIndex = *reinterpret_cast<int*>(reinterpret_cast<unsigned char*>(client) + ssc::g_entityIndexOffset);
-    char className[64];
-    void* controller = entity_access::ResolveEntityInstance(controllerIndex, className, sizeof(className));
-    if (!controller || std::strcmp(className, "cs_player_controller") != 0 || entity_access::IsEntityBeingDeleted(controller))
-    {
-        return result;
-    }
-
-    const uint32_t pawnHandle = *reinterpret_cast<uint32_t*>(reinterpret_cast<unsigned char*>(controller) + pawnHandleOffset);
-    if (pawnHandle == 0xFFFFFFFF) return result;
-
-    const int pawnIndex = CEntityHandle(pawnHandle).GetEntryIndex();
-    void* pawn = entity_access::ResolveEntityInstance(pawnIndex, nullptr, 0);
-    if (!pawn || entity_access::IsEntityBeingDeleted(pawn)) return result;
-
-    auto* pawnEntity = reinterpret_cast<CEntityInstance*>(pawn);
-    if (std::cmp_not_equal(static_cast<uint32_t>(pawnEntity->GetRefEHandle().ToInt()), pawnHandle))
-    {
-        return result;
-    }
-
-    result.instance = pawn;
-    result.handle = pawnHandle;
-    return result;
-}
-
 // Check whether a client references the controller.
 bool IsControllerReferencedByClient(void* controller, uint16_t* userIdOut)
 {
@@ -116,12 +80,13 @@ bool IsManagedBotController(void* controller)
 }
 
 // Clear FL_BOT for managed pawns during packing.
-void ApplyBotFlagOverride(std::vector<BotPawnRef>& modified)
+void ApplyBotFlagOverride(std::vector<entity_access::PawnRef>& modified)
 {
     modified.reserve(bridge::kMaxSlots);
     for (int slot = 0; slot < bridge::kMaxSlots; ++slot)
     {
-        BotPawnRef pawn = ResolveManagedBotPawn(slot);
+        if (!Manager().IsManaged(slot)) continue;
+        const auto pawn = entity_access::ResolveClientPawn(entity_access::ResolveClientBySlot(slot));
         if (!pawn.instance) continue;
         auto* flags = reinterpret_cast<uint32_t*>(reinterpret_cast<unsigned char*>(pawn.instance) + offsets::g_baseEntityFlagsOffset);
         // Process shared pawns once.
@@ -133,9 +98,9 @@ void ApplyBotFlagOverride(std::vector<BotPawnRef>& modified)
 }
 
 // Restore FL_BOT on lifetime-matched pawns.
-void RestoreBotFlagOverride(const std::vector<BotPawnRef>& pawns)
+void RestoreBotFlagOverride(const std::vector<entity_access::PawnRef>& pawns)
 {
-    for (const BotPawnRef& pawn : pawns)
+    for (const auto& pawn : pawns)
     {
         const int pawnIndex = CEntityHandle(pawn.handle).GetEntryIndex();
         void* currentPawn = entity_access::ResolveEntityInstance(pawnIndex, nullptr, 0);

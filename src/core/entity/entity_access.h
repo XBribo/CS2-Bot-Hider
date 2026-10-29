@@ -3,10 +3,17 @@
 #include "core/cs2_sdk/src/core/memory_module.h"
 
 #include <cstddef>
+#include <cstdint>
 
 #include <nlohmann/json.hpp>
 
 namespace cs2bh::entity_access {
+
+struct PawnRef
+{
+    void* instance = nullptr;
+    uint32_t handle = 0xFFFFFFFF;
+};
 
 // Resolve UTIL_Remove and its entity-system reference.
 void ResolveUtilRemoveAndEntSys(const nlohmann::json& gamedata, const cs2_sdk::modules::ModuleInfo& serverModule);
@@ -20,8 +27,8 @@ bool HasEntitySystem();
 // Remove an entity through the engine.
 bool RemoveEntity(void* instance);
 
-// Read the controller pawn-handle offset.
-int BotPawnHandleOffset();
+// Resolve the client's lifetime-matched pawn.
+PawnRef ResolveClientPawn(void* client);
 
 // Resolve a server-side client by slot.
 void* ResolveClientBySlot(int slot);
