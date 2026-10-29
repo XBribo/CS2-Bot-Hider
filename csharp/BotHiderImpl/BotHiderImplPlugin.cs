@@ -25,6 +25,9 @@ public partial class BotHiderImplPlugin : BasePlugin
     private readonly string[] _appliedCrosshair = new string[64];
     private readonly uint[] _appliedScoreboardFlair = new uint[64];
     private readonly ulong[] _observedIncarnations = new ulong[64];
+    private readonly bool[] _pendingName = new bool[64];
+    private readonly bool[] _pendingSid = new bool[64];
+    private readonly bool[] _pendingScoreboardFlair = new bool[64];
     private readonly ClanTagPresenter _clanTags = new();
     private Harmony? _harmony;
     private int _presentationGeneration;
@@ -153,6 +156,8 @@ public partial class BotHiderImplPlugin : BasePlugin
             {
                 if (!ReferenceEquals(_client, client) || Volatile.Read(ref _presentationGeneration) != generation ||
                     !client.ReadSlot(slot, out var snapshot) || snapshot.Managed == 0 || snapshot.Incarnation != incarnation) return;
+                if (_observedIncarnations[slot] != incarnation)
+                    ResetAppliedSlot(slot, incarnation);
                 var player = Utilities.GetPlayerFromSlot(slot);
                 if (player == null || !player.IsValid) return;
                 write(player, snapshot);
@@ -166,7 +171,7 @@ public partial class BotHiderImplPlugin : BasePlugin
 
     // Queues the visible name.
     private void ApplyVisibleName(int slot, string name, ulong incarnation)
-        => QueueVisibleWrite(slot, incarnation, "name", (player, _) => WriteVisibleName(player, name));
+        => QueueVisibleWrite(slot, incarnation, "name", (player, _) => WriteVisibleName(slot, player, name));
 
     // Read SteamID after lifetime validation.
     private void ApplyVisibleSid(int slot, ulong incarnation)
@@ -174,7 +179,7 @@ public partial class BotHiderImplPlugin : BasePlugin
         QueueVisibleWrite(slot, incarnation, "SteamID", (player, snapshot) =>
         {
             ulong sid = snapshot.SteamId;
-            if (player.SteamID != sid) WriteVisibleSid(player, sid);
+            if (_pendingSid[slot] || player.SteamID != sid) WriteVisibleSid(slot, player, sid);
         });
     }
 
@@ -199,17 +204,21 @@ public partial class BotHiderImplPlugin : BasePlugin
     }
 
     // Writes and publishes the name.
-    private static void WriteVisibleName(CCSPlayerController player, string name)
+    private void WriteVisibleName(int slot, CCSPlayerController player, string name)
     {
+        _pendingName[slot] = true;
         player.PlayerName = name;
         Utilities.SetStateChanged(player, "CBasePlayerController", "m_iszPlayerName");
+        _pendingName[slot] = false;
     }
 
     // Writes and publishes the SteamID.
-    private static void WriteVisibleSid(CCSPlayerController player, ulong sid)
+    private void WriteVisibleSid(int slot, CCSPlayerController player, ulong sid)
     {
+        _pendingSid[slot] = true;
         Schema.SetSchemaValue(player.Handle, "CBasePlayerController", "m_steamID", sid);
         Utilities.SetStateChanged(player, "CBasePlayerController", "m_steamID");
+        _pendingSid[slot] = false;
     }
 
     // Writes and publishes the crosshair.
@@ -231,8 +240,18 @@ public partial class BotHiderImplPlugin : BasePlugin
     private void ResetAppliedSlot(int slot, ulong incarnation)
     {
         if (slot < 0 || slot >= _observedIncarnations.Length) return;
-        _clanTags.Restore(slot);
+        try
+        {
+            _clanTags.Restore(slot);
+        }
+        catch (Exception e)
+        {
+            Server.PrintToConsole($"[BotHider] presentation reset failed slot={slot}: {e.Message}");
+        }
         _observedIncarnations[slot] = incarnation;
+        _pendingName[slot] = false;
+        _pendingSid[slot] = false;
+        _pendingScoreboardFlair[slot] = false;
         _appliedCrosshair[slot] = string.Empty;
         _appliedScoreboardFlair[slot] = 0U;
     }
@@ -250,77 +269,86 @@ public partial class BotHiderImplPlugin : BasePlugin
     {
         var client = _client;
         if (client == null || slot < 0 || slot >= _observedIncarnations.Length) return;
-        if (!client.ReadSlot(slot, out var snapshot) || snapshot.Managed == 0)
+        try
         {
-            ResetAppliedSlot(slot, 0UL);
-            return;
+            if (!client.ReadSlot(slot, out var snapshot) || snapshot.Managed == 0)
+            {
+                ResetAppliedSlot(slot, 0UL);
+                return;
+            }
+
+            ulong incarnation = snapshot.Incarnation;
+            if (_observedIncarnations[slot] != incarnation)
+                ResetAppliedSlot(slot, incarnation);
+            if (incarnation == 0) return;
+
+            var player = Utilities.GetPlayerFromSlot(slot);
+            if (player == null || !player.IsValid) return;
+
+            ReconcileVisibleIdentity(snapshot, slot, player);
+
+            int ping = snapshot.Ping;
+            if (ping > 0)
+            {
+                try
+                {
+                    Schema.SetSchemaValue(player.Handle, "CCSPlayerController", "m_iPing", ping);
+                }
+                catch (Exception e)
+                {
+                    Server.PrintToConsole($"[BotHider] ping write failed slot={slot}: {e.Message}");
+                }
+            }
+
+            string cross = snapshot.CrosshairCode;
+            if (_appliedCrosshair[slot] != cross ||
+                !string.Equals(player.CrosshairCodes, cross, StringComparison.Ordinal))
+            {
+                try
+                {
+                    WriteVisibleCrosshair(player, cross);
+                    _appliedCrosshair[slot] = cross;
+                }
+                catch (Exception e)
+                {
+                    Server.PrintToConsole($"[BotHider] crosshair write failed slot={slot}: {e.Message}");
+                }
+            }
+
+            uint flair = snapshot.ScoreboardFlair;
+            if (_pendingScoreboardFlair[slot] || _appliedScoreboardFlair[slot] != flair ||
+                !ScoreboardFlairMatches(player, flair))
+            {
+                if (TryApplyScoreboardFlair(slot, player, flair))
+                    _appliedScoreboardFlair[slot] = flair;
+            }
+
+            _clanTags.Apply(slot, player, snapshot.Clan);
         }
-
-        ulong incarnation = snapshot.Incarnation;
-        if (_observedIncarnations[slot] != incarnation)
-            ResetAppliedSlot(slot, incarnation);
-        if (incarnation == 0) return;
-
-        var player = Utilities.GetPlayerFromSlot(slot);
-        if (player == null || !player.IsValid) return;
-
-        ReconcileVisibleIdentity(snapshot, slot, player);
-
-        int ping = snapshot.Ping;
-        if (ping > 0)
+        catch (Exception e)
         {
-            try
-            {
-                // Server-side field.
-                Schema.SetSchemaValue(player.Handle, "CCSPlayerController", "m_iPing", ping);
-            }
-            catch (Exception e)
-            {
-                Server.PrintToConsole($"[BotHider] ping write failed slot={slot}: {e.Message}");
-            }
+            Server.PrintToConsole($"[BotHider] presentation update failed slot={slot}: {e.Message}");
         }
-
-        string cross = snapshot.CrosshairCode;
-        if (_appliedCrosshair[slot] != cross ||
-            !string.Equals(player.CrosshairCodes, cross, StringComparison.Ordinal))
-        {
-            try
-            {
-                WriteVisibleCrosshair(player, cross);
-                _appliedCrosshair[slot] = cross;
-            }
-            catch (Exception e)
-            {
-                Server.PrintToConsole($"[BotHider] crosshair write failed slot={slot}: {e.Message}");
-            }
-        }
-
-        uint flair = snapshot.ScoreboardFlair;
-        if (_appliedScoreboardFlair[slot] != flair ||
-            !ScoreboardFlairMatches(player, flair))
-        {
-            if (TryApplyScoreboardFlair(slot, player, flair))
-                _appliedScoreboardFlair[slot] = flair;
-        }
-
-        _clanTags.Apply(slot, player, snapshot.Clan);
     }
 
     // Sync the controller's published name and SteamID.
-    private static void ReconcileVisibleIdentity(BridgeClient.SlotSnapshot snapshot, int slot,
-                                                 CCSPlayerController player)
+    private void ReconcileVisibleIdentity(BridgeClient.SlotSnapshot snapshot, int slot, CCSPlayerController player)
     {
         string name = snapshot.PersonaName;
-        if (!string.Equals(player.PlayerName, name, StringComparison.Ordinal))
+        try
         {
-            WriteVisibleName(player, name);
+            if (_pendingName[slot] || !string.Equals(player.PlayerName, name, StringComparison.Ordinal))
+                WriteVisibleName(slot, player, name);
+        }
+        catch (Exception e)
+        {
+            Server.PrintToConsole($"[BotHider] name sync failed slot={slot}: {e.Message}");
         }
 
         ulong steamId = snapshot.SteamId;
-        if (player.SteamID == steamId) return;
         try
         {
-            WriteVisibleSid(player, steamId);
+            if (_pendingSid[slot] || player.SteamID != steamId) WriteVisibleSid(slot, player, steamId);
         }
         catch (Exception e)
         {
@@ -343,7 +371,7 @@ public partial class BotHiderImplPlugin : BasePlugin
     }
 
     // Apply flair and notify the rank array once.
-    private static bool TryApplyScoreboardFlair(int slot, CCSPlayerController player, uint itemDefIndex)
+    private bool TryApplyScoreboardFlair(int slot, CCSPlayerController player, uint itemDefIndex)
     {
         try
         {
@@ -352,18 +380,18 @@ public partial class BotHiderImplPlugin : BasePlugin
             var ranks = inventory.Rank;
             if (ranks.Length == 0) return false;
             var flair = (MedalRank_t)itemDefIndex;
-            bool changed = false;
             for (int i = 0; i < ranks.Length; i++)
             {
                 if (ranks[i] == flair) continue;
+                _pendingScoreboardFlair[slot] = true;
                 ranks[i] = flair;
-                changed = true;
             }
-            if (changed)
+            if (_pendingScoreboardFlair[slot])
             {
                 int rankOffset = Schema.GetSchemaOffset("CCSPlayerController_InventoryServices", "m_rank");
                 NativeAPI.SchemaNetworkStateChanged(inventory.__m_pChainEntity.Handle,
                     (uint)rankOffset, uint.MaxValue, uint.MaxValue);
+                _pendingScoreboardFlair[slot] = false;
             }
             return true;
         }
