@@ -1,11 +1,11 @@
-name: Managed build
+name: CSS build
 
 on:
   pull_request:
     paths:
       - "csharp/**"
       - "CMakeLists.txt"
-      - ".github/workflows/managed-build.yml"
+      - ".github/workflows/css-build.yml"
 
 permissions:
   contents: read
