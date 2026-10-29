@@ -1,5 +1,6 @@
 #include "core/log.h"
 #include "plugin.h"
+#include "plugin_build_info.h"
 #include "ISmmPlugin.h"
 #include "ISmmPluginExt.h"
 #include "ISmmAPI.h"
