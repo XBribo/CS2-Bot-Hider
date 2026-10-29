@@ -185,6 +185,15 @@ KHook::Return<void> HiderPlugin::HookDispatchConCommandPost(ICvar*, ConCommandRe
 // Set the global identity mode.
 void HiderPlugin::SetIdentityMode(IdentityMode mode)
 {
+    if (mode == IdentityMode::Player)
+    {
+        char error[512]{};
+        if (!identity_hooks::CanEnableDisguise(error, sizeof(error)))
+        {
+            BH_LOG_WARN("identity mode change rejected: %s", error);
+            return;
+        }
+    }
     if (m_identityMode == mode) return;
     m_identityMode = mode;
     identity_runtime::ApplyManagedDisguise(mode == IdentityMode::Player);
@@ -258,21 +267,36 @@ void HiderPlugin::DrainBridgeCommands()
     });
 }
 
-// Apply the resolved SteamID, then publish it.
+// Applies an exact SteamID.
 void HiderPlugin::ApplySteamIdCommand(int slot, uint64_t steamId)
 {
     if (!Manager().IsManaged(slot)) return;
     void* client = entity_access::ResolveClientBySlot(slot);
-    if (!client) return;
-    const uint64_t uniqueSteamId = identity_runtime::MakeUniqueSteamId(slot, steamId);
+    if (!client)
+    {
+        BH_LOG_WARN("SteamID change rejected slot=%d: client unavailable for collision checking", slot);
+        return;
+    }
+    if (steamId == 0)
+    {
+        BH_LOG_WARN("SteamID change rejected slot=%d: zero is not a valid identity", slot);
+        return;
+    }
+    const auto availability = identity_runtime::CheckSteamIdAvailability(slot, steamId);
+    if (availability != identity_runtime::SteamIdAvailability::Available)
+    {
+        BH_LOG_WARN("SteamID change rejected slot=%d sid=%llu: %s", slot, static_cast<unsigned long long>(steamId),
+                    availability == identity_runtime::SteamIdAvailability::InUse ? "ID already in use" : "availability check failed");
+        return;
+    }
     if (IsDisguiseEnabled())
     {
         ssc::ClearFakePlayer(client);
         identity_runtime::SetControllerFakeClientFlag(slot, false);
     }
-    ssc::WriteSteamId(client, uniqueSteamId);
-    Manager().SetSyntheticSid(slot, uniqueSteamId);
-    Publisher().UpdateSyntheticSid(slot, uniqueSteamId);
+    ssc::WriteSteamId(client, steamId);
+    Manager().SetSyntheticSid(slot, steamId);
+    Publisher().UpdateSyntheticSid(slot, steamId);
     entity_access::RefreshClientUserInfo(slot);
 }
 

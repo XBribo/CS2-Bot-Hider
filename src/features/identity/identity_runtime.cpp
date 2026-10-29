@@ -32,27 +32,6 @@ namespace cs2bh {
 
 namespace {
 
-// Check SteamID collisions with connected clients.
-bool IsSteamIdInUseByOther(uint64_t steamId, int exceptSlot)
-{
-    if (steamId == 0 || !g_pNetworkServerService) return false;
-    auto* gameServer = g_pNetworkServerService->GetIGameServer();
-    if (!gameServer) return false;
-    auto* clients = reinterpret_cast<CUtlVector<void*>*>(reinterpret_cast<unsigned char*>(gameServer) + offsets::g_clientListOffset);
-    const int count = clients->Count();
-    if (count < 0 || count > 256) return false;
-
-    for (int slot = 0; slot < count; ++slot)
-    {
-        if (slot == exceptSlot) continue;
-        void* client = clients->Element(slot);
-        if (!client) continue;
-        const uint64_t otherSteamId = *reinterpret_cast<uint64_t*>(reinterpret_cast<unsigned char*>(client) + ssc::g_steamIdOffset);
-        if (otherSteamId == steamId) return true;
-    }
-    return false;
-}
-
 // Generate a random value for SteamID selection.
 uint64_t NextSteamIdRandom()
 {
@@ -130,7 +109,7 @@ bool IsControllerReferencedByClient(void* controller, uint16_t* userIdOut)
 // Check managed, non-HLTV controller ownership.
 bool IsManagedBotController(void* controller)
 {
-    if (!controller || offsets::g_baseEntityFlagsOffset < 0) return false;
+    if (!controller) return false;
 
     for (int slot = 0; slot < PersonaPool::kMaxSlots; ++slot)
     {
@@ -153,7 +132,6 @@ bool IsManagedBotController(void* controller)
 // Clear FL_BOT for managed pawns during packing.
 void ApplyBotFlagOverride(std::vector<BotPawnRef>& modified)
 {
-    if (offsets::g_baseEntityFlagsOffset < 0) return;
     modified.reserve(PersonaPool::kMaxSlots);
     for (int slot = 0; slot < PersonaPool::kMaxSlots; ++slot)
     {
@@ -171,7 +149,6 @@ void ApplyBotFlagOverride(std::vector<BotPawnRef>& modified)
 // Restore FL_BOT on lifetime-matched pawns.
 void RestoreBotFlagOverride(const std::vector<BotPawnRef>& pawns)
 {
-    if (offsets::g_baseEntityFlagsOffset < 0) return;
     for (const BotPawnRef& pawn : pawns)
     {
         const int pawnIndex = CEntityHandle(pawn.handle).GetEntryIndex();
@@ -218,41 +195,72 @@ void ApplyManagedDisguise(bool disguised)
     }
 }
 
-// Select a collision-free SteamID.
-uint64_t MakeUniqueSteamId(int slot, uint64_t desired)
+SteamIdAvailability CheckSteamIdAvailability(int slot, uint64_t steamId)
 {
-    if (desired != 0 && !IsSteamIdInUseByOther(desired, slot))
+    if (steamId == 0 || !g_pNetworkServerService)
     {
-        return desired;
+        return SteamIdAvailability::CheckFailed;
+    }
+    auto* gameServer = g_pNetworkServerService->GetIGameServer();
+    if (!gameServer) return SteamIdAvailability::CheckFailed;
+    auto* clients = reinterpret_cast<CUtlVector<void*>*>(reinterpret_cast<unsigned char*>(gameServer) + offsets::g_clientListOffset);
+    const int count = clients->Count();
+    if (count < 0 || count > 256 || slot < 0 || slot >= count || !clients->Element(slot))
+    {
+        return SteamIdAvailability::CheckFailed;
+    }
+    for (int otherSlot = 0; otherSlot < count; ++otherSlot)
+    {
+        if (otherSlot == slot) continue;
+        const void* client = clients->Element(otherSlot);
+        if (!client) continue;
+        uint64_t otherSteamId = 0;
+        std::memcpy(&otherSteamId, static_cast<const unsigned char*>(client) + ssc::g_steamIdOffset, sizeof(otherSteamId));
+        if (otherSteamId == steamId) return SteamIdAvailability::InUse;
+    }
+    return SteamIdAvailability::Available;
+}
+
+// Selects an available configured SteamID.
+uint64_t SelectSteamIdForBot(int slot, uint64_t desired)
+{
+    if (desired != 0)
+    {
+        const auto availability = CheckSteamIdAvailability(slot, desired);
+        if (availability == SteamIdAvailability::Available) return desired;
+        if (availability == SteamIdAvailability::CheckFailed)
+        {
+            BH_LOG_WARN("automatic SteamID assignment skipped slot=%d: availability check failed", slot);
+            return 0;
+        }
     }
 
     std::vector<uint64_t> available;
     available.reserve(BotInfo().Count());
     for (const BotEntry& entry : BotInfo().All())
     {
-        if (entry.steamId64 == 0 || IsSteamIdInUseByOther(entry.steamId64, slot) ||
-            std::ranges::find(available, entry.steamId64) != available.end())
+        if (entry.steamId64 == 0 || std::ranges::find(available, entry.steamId64) != available.end())
         {
             continue;
         }
+        const auto availability = CheckSteamIdAvailability(slot, entry.steamId64);
+        if (availability == SteamIdAvailability::CheckFailed)
+        {
+            BH_LOG_WARN("automatic SteamID assignment skipped slot=%d: availability check failed", slot);
+            return 0;
+        }
+        if (availability == SteamIdAvailability::InUse) continue;
         available.push_back(entry.steamId64);
     }
     if (!available.empty()) return available[NextSteamIdRandom() % available.size()];
 
-    if (desired == 0) return 0;
-    const uint64_t base = desired;
-    for (int bump = 1; bump <= 4096; ++bump)
-    {
-        const uint64_t candidate = base + static_cast<uint64_t>(bump);
-        if (!IsSteamIdInUseByOther(candidate, slot)) return candidate;
-    }
-    return desired;
+    BH_LOG_WARN("automatic SteamID assignment skipped slot=%d: no available configured identity", slot);
+    return 0;
 }
 
 // Sync the controller's fake-client bit.
 bool SetControllerFakeClientFlag(int slot, bool fakeClient)
 {
-    if (offsets::g_baseEntityFlagsOffset < 0) return false;
     void* client = entity_access::ResolveClientBySlot(slot);
     if (!client) return false;
 
@@ -264,12 +272,11 @@ bool SetControllerFakeClientFlag(int slot, bool fakeClient)
         return false;
     }
 
-    constexpr uint32_t kFakeClientBit = 0x100;
     auto* flags = reinterpret_cast<uint32_t*>(reinterpret_cast<unsigned char*>(controller) + offsets::g_baseEntityFlagsOffset);
     const uint32_t before = *flags;
-    if (fakeClient) *flags |= kFakeClientBit;
+    if (fakeClient) *flags |= offsets::kEntityFlagFakeClient;
     else
-        *flags &= ~kFakeClientBit;
+        *flags &= ~offsets::kEntityFlagFakeClient;
     if (*flags != before)
     {
         entity_access::MarkEntityFieldChanged(controller, static_cast<uint32_t>(offsets::g_baseEntityFlagsOffset));

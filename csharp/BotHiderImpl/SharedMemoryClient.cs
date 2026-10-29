@@ -159,7 +159,9 @@ public sealed class SharedMemoryClient : IBotHiderApi, IDisposable
 
     // Read the slot's lifetime ID.
     public ulong GetSlotIncarnation(int slot) =>
-        Valid(slot) ? _view!.ReadUInt64(OffIncarnation + slot * 8) : 0UL;
+        Valid(slot) ? ReadIncarnation(slot) : 0UL;
+
+    private ulong ReadIncarnation(int slot) => _view!.ReadUInt64(OffIncarnation + slot * 8);
 
     public int[] GetManagedSlots()
     {
@@ -180,7 +182,7 @@ public sealed class SharedMemoryClient : IBotHiderApi, IDisposable
     public string GetPersonaName(int slot)
     {
         if (!Valid(slot)) return string.Empty;
-        ulong incarnation = GetSlotIncarnation(slot);
+        ulong incarnation = ReadIncarnation(slot);
         if (incarnation != 0 &&
             _personaNameOverrideIncarnations[slot] == incarnation &&
             !string.IsNullOrEmpty(_personaNameOverrides[slot]))
@@ -194,12 +196,11 @@ public sealed class SharedMemoryClient : IBotHiderApi, IDisposable
 
     // Read the base native name.
     public string GetBasePersonaName(int slot)
-        => ReadFixedUtf8(slot, OffBasePersonaName, NameLen);
+        => Valid(slot) ? ReadFixedUtf8(slot, OffBasePersonaName, NameLen) : string.Empty;
 
     // Read a fixed-size NUL-terminated UTF-8 field.
     private string ReadFixedUtf8(int slot, int baseOffset, int fieldLength)
     {
-        if (!Valid(slot)) return string.Empty;
         var buf = new byte[fieldLength];
         _view!.ReadArray(baseOffset + slot * fieldLength, buf, 0, fieldLength);
         int len = Array.IndexOf(buf, (byte)0);
@@ -211,7 +212,7 @@ public sealed class SharedMemoryClient : IBotHiderApi, IDisposable
         Valid(slot) ? _view!.ReadInt32(OffCurrentPing + slot * 4) : 0;
 
     public string GetCrosshairCode(int slot)
-        => ReadFixedUtf8(slot, OffCrosshair, CrosshairLen);
+        => Valid(slot) ? ReadFixedUtf8(slot, OffCrosshair, CrosshairLen) : string.Empty;
 
     // Read the identity's clan pair.
     public (string Tag, uint GroupId) GetClan(int slot)
@@ -226,7 +227,7 @@ public sealed class SharedMemoryClient : IBotHiderApi, IDisposable
         if (!IsManagedBot(slot) || _view!.ReadByte(OffAvatarApplied + slot) == 0)
             return false;
         ulong appliedSid = _view.ReadUInt64(OffAvatarAppliedSid + slot * sizeof(ulong));
-        return appliedSid != 0 && appliedSid == GetBotSteamId(slot);
+        return appliedSid != 0 && appliedSid == _view.ReadUInt64(OffSyntheticSid + slot * 8);
     }
 
     // Read PNG size for the current slot lifetime.
@@ -234,7 +235,7 @@ public sealed class SharedMemoryClient : IBotHiderApi, IDisposable
     {
         if (!IsManagedBot(slot) ||
             !TryReadAvatarMetadata(slot, out _, out uint length, out ulong incarnation) ||
-            incarnation == 0 || incarnation != GetSlotIncarnation(slot))
+            incarnation == 0 || incarnation != ReadIncarnation(slot))
         {
             return 0;
         }
@@ -245,7 +246,7 @@ public sealed class SharedMemoryClient : IBotHiderApi, IDisposable
     public bool SetCrosshairCode(int slot, string code)
     {
         if (!IsManagedBot(slot)) return false;
-        ulong incarnation = GetSlotIncarnation(slot);
+        ulong incarnation = ReadIncarnation(slot);
         if (incarnation == 0) return false;
         if (code == "0") code = string.Empty;
         if (!TryEncodeFixedUtf8(code, CrosshairLen, out var buf)) return false;
@@ -258,7 +259,7 @@ public sealed class SharedMemoryClient : IBotHiderApi, IDisposable
     public uint GetScoreboardFlair(int slot)
     {
         if (!IsManagedBot(slot)) return 0U;
-        ulong incarnation = GetSlotIncarnation(slot);
+        ulong incarnation = ReadIncarnation(slot);
         if (!_scoreboardFlairAssigned[slot] ||
             _scoreboardFlairIncarnations[slot] != incarnation)
         {
@@ -296,7 +297,7 @@ public sealed class SharedMemoryClient : IBotHiderApi, IDisposable
     // Queue SteamID assignment; publish after native resolution.
     public bool SetBotSteamId(int slot, ulong steamId64)
     {
-        if (!Valid(slot)) return false;
+        if (steamId64 == 0) return false;
         bool ok = PostCommand(CmdSetSteamId, slot, steamId64, null, out ulong incarnation);
         if (ok) _onSteamIdQueued?.Invoke(slot, incarnation);
         return ok;
@@ -305,7 +306,6 @@ public sealed class SharedMemoryClient : IBotHiderApi, IDisposable
     // Bind the name override to the queued lifetime.
     public bool SetPersonaName(int slot, string name)
     {
-        if (!Valid(slot)) return false;
         string normalizedName = BuildBoundedVisiblePersonaName(name);
         if (normalizedName.Length == 0) return false;
         bool ok = PostCommand(CmdSetPersona, slot, 0UL, normalizedName, out ulong incarnation);
@@ -411,7 +411,7 @@ public sealed class SharedMemoryClient : IBotHiderApi, IDisposable
     public bool SetScoreboardFlair(int slot, uint itemDefIndex)
     {
         if (!IsManagedBot(slot) || itemDefIndex > ushort.MaxValue) return false;
-        ulong incarnation = GetSlotIncarnation(slot);
+        ulong incarnation = ReadIncarnation(slot);
         if (incarnation == 0) return false;
         _scoreboardFlairs[slot] = itemDefIndex;
         _scoreboardFlairAssigned[slot] = true;
@@ -425,7 +425,6 @@ public sealed class SharedMemoryClient : IBotHiderApi, IDisposable
     {
         if (mode is not BotIdentityMode.Player and not BotIdentityMode.Bot) return false;
         if (_view == null) TryConnect();
-        if (_view == null) return false;
         return PostCommand(CmdSetIdentityMode, SlotAll, (ulong)mode, null, out _);
     }
 
@@ -433,7 +432,6 @@ public sealed class SharedMemoryClient : IBotHiderApi, IDisposable
     public bool SetNameSource(bool useBotInfo)
     {
         if (_view == null) TryConnect();
-        if (_view == null) return false;
         return PostCommand(CmdSetNameSource, SlotAll, useBotInfo ? 1UL : 0UL, null, out _);
     }
 
@@ -441,15 +439,15 @@ public sealed class SharedMemoryClient : IBotHiderApi, IDisposable
     private bool PostCommand(byte type, int slot, ulong sid, string? name, out ulong incarnation)
     {
         incarnation = 0;
-        if (_view == null) return false;
+        if (_view == null || (slot != SlotAll && (slot < 0 || slot >= MaxSlots))) return false;
         if (!TryEncodeFixedUtf8(name ?? string.Empty, NameLen, out var nameBuf))
             return false;
         lock (_writeLock)
         {
             if (slot != SlotAll)
             {
-                if (!IsManagedBot(slot)) return false;
-                incarnation = GetSlotIncarnation(slot);
+                if (_view.ReadByte(OffSlotState + slot) == 0) return false;
+                incarnation = ReadIncarnation(slot);
                 if (incarnation == 0) return false;
             }
             uint w = _view.ReadUInt32(OffWriteIdx);
@@ -539,17 +537,18 @@ public sealed class SharedMemoryClient : IBotHiderApi, IDisposable
             return false;
         }
 
-        ulong incarnation = GetSlotIncarnation(slot);
+        if (_view == null)
+        {
+            error = "shared memory is unavailable";
+            return false;
+        }
+        ulong incarnation = ReadIncarnation(slot);
         if (incarnation == 0)
         {
             error = "managed slot has no active incarnation";
             return false;
         }
-        if (!WriteAvatarRequest(slot, incarnation, bytes))
-        {
-            error = "shared memory is unavailable";
-            return false;
-        }
+        WriteAvatarRequest(slot, incarnation, bytes);
         return true;
     }
 
@@ -557,13 +556,13 @@ public sealed class SharedMemoryClient : IBotHiderApi, IDisposable
     internal bool ClearAvatarRequest(int slot)
     {
         if (!Valid(slot)) return false;
-        return WriteAvatarRequest(slot, 0UL, ReadOnlySpan<byte>.Empty);
+        WriteAvatarRequest(slot, 0UL, ReadOnlySpan<byte>.Empty);
+        return true;
     }
 
     // Write an avatar request under the slot seqlock.
-    private bool WriteAvatarRequest(int slot, ulong incarnation, ReadOnlySpan<byte> bytes)
+    private void WriteAvatarRequest(int slot, ulong incarnation, ReadOnlySpan<byte> bytes)
     {
-        if (!Valid(slot) || bytes.Length > AvatarMaxBytes) return false;
         lock (_writeLock)
         {
             int sequenceOffset = OffAvatarSequence + slot * sizeof(uint);
@@ -582,7 +581,6 @@ public sealed class SharedMemoryClient : IBotHiderApi, IDisposable
             Interlocked.MemoryBarrier();
             _view.Write(sequenceOffset, unchecked(writing + 1U));
         }
-        return true;
     }
 
     // Read stable avatar metadata.
@@ -592,8 +590,6 @@ public sealed class SharedMemoryClient : IBotHiderApi, IDisposable
         sequence = 0;
         length = 0;
         incarnation = 0;
-        if (!Valid(slot)) return false;
-
         int sequenceOffset = OffAvatarSequence + slot * sizeof(uint);
         for (int attempt = 0; attempt < 3; attempt++)
         {
@@ -633,7 +629,7 @@ public sealed class SharedMemoryClient : IBotHiderApi, IDisposable
     {
         for (int slot = 0; slot < MaxSlots; slot++)
         {
-            ulong incarnation = managed[slot] ? GetSlotIncarnation(slot) : 0UL;
+            ulong incarnation = managed[slot] ? ReadIncarnation(slot) : 0UL;
             if (managed[slot] &&
                 _scoreboardFlairIncarnations[slot] == incarnation)
             {

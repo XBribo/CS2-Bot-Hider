@@ -1,4 +1,5 @@
 #include "network_connection.pb.h"
+#include "core/log.h"
 #include "playerslot.h"
 #include "plugin.h"
 
@@ -82,7 +83,12 @@ KHook::Return<void> HiderPlugin::HookOnClientConnectedPost( // NOLINT(readabilit
     const uint32_t scoreboardFlair = entry ? entry->scoreboardFlair : 0;
     const char* clanTag = entry ? entry->clanTag.tag.c_str() : nullptr;
     const uint32_t clanGroupId = entry ? entry->clanTag.groupId : 0;
-    const uint64_t steamId = identity_runtime::MakeUniqueSteamId(index, configuredSteamId);
+    const uint64_t steamId = identity_runtime::SelectSteamIdForBot(index, configuredSteamId);
+    if (steamId == 0)
+    {
+        BotInfo().ReleaseAssignment(entry);
+        return { KHook::Action::Ignore };
+    }
     if (!Manager().AdoptSlot(index, displayName.c_str(), steamId, crosshairCode, scoreboardFlair,
                              clanTag, clanGroupId))
     {
@@ -130,20 +136,28 @@ KHook::Return<void> HiderPlugin::HookClientPutInServerPost(IServerGameClients*,
         return { KHook::Action::Ignore };
     }
 
+    const uint64_t desiredSteamId = Manager().GetSyntheticSid(index);
+    const auto availability = identity_runtime::CheckSteamIdAvailability(index, desiredSteamId);
+    if (availability != identity_runtime::SteamIdAvailability::Available)
+    {
+        BH_LOG_WARN("bot identity released slot=%d: %s", index,
+                    availability == identity_runtime::SteamIdAvailability::InUse ? "SteamID already in use" : "availability check failed");
+        ssc::SetFakePlayer(client);
+        identity_runtime::SetControllerFakeClientFlag(index, true);
+        ssc::WriteSteamId(client, 0);
+        entity_access::RefreshClientUserInfo(index);
+        BotInfo().ReleaseAssignment(identity_state::SlotEntry(index));
+        identity_state::ClearSlot(index);
+        Manager().ReleaseSlot(index);
+        return { KHook::Action::Ignore };
+    }
+
     if (IsDisguiseEnabled())
     {
         ssc::ClearFakePlayer(client);
         identity_runtime::SetControllerFakeClientFlag(index, identity_hooks::PopulationTransactionActive());
     }
-
-    const uint64_t desiredSteamId = Manager().GetSyntheticSid(index);
-    const uint64_t steamId = identity_runtime::MakeUniqueSteamId(index, desiredSteamId);
-    if (steamId != 0)
-    {
-        ssc::WriteSteamId(client, steamId);
-        Manager().SetSyntheticSid(index, steamId);
-        Publisher().UpdateBaseSyntheticSid(index, steamId);
-    }
+    ssc::WriteSteamId(client, desiredSteamId);
 
     std::string visibleName = Personas().GetSlotName(index);
     if (visibleName.empty() && name) visibleName = name;

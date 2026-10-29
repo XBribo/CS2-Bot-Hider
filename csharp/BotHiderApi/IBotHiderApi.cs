@@ -35,7 +35,7 @@ public interface IBotHiderApi
     // Hook addresses; 0=unresolved.
     (string Name, ulong Addr)[] GetSignatures();
 
-    // Set SteamID64; false for invalid slots.
+    // Queues an exact SteamID64.
     bool SetBotSteamId(int slot, ulong steamId64);
 
     // Set crosshair; empty or "0" clears it.

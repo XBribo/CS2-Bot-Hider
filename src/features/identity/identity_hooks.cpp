@@ -17,8 +17,10 @@
 
 #include <cstdint>
 #include <array>
+#include <cstdio>
 #include <memory>
 #include <mutex>
+#include <string>
 #include <utility>
 #include <vector>
 
@@ -41,7 +43,6 @@ std::recursive_mutex g_packEntitiesMutex;
 thread_local uint32_t g_packEntitiesDepth = 0;
 thread_local uint32_t g_hookDepth = 0;
 std::array<bool, 64> g_identityResolveWarned{};
-bool g_identityInvalidOffsetWarned = false;
 
 struct NativeBotIdentitySnapshot
 {
@@ -51,16 +52,15 @@ struct NativeBotIdentitySnapshot
     uint32_t handle = 0xFFFFFFFF;
     uint16_t userId = 0;
     uint8_t connectionFlags = 0;
+    uint8_t connectionFlagsMask = 0;
     uint8_t fakePlayer = 0;
     uint32_t controllerFlags = 0;
-    bool hasController = false;
-    bool modified = false;
+    uint32_t controllerFlagsMask = 0;
 };
 
 bool IsValidController(void* controller, const char* className, uint32_t handle)
 {
-    return controller && className && std::strcmp(className, "cs_player_controller") == 0 &&
-           !entity_access::IsEntityBeingDeleted(controller) &&
+    return std::strcmp(className, "cs_player_controller") == 0 && !entity_access::IsEntityBeingDeleted(controller) &&
            std::cmp_equal(static_cast<uint32_t>(reinterpret_cast<CEntityInstance*>(controller)->GetRefEHandle().ToInt()), handle);
 }
 
@@ -77,17 +77,6 @@ class ScopedNativeBotIdentityRestore
 
     void Capture()
     {
-        if (ssc::g_userIdOffset < 0 || ssc::g_entityIndexOffset < 0 || ssc::g_connectionTypeFlagsOffset < 0 ||
-            ssc::g_fakePlayerOffset < 0 || offsets::g_baseEntityFlagsOffset < 0)
-        {
-            if (!g_identityInvalidOffsetWarned)
-            {
-                BH_LOG_WARN("identity restore disabled: invalid offsets");
-                g_identityInvalidOffsetWarned = true;
-            }
-            return;
-        }
-
         for (int slot = 0; slot < PersonaPool::kMaxSlots; ++slot)
         {
             if (!Manager().IsManaged(slot)) continue;
@@ -109,8 +98,8 @@ class ScopedNativeBotIdentityRestore
             snapshot.userId = *reinterpret_cast<uint16_t*>(raw + ssc::g_userIdOffset);
             snapshot.connectionFlags = raw[ssc::g_connectionTypeFlagsOffset];
             snapshot.fakePlayer = raw[ssc::g_fakePlayerOffset];
-            snapshot.modified = true;
             ssc::SetFakePlayer(snapshot.client);
+            snapshot.connectionFlagsMask = snapshot.connectionFlags ^ raw[ssc::g_connectionTypeFlagsOffset];
 
             const int entityIndex = *reinterpret_cast<int*>(raw + ssc::g_entityIndexOffset);
             char className[64];
@@ -141,9 +130,9 @@ class ScopedNativeBotIdentityRestore
             auto* flags =
                 reinterpret_cast<uint32_t*>(reinterpret_cast<unsigned char*>(snapshot.controller) + offsets::g_baseEntityFlagsOffset);
             snapshot.controllerFlags = *flags;
-            snapshot.hasController = true;
             const uint32_t before = *flags;
-            *flags |= 0x100U;
+            *flags |= offsets::kEntityFlagFakeClient;
+            snapshot.controllerFlagsMask = before ^ *flags;
             if (*flags != before && m_markNetworkChanges)
             {
                 entity_access::MarkEntityFieldChanged(snapshot.controller, static_cast<uint32_t>(offsets::g_baseEntityFlagsOffset));
@@ -155,7 +144,7 @@ class ScopedNativeBotIdentityRestore
     {
         for (const auto& snapshot : m_snapshots)
         {
-            if (!snapshot.modified || !snapshot.client) continue;
+            if (!snapshot.client) continue;
             if (!Manager().IsManaged(snapshot.slot)) continue;
 
             void* currentClient = entity_access::ResolveClientBySlot(snapshot.slot);
@@ -173,14 +162,16 @@ class ScopedNativeBotIdentityRestore
                             static_cast<unsigned int>(currentUserId));
                 continue;
             }
-            raw[ssc::g_connectionTypeFlagsOffset] = snapshot.connectionFlags;
-            raw[ssc::g_fakePlayerOffset] = snapshot.fakePlayer;
+            auto& connectionFlags = raw[ssc::g_connectionTypeFlagsOffset];
+            connectionFlags = static_cast<uint8_t>((connectionFlags & ~snapshot.connectionFlagsMask) |
+                                                   (snapshot.connectionFlags & snapshot.connectionFlagsMask));
+            if (snapshot.fakePlayer != 1) raw[ssc::g_fakePlayerOffset] = snapshot.fakePlayer;
 
-            if (!snapshot.hasController) continue;
+            if (!snapshot.controller) continue;
             const int entityIndex = *reinterpret_cast<int*>(raw + ssc::g_entityIndexOffset);
             char className[64];
             void* controller = entity_access::ResolveEntityInstance(entityIndex, className, sizeof(className));
-            if (!IsValidController(controller, className, snapshot.handle) || controller != snapshot.controller)
+            if (controller != snapshot.controller || !IsValidController(controller, className, snapshot.handle))
             {
                 BH_LOG_WARN("identity restore skipped slot=%d userid=%u: controller rebound", snapshot.slot,
                             static_cast<unsigned int>(snapshot.userId));
@@ -188,9 +179,10 @@ class ScopedNativeBotIdentityRestore
             }
 
             auto* flags = reinterpret_cast<uint32_t*>(reinterpret_cast<unsigned char*>(controller) + offsets::g_baseEntityFlagsOffset);
-            if (*flags != snapshot.controllerFlags)
+            const uint32_t restored = (*flags & ~snapshot.controllerFlagsMask) | (snapshot.controllerFlags & snapshot.controllerFlagsMask);
+            if (*flags != restored)
             {
-                *flags = snapshot.controllerFlags;
+                *flags = restored;
                 if (m_markNetworkChanges)
                     entity_access::MarkEntityFieldChanged(controller, static_cast<uint32_t>(offsets::g_baseEntityFlagsOffset));
             }
@@ -352,7 +344,7 @@ KHook::Return<void> PackPre(void*, void*, int, void*, void*) noexcept
 {
     g_packEntitiesMutex.lock();
     ++g_hookDepth;
-    if (g_packEntitiesDepth++ == 0) ApplyBotFlagOverride(g_packedPawns);
+    if (g_packEntitiesDepth++ == 0 && g_plugin.IsDisguiseEnabled()) ApplyBotFlagOverride(g_packedPawns);
     return { KHook::Action::Ignore };
 }
 
@@ -431,7 +423,6 @@ void ClearBindings()
 // Prepare the bot-quota detour.
 void PrepareQuotaHook(const nlohmann::json& gamedata, const cs2_sdk::modules::ModuleInfo& serverModule)
 {
-    if (!serverModule) return;
     char error[256]{};
     g_quotaHookTarget = cs2_sdk::gameconfig::ResolveSig(gamedata, serverModule, "CCSBotManager::MaintainBotQuota", error, sizeof(error));
     if (!g_quotaHookTarget) BH_LOG_WARN("%s", error);
@@ -440,7 +431,6 @@ void PrepareQuotaHook(const nlohmann::json& gamedata, const cs2_sdk::modules::Mo
 // Prepare the voter-count detour.
 void PrepareCountPotentialVotersHook(const nlohmann::json& gamedata, const cs2_sdk::modules::ModuleInfo& serverModule)
 {
-    if (!serverModule) return;
     char error[256]{};
     g_countPotentialVotersHookTarget =
         cs2_sdk::gameconfig::ResolveSig(gamedata, serverModule, "CBaseIssue::CountPotentialVoters", error, sizeof(error));
@@ -450,7 +440,6 @@ void PrepareCountPotentialVotersHook(const nlohmann::json& gamedata, const cs2_s
 // Prepare the team-join detour.
 void PrepareHandleJoinTeamHook(const nlohmann::json& gamedata, const cs2_sdk::modules::ModuleInfo& serverModule)
 {
-    if (!serverModule) return;
     char error[256]{};
     g_handleJoinTeamHookTarget =
         cs2_sdk::gameconfig::ResolveSig(gamedata, serverModule, "CCSPlayerController::HandleCommand_JoinTeam", error, sizeof(error));
@@ -460,7 +449,6 @@ void PrepareHandleJoinTeamHook(const nlohmann::json& gamedata, const cs2_sdk::mo
 // Prepare the human-team restriction detour.
 void PrepareHumanTeamRestrictionHook(const nlohmann::json& gamedata, const cs2_sdk::modules::ModuleInfo& serverModule)
 {
-    if (!serverModule) return;
     char error[256]{};
     g_applyHumanTeamRestrictionHookTarget =
         cs2_sdk::gameconfig::ResolveSig(gamedata, serverModule, "MpHumanTeam_ApplyRestriction", error, sizeof(error));
@@ -486,7 +474,6 @@ void PreparePackEntitiesHook(const nlohmann::json& gamedata)
 // Resolve the end-match entry and Schema team-reset flag.
 void PrepareSameMapTeardownHook(const nlohmann::json& gamedata, const cs2_sdk::modules::ModuleInfo& serverModule)
 {
-    if (!serverModule) return;
     char error[256]{};
     void* target = cs2_sdk::gameconfig::ResolveSig(gamedata, serverModule, "CCSGameRules::EndMatchState", error, sizeof(error));
     if (!target)
@@ -509,7 +496,6 @@ void PrepareSameMapTeardownHook(const nlohmann::json& gamedata, const cs2_sdk::m
 void PrepareScriptIsBotHook(const nlohmann::json& gamedata, const cs2_sdk::modules::ModuleInfo& serverModule)
 {
     g_scriptIsBotHookTarget = nullptr;
-    if (!serverModule) return;
     char error[256]{};
     g_scriptIsBotHookTarget = cs2_sdk::gameconfig::ResolveSig(gamedata, serverModule, "CSPlayerController::ScriptIsBot", error, sizeof(error));
     if (!g_scriptIsBotHookTarget) BH_LOG_WARN("%s", error);
@@ -517,7 +503,7 @@ void PrepareScriptIsBotHook(const nlohmann::json& gamedata, const cs2_sdk::modul
 
 } // namespace
 
-// Prepare optional identity detours.
+// Prepare identity detours.
 void PrepareAll(const nlohmann::json& gamedata, const cs2_sdk::modules::ModuleInfo& serverModule)
 {
     PrepareQuotaHook(gamedata, serverModule);
@@ -547,6 +533,38 @@ void InstallPrepared()
         g_scriptIsBotHookTarget = nullptr;
         BH_LOG_WARN("ScriptIsBot disabled: PackEntities or entity resolution unavailable");
     }
+}
+
+bool CanEnableDisguise(char* error, size_t maxlen)
+{
+    const struct
+    {
+        bool ready;
+        const char* name;
+    } dependencies[] = {
+        { g_quotaHook.Active(), "CCSBotManager::MaintainBotQuota" },
+        { g_votersHook.Active(), "CBaseIssue::CountPotentialVoters" },
+        { g_joinTeamHook.Active(), "CCSPlayerController::HandleCommand_JoinTeam" },
+        { g_humanTeamHook.Active(), "MpHumanTeam_ApplyRestriction" },
+        { g_packHook.Active(), "CNetworkGameServer::PackEntities" },
+        { g_endMatchHook.Active(), "CCSGameRules::EndMatchState" },
+        { entity_access::UtilRemoveTarget() != nullptr, "UTIL_Remove" },
+        { entity_access::HasEntitySystem(), "entity-system reference" },
+        { offsets::g_botPawnHandleOffset >= 0, "controller pawn handle" },
+    };
+    std::string missing;
+    for (const auto& dependency : dependencies)
+    {
+        if (dependency.ready) continue;
+        if (!missing.empty()) missing += ", ";
+        missing += dependency.name;
+    }
+    if (!missing.empty())
+    {
+        std::snprintf(error, maxlen, "player mode unavailable; missing required dependencies: %s", missing.c_str());
+        return false;
+    }
+    return true;
 }
 
 // Remove identity detours outside callbacks.

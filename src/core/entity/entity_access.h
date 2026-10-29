@@ -14,6 +14,9 @@ void ResolveUtilRemoveAndEntSys(const nlohmann::json& gamedata, const cs2_sdk::m
 // Read the UTIL_Remove target.
 void* UtilRemoveTarget();
 
+// Check whether the entity-system reference was resolved.
+bool HasEntitySystem();
+
 // Remove an entity through the engine.
 bool RemoveEntity(void* instance);
 

@@ -28,7 +28,7 @@ bool IsManagedBotController(void* controller);
 
 namespace identity_hooks {
 
-// Enter/leave a nested population-command identity transaction.
+// Manages nested population-command identity transactions.
 void BeginPopulationTransaction(bool redisguise);
 void EndPopulationTransaction(bool redisguise);
 bool PopulationTransactionActive();
@@ -45,11 +45,14 @@ class PopulationTransactionScope
     bool m_redisguise;
 };
 
-// Prepare optional identity detours.
+// Prepare identity detours.
 void PrepareAll(const nlohmann::json& gamedata, const cs2_sdk::modules::ModuleInfo& serverModule);
 
 // Install prepared identity detours.
 void InstallPrepared();
+
+// Validate the installed dependencies for player mode.
+bool CanEnableDisguise(char* error, size_t maxlen);
 
 // Remove identity hooks before releasing plugin state.
 bool Remove();

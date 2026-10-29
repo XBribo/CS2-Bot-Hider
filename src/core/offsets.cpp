@@ -6,6 +6,7 @@
 #include "serversideclient_ref.h"
 
 #include <cstdio>
+#include <string>
 
 namespace cs2bh::offsets {
 
@@ -41,7 +42,7 @@ bool LoadFromSchema(char* error, size_t maxlen)
     return true;
 }
 
-void LoadFromGamedata(const nlohmann::json& gamedata)
+bool LoadFromGamedata(const nlohmann::json& gamedata, char* error, size_t maxlen)
 {
     const cs2_sdk::gameconfig::OffsetBinding offsets[] = {
         { &ssc::g_nameOffset, "CServerSideClient::m_Name" },
@@ -54,13 +55,29 @@ void LoadFromGamedata(const nlohmann::json& gamedata)
         { &ssc::g_steamIdMirrorOffset, "CServerSideClient::m_SteamIDMirror" },
         { &ssc::g_isHltvOffset, "CServerSideClient::m_bIsHLTV" },
         { &g_clientListOffset, "CNetworkGameServerBase::m_Clients" },
-        { &g_vtableSlotClientSetName, "CServerSideClient::SetName" },
         { &g_entitySystemIdentityChunksOffset, "CEntitySystem::m_EntityList" },
         { &g_entityIdentitySize, "CEntityIdentity::Size" },
         { &g_entityIdentityInstanceOffset, "CEntityIdentity::m_pInstance" },
         { &g_entityIdentityClassNameOffset, "CEntityIdentity::m_designerName" },
     };
-    cs2_sdk::gameconfig::LoadOffsets(gamedata, offsets);
+    std::string invalid;
+    for (const auto& binding : offsets)
+    {
+        *binding.target = cs2_sdk::gameconfig::FindPlatformOffset(gamedata, binding.name, -1);
+        if (*binding.target < 0 || (binding.target == &g_entityIdentitySize && *binding.target == 0))
+        {
+            if (!invalid.empty()) invalid += ", ";
+            invalid += binding.name;
+        }
+    }
+    g_vtableSlotClientSetName = cs2_sdk::gameconfig::FindPlatformOffset(gamedata, "CServerSideClient::SetName", -1);
+    if (!invalid.empty())
+    {
+        std::snprintf(error, maxlen, "required gamedata offsets missing or invalid (%s): %s", cs2_sdk::gameconfig::PlatformName(),
+                      invalid.c_str());
+        return false;
+    }
+    return true;
 }
 
 } // namespace cs2bh::offsets

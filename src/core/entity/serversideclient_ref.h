@@ -6,16 +6,16 @@
 
 namespace cs2bh::ssc {
 
-// Fallback offsets; gamedata.json overrides them at load.
-inline int g_nameOffset = 64; // CUtlString
-inline int g_entityIndexOffset = 76; // CEntityIndex (int)
-inline int g_netChannelOffset = 88; // INetChannel*
-inline int g_connectionTypeFlagsOffset = 96; // byte, fake-client mask 0x08
-inline int g_fakePlayerOffset = 160; // bool
-inline int g_userIdOffset = 168; // short
-inline int g_steamIdOffset = 171; // CSteamID
-inline int g_steamIdMirrorOffset = 179; // mirrored CSteamID
-inline int g_isHltvOffset = 322; // bool
+// Required offsets are resolved from gamedata before client access.
+inline int g_nameOffset = -1; // CUtlString
+inline int g_entityIndexOffset = -1; // CEntityIndex (int)
+inline int g_netChannelOffset = -1; // INetChannel*
+inline int g_connectionTypeFlagsOffset = -1; // byte, fake-client mask 0x08
+inline int g_fakePlayerOffset = -1; // bool
+inline int g_userIdOffset = -1; // short
+inline int g_steamIdOffset = -1; // CSteamID
+inline int g_steamIdMirrorOffset = -1; // mirrored CSteamID
+inline int g_isHltvOffset = -1; // bool
 
 // Read the CUtlString pointer at the name offset.
 inline const char* ReadName(const void* client)

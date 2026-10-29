@@ -5,28 +5,42 @@
 #include "identity_hooks.h"
 #include "offsets.h"
 #include "core/cs2_sdk/src/core/memory_module.h"
+#include <cstdio>
 #include <string>
 namespace cs2bh::gamedata {
-void Prepare()
+bool Prepare(char* error, size_t maxlen)
 {
     const std::string gamedataPath = cs2_sdk::gameconfig::ComputePath();
     nlohmann::json gamedata;
     if (!cs2_sdk::gameconfig::LoadGamedata(gamedataPath.c_str(), gamedata))
     {
-        BH_LOG_WARN("gamedata unavailable path='%s': identity detours and cleanup disabled", gamedataPath.c_str());
+        std::snprintf(error, maxlen, "required gamedata unavailable or invalid: %s", gamedataPath.c_str());
+        BH_LOG_ERROR("%s", error);
+        return false;
     }
     else
     {
-        offsets::LoadFromGamedata(gamedata);
+        if (!offsets::LoadFromGamedata(gamedata, error, maxlen))
+        {
+            BH_LOG_ERROR("%s", error);
+            return false;
+        }
         if (offsets::g_vtableSlotClientSetName < 0)
         {
             BH_LOG_WARN("name writes disabled: SetName vtable slot missing");
         }
 
         cs2_sdk::modules::Initialize();
+        if (!cs2_sdk::modules::server || !cs2_sdk::modules::server->Code())
+        {
+            std::snprintf(error, maxlen, "required server module code unavailable");
+            BH_LOG_ERROR("%s", error);
+            return false;
+        }
         const cs2_sdk::modules::ModuleInfo& serverModule = cs2_sdk::modules::server->Code();
         entity_access::ResolveUtilRemoveAndEntSys(gamedata, serverModule);
         identity_hooks::PrepareAll(gamedata, serverModule);
     }
+    return true;
 }
 } // namespace cs2bh::gamedata

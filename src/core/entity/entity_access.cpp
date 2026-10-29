@@ -46,7 +46,7 @@ void** g_entitySystemGlobal = nullptr;
 
 void* ResolveClientBySlot(int slot)
 {
-    if (!g_pNetworkServerService || offsets::g_clientListOffset < 0) return nullptr;
+    if (!g_pNetworkServerService) return nullptr;
     auto* gameServer = g_pNetworkServerService->GetIGameServer();
     if (!gameServer) return nullptr;
     auto* clients = reinterpret_cast<CUtlVector<void*>*>(reinterpret_cast<unsigned char*>(gameServer) + offsets::g_clientListOffset);
@@ -68,12 +68,6 @@ void ResolveUtilRemoveAndEntSys(const nlohmann::json& gamedata, const cs2_sdk::m
 {
     g_utilRemove = nullptr;
     g_entitySystemGlobal = nullptr;
-    if (!serverModule)
-    {
-        BH_LOG_WARN("entity resolution disabled: %s unavailable", cs2_sdk::modules::kServerModuleName);
-        return;
-    }
-
     std::string signature = cs2_sdk::gameconfig::FindPlatformSig(gamedata, "UTIL_Remove");
     std::vector<uint8_t> bytes;
     std::vector<bool> wildcards;
@@ -163,9 +157,7 @@ bool SafeReadString(const void* address, char* output, size_t capacity)
 void* ResolveEntityInstance(int entityIndex, char* classnameOut, size_t classnameCap)
 {
     if (classnameOut && classnameCap) classnameOut[0] = '\0';
-    if (!g_entitySystemGlobal || entityIndex <= 0 || entityIndex >= 0x8000 || offsets::g_entitySystemIdentityChunksOffset < 0 ||
-        offsets::g_entityIdentitySize <= 0 || offsets::g_entityIdentityInstanceOffset < 0 ||
-        (classnameOut && classnameCap && offsets::g_entityIdentityClassNameOffset < 0))
+    if (!g_entitySystemGlobal || entityIndex <= 0 || entityIndex >= 0x8000)
     {
         return nullptr;
     }
@@ -213,6 +205,8 @@ void MarkEntityFieldChanged(void* instance, unsigned int offset)
 }
 
 void* UtilRemoveTarget() { return reinterpret_cast<void*>(g_utilRemove); }
+
+bool HasEntitySystem() { return g_entitySystemGlobal != nullptr; }
 
 bool RemoveEntity(void* instance)
 {

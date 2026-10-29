@@ -139,7 +139,7 @@ bool HiderPlugin::Load(PluginId id, ISmmAPI* ismm, char* error, size_t maxlen, b
     PLUGIN_SAVEVARS();
 
     // Reset state for plugin reloads.
-    m_identityMode = IdentityMode::Player;
+    m_identityMode = IdentityMode::Bot;
     m_unloadPending = false;
 
     if (!interfaces::Init(ismm, error, maxlen)) return false;
@@ -161,7 +161,6 @@ bool HiderPlugin::Load(PluginId id, ISmmAPI* ismm, char* error, size_t maxlen, b
     }
 
     const auto settings = config::Load(g_SMAPI->GetBaseDir());
-    m_identityMode = settings.botMode ? IdentityMode::Bot : IdentityMode::Player;
     Manager().ConfigureFakePing(settings.fakePingEnabled, settings.fakePingMin, settings.fakePingMax);
 
     auto* networkStringTables =
@@ -172,11 +171,30 @@ bool HiderPlugin::Load(PluginId id, ISmmAPI* ismm, char* error, size_t maxlen, b
         BH_LOG_WARN("avatars disabled: string tables unavailable");
     }
 
-    gamedata::Prepare();
+    if (!gamedata::Prepare(error, maxlen))
+    {
+        avatar::SetStringTableContainer(nullptr);
+        entity_access::Reset();
+        cs2_sdk::schema::Reset();
+        log::Close();
+        return false;
+    }
 
     g_pCVar = g_icvar;
 
     identity_hooks::InstallPrepared();
+
+    if (!settings.botMode && !identity_hooks::CanEnableDisguise(error, maxlen))
+    {
+        BH_LOG_ERROR("%s", error);
+        identity_hooks::Remove();
+        avatar::SetStringTableContainer(nullptr);
+        entity_access::Reset();
+        cs2_sdk::schema::Reset();
+        log::Close();
+        return false;
+    }
+    m_identityMode = settings.botMode ? IdentityMode::Bot : IdentityMode::Player;
 
     Manager().Init();
 

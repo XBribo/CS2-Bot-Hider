@@ -7,8 +7,18 @@ namespace cs2bh::identity_runtime {
 // Apply native or disguised identity to managed clients.
 void ApplyManagedDisguise(bool disguised);
 
-// Select a collision-free SteamID.
-uint64_t MakeUniqueSteamId(int slot, uint64_t desired);
+enum class SteamIdAvailability
+{
+    Available,
+    InUse,
+    CheckFailed,
+};
+
+// Checks SteamID availability.
+SteamIdAvailability CheckSteamIdAvailability(int slot, uint64_t steamId);
+
+// Selects an automatic identity.
+uint64_t SelectSteamIdForBot(int slot, uint64_t desired);
 
 // Sync the controller's fake-client bit.
 bool SetControllerFakeClientFlag(int slot, bool fakeClient);

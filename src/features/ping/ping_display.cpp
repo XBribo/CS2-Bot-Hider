@@ -8,13 +8,9 @@ namespace cs2bh {
 
 void PingDisplay::RecordSample(int latencyMs)
 {
-    int clamped = latencyMs;
-    clamped = std::max(clamped, 0);
-    clamped = std::min(clamped, 999);
-
     int oldest = m_samples[m_idx];
-    m_samples[m_idx] = clamped;
-    m_sum += clamped - oldest;
+    m_samples[m_idx] = latencyMs;
+    m_sum += latencyMs - oldest;
     m_idx = (m_idx + 1) % kWindowTicks;
     if (m_filled < kWindowTicks) ++m_filled;
 }
@@ -46,11 +42,6 @@ void PingDisplay::Reset()
 
 PingJitter::PingJitter(int baselineMs, int minimumMs, int maximumMs) : m_baseline(baselineMs), m_minimum(minimumMs), m_maximum(maximumMs)
 {
-    m_minimum = std::max(m_minimum, 1);
-    m_maximum = std::min(m_maximum, 999);
-    m_maximum = std::max(m_maximum, m_minimum);
-    m_baseline = std::max(m_baseline, m_minimum);
-    m_baseline = std::min(m_baseline, m_maximum);
     m_state = static_cast<uint64_t>(std::chrono::steady_clock::now().time_since_epoch().count()) ^
               (static_cast<uint64_t>(baselineMs) * 0x9E3779B97F4A7C15ULL) ^ 0xA0761D6478BD642FULL;
     if (m_state == 0) m_state = 0xDEADBEEFCAFEBABEULL;

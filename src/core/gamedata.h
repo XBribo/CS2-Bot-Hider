@@ -1,6 +1,8 @@
 #pragma once
 
+#include <cstddef>
+
 namespace cs2bh::gamedata {
 // Resolve engine targets and prepare identity hooks.
-void Prepare();
+bool Prepare(char* error, size_t maxlen);
 } // namespace cs2bh::gamedata

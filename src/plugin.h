@@ -109,7 +109,7 @@ class HiderPlugin : public ISmmPlugin, public IMetamodListener
     void ProcessPendingUnload();
     // Dispatch shared-memory commands.
     void DrainBridgeCommands();
-    // Apply a collision-free SteamID.
+    // Applies an exact SteamID.
     void ApplySteamIdCommand(int slot, uint64_t steamId);
     // Update and publish a managed client's name.
     void ApplyPersonaNameCommand(int slot, const char* name);
