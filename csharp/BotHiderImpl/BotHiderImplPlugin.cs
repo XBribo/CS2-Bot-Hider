@@ -54,7 +54,7 @@ public partial class BotHiderImplPlugin : BasePlugin
         try
         {
             _api = new BotHiderCapabilityApi(_client);
-            Capabilities.RegisterPluginCapability(Capability, () => _api);
+            BotHiderProvider.Attach(_api, supplier => Capabilities.RegisterPluginCapability(Capability, supplier));
             IsBotPatch.Api = _client;
             _harmony = new Harmony("net.linyz.bothider.isbot");
             _harmony.PatchAll(typeof(BotHiderImplPlugin).Assembly);
@@ -83,6 +83,7 @@ public partial class BotHiderImplPlugin : BasePlugin
         {
             _harmony = null;
             IsBotPatch.Api = null;
+            BotHiderProvider.Detach(_api);
             _api = null;
             _client?.Dispose();
             _client = null;
