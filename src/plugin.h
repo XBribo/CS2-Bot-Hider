@@ -107,7 +107,10 @@ class HiderPlugin : public ISmmPlugin, public IMetamodListener
     using DispatchConCommandHook = hooks::CheckedVirtual<ICvar, void, ConCommandRef, const CCommandContext&, const CCommand&>;
 
     bool InstallVirtualHooks();
+    bool AttachGameServerHook();
     bool RemoveVirtualHooks();
+    bool AdoptClient(int slot, void* client, const char* name);
+    void AdoptExistingBots();
     // Queue unload after the command hook detaches.
     void ProcessPendingUnload();
 

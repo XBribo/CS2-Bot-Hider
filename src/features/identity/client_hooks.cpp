@@ -65,6 +65,12 @@ KHook::Return<void> HiderPlugin::HookOnClientConnectedPost( // NOLINT(readabilit
     void* client = entity_access::ResolveClientBySlot(index);
     if (!client || ssc::IsHltv(client)) return { KHook::Action::Ignore };
 
+    AdoptClient(index, client, name);
+    return { KHook::Action::Ignore };
+}
+
+bool HiderPlugin::AdoptClient(int index, void* client, const char* name)
+{
     const BotEntry* entry = BotInfo().PickForBot(name);
     std::string displayName;
     if (entry && (m_useBotInfoName || !name || !name[0])) displayName = entry->name;
@@ -74,7 +80,7 @@ KHook::Return<void> HiderPlugin::HookOnClientConnectedPost( // NOLINT(readabilit
     if (displayName.empty())
     {
         BotInfo().ReleaseAssignment(entry);
-        return { KHook::Action::Ignore };
+        return false;
     }
 
     const uint64_t configuredSteamId = entry && entry->steamId64 != 0 ? entry->steamId64 : 0;
@@ -86,7 +92,7 @@ KHook::Return<void> HiderPlugin::HookOnClientConnectedPost( // NOLINT(readabilit
     if (steamId == 0)
     {
         BotInfo().ReleaseAssignment(entry);
-        return { KHook::Action::Ignore };
+        return false;
     }
     Manager().AdoptSlot(index, displayName.c_str(), steamId, crosshairCode, scoreboardFlair, clanTag, clanGroupId);
     identity_state::BindSlot(index, entry, name);
@@ -98,7 +104,23 @@ KHook::Return<void> HiderPlugin::HookOnClientConnectedPost( // NOLINT(readabilit
         identity_runtime::SetControllerFakeClientFlag(index, identity_hooks::PopulationTransactionActive());
     }
 
-    return { KHook::Action::Ignore };
+    return true;
+}
+
+void HiderPlugin::AdoptExistingBots()
+{
+    for (int slot = 0; slot < PersonaPool::kMaxSlots; ++slot)
+    {
+        void* client = entity_access::ResolveClientBySlot(slot);
+        if (!client || !ssc::IsFakePlayerSet(client) || ssc::IsHltv(client)) continue;
+        const char* name = ssc::ReadName(client);
+        if (identity_runtime::IsHltvConnection(name, nullptr)) continue;
+        if (AdoptClient(slot, client, name))
+        {
+            const std::string visibleName = Personas().GetSlotName(slot);
+            entity_access::SetEngineName(client, visibleName.c_str());
+        }
+    }
 }
 
 // Reapply managed identity on server entry.

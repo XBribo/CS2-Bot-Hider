@@ -15,13 +15,12 @@ public partial class BotHiderImplPlugin
     {
         if (!CanExecuteCommand(player, cmd)) return;
         if (_client == null) { cmd.ReplyToCommand("[BotHider] not initialized"); return; }
-        // All signatures must resolve.
         var sigs = _client.GetSignatures();
         if (sigs.Length > 0)
         {
-            bool allOk = sigs.All(s => s.Addr != 0);
+            int resolved = sigs.Count(s => s.Addr != 0);
             string detail = string.Join(" ", sigs.Select(s => $"{s.Name}={s.Addr:X16}"));
-            cmd.ReplyToCommand($"[BotHider] hooks: {(allOk ? "ok" : "FAIL")} | {detail}");
+            cmd.ReplyToCommand($"[BotHider] signatures: {resolved}/{sigs.Length} resolved | {detail}");
         }
         var slots = _client.GetManagedSlots();
         cmd.ReplyToCommand($"[BotHider] managed slots: {slots.Length}");

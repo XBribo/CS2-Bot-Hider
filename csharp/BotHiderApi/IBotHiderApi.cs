@@ -35,7 +35,6 @@ public interface IBotHiderApi
     // Hook addresses; 0=unresolved.
     (string Name, ulong Addr)[] GetSignatures();
 
-    // Apply an exact SteamID64; true confirms native acceptance.
     bool SetBotSteamId(int slot, ulong steamId64);
 
     // Set crosshair; empty or "0" clears it.
@@ -47,7 +46,6 @@ public interface IBotHiderApi
     // Normalize to at most 31 UTF-8 bytes; empty names fail.
     bool SetPersonaName(int slot, string name);
 
-    // Set flair; false for invalid slots or flair.
     bool SetScoreboardFlair(int slot, uint itemDefIndex);
 
     // Set the global identity mode.

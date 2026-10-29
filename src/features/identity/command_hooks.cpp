@@ -194,6 +194,7 @@ bool HiderPlugin::SetIdentityMode(IdentityMode mode)
             BH_LOG_WARN("identity mode change rejected: %s", error);
             return false;
         }
+        if (!AttachGameServerHook()) return false;
     }
     if (m_identityMode == mode) return true;
     m_identityMode = mode;

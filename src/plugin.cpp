@@ -69,7 +69,7 @@ bool HiderPlugin::InstallVirtualHooks()
 {
     if (!m_onClientConnectedHook.AddChecked(g_gameclients) || !m_clientPutInServerHook.AddChecked(g_gameclients) ||
         !m_clientDisconnectHook.AddChecked(g_gameclients) || !m_gameFrameHook.AddChecked(g_server) ||
-        !m_dispatchConCommandHook.AddChecked(g_icvar))
+        !m_dispatchConCommandHook.AddChecked(g_icvar) || !AttachGameServerHook())
     {
         RemoveVirtualHooks();
         return false;
@@ -104,6 +104,12 @@ void HiderPlugin::OnLevelInit(char const* mapName, char const*, char const*, cha
 {
     identity_runtime::ClearPendingControllerRemovals();
     avatar::ResetRuntime();
+    if (!AttachGameServerHook()) SetIdentityMode(IdentityMode::Bot);
+    BH_LOG_DEBUG("level init map=%s", mapName ? mapName : "?");
+}
+
+bool HiderPlugin::AttachGameServerHook()
+{
     auto* gameServer = g_pNetworkServerService ? g_pNetworkServerService->GetIGameServer() : nullptr;
     if (gameServer && gameServer != m_hookedGameServer)
     {
@@ -117,9 +123,10 @@ void HiderPlugin::OnLevelInit(char const* mapName, char const*, char const*, cha
         {
             m_hookedGameServer = nullptr;
             BH_LOG_WARN("StartChangeLevel hook failed target=%p", static_cast<void*>(gameServer));
+            return false;
         }
     }
-    BH_LOG_DEBUG("level init map=%s", mapName ? mapName : "?");
+    return true;
 }
 
 // Release level state.
@@ -134,7 +141,7 @@ void HiderPlugin::OnLevelShutdown()
 }
 
 // Resolve interfaces and install plugin modules.
-bool HiderPlugin::Load(PluginId id, ISmmAPI* ismm, char* error, size_t maxlen, bool /*late*/)
+bool HiderPlugin::Load(PluginId id, ISmmAPI* ismm, char* error, size_t maxlen, bool late)
 {
     PLUGIN_SAVEVARS();
 
@@ -225,6 +232,7 @@ bool HiderPlugin::Load(PluginId id, ISmmAPI* ismm, char* error, size_t maxlen, b
         return false;
     }
     g_SMAPI->AddListener(this, this);
+    if (late) AdoptExistingBots();
 
     int installedHooks = 0;
     if (identity_hooks::MaintainQuotaTarget()) ++installedHooks;

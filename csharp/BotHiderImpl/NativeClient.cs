@@ -192,6 +192,11 @@ internal sealed unsafe class NativeClient : IBotHiderApi, IDisposable
             error = "native bridge is unavailable";
             return false;
         }
+        if (s.Managed == 0)
+        {
+            error = "slot is not a BotHider-managed bot";
+            return false;
+        }
         byte[] bytes;
         try
         {
@@ -199,12 +204,13 @@ internal sealed unsafe class NativeClient : IBotHiderApi, IDisposable
             else
             {
                 using var file = File.OpenRead(pngPath);
-                if (file.Length == 0 || file.Length > AvatarMaxBytes)
+                long length = file.Length;
+                if (length == 0 || length > AvatarMaxBytes)
                 {
                     error = "avatar PNG must contain 1 to 16384 bytes";
                     return false;
                 }
-                bytes = new byte[(int)file.Length];
+                bytes = new byte[(int)length];
                 file.ReadExactly(bytes);
             }
         }
