@@ -141,7 +141,8 @@ public partial class BotHiderImplPlugin : BasePlugin
     }
 
     // Bind queued writes to the bot's lifetime.
-    private void QueueVisibleWrite(int slot, ulong incarnation, string field, Action<CCSPlayerController> write)
+    private void QueueVisibleWrite(int slot, ulong incarnation, string field,
+                                   Action<CCSPlayerController, BridgeClient.SlotSnapshot> write)
     {
         var client = _client;
         int generation = Volatile.Read(ref _presentationGeneration);
@@ -151,10 +152,10 @@ public partial class BotHiderImplPlugin : BasePlugin
             try
             {
                 if (!ReferenceEquals(_client, client) || Volatile.Read(ref _presentationGeneration) != generation ||
-                    !client.IsManagedBot(slot) || client.GetSlotIncarnation(slot) != incarnation) return;
+                    !client.ReadSlot(slot, out var snapshot) || snapshot.Managed == 0 || snapshot.Incarnation != incarnation) return;
                 var player = Utilities.GetPlayerFromSlot(slot);
                 if (player == null || !player.IsValid) return;
-                write(player);
+                write(player, snapshot);
             }
             catch (Exception e)
             {
@@ -165,16 +166,14 @@ public partial class BotHiderImplPlugin : BasePlugin
 
     // Queues the visible name.
     private void ApplyVisibleName(int slot, string name, ulong incarnation)
-        => QueueVisibleWrite(slot, incarnation, "name", player => WriteVisibleName(player, name));
+        => QueueVisibleWrite(slot, incarnation, "name", (player, _) => WriteVisibleName(player, name));
 
     // Read SteamID after lifetime validation.
     private void ApplyVisibleSid(int slot, ulong incarnation)
     {
-        var client = _client;
-        if (client == null) return;
-        QueueVisibleWrite(slot, incarnation, "SteamID", player =>
+        QueueVisibleWrite(slot, incarnation, "SteamID", (player, snapshot) =>
         {
-            ulong sid = client.GetBotSteamId(slot);
+            ulong sid = snapshot.SteamId;
             if (player.SteamID != sid) WriteVisibleSid(player, sid);
         });
     }
@@ -182,7 +181,7 @@ public partial class BotHiderImplPlugin : BasePlugin
     // Queues the visible crosshair.
     private void ApplyVisibleCrosshair(int slot, string code, ulong incarnation)
     {
-        QueueVisibleWrite(slot, incarnation, "crosshair", player =>
+        QueueVisibleWrite(slot, incarnation, "crosshair", (player, _) =>
         {
             WriteVisibleCrosshair(player, code);
             _appliedCrosshair[slot] = code;
@@ -192,7 +191,7 @@ public partial class BotHiderImplPlugin : BasePlugin
     // Queues the visible scoreboard flair.
     private void ApplyVisibleScoreboardFlair(int slot, uint itemDefIndex, ulong incarnation)
     {
-        QueueVisibleWrite(slot, incarnation, "scoreboard flair", player =>
+        QueueVisibleWrite(slot, incarnation, "scoreboard flair", (player, _) =>
         {
             if (TryApplyScoreboardFlair(slot, player, itemDefIndex))
                 _appliedScoreboardFlair[slot] = itemDefIndex;
@@ -242,18 +241,7 @@ public partial class BotHiderImplPlugin : BasePlugin
     private void ApplyManagedSlots()
     {
         if (_client == null) return;
-        int[] managedSlots = _client.GetManagedSlots();
-        Span<bool> managed = stackalloc bool[64];
-        managed.Clear();
-        foreach (int slot in managedSlots)
-            managed[slot] = true;
-        for (int slot = 0; slot < managed.Length; slot++)
-        {
-            if (managed[slot]) continue;
-            ResetAppliedSlot(slot, 0UL);
-        }
-
-        foreach (int slot in managedSlots)
+        for (int slot = 0; slot < _observedIncarnations.Length; slot++)
             ApplyManagedSlot(slot);
     }
 
@@ -262,13 +250,13 @@ public partial class BotHiderImplPlugin : BasePlugin
     {
         var client = _client;
         if (client == null || slot < 0 || slot >= _observedIncarnations.Length) return;
-        if (!client.IsManagedBot(slot))
+        if (!client.ReadSlot(slot, out var snapshot) || snapshot.Managed == 0)
         {
             ResetAppliedSlot(slot, 0UL);
             return;
         }
 
-        ulong incarnation = client.GetSlotIncarnation(slot);
+        ulong incarnation = snapshot.Incarnation;
         if (_observedIncarnations[slot] != incarnation)
             ResetAppliedSlot(slot, incarnation);
         if (incarnation == 0) return;
@@ -276,9 +264,9 @@ public partial class BotHiderImplPlugin : BasePlugin
         var player = Utilities.GetPlayerFromSlot(slot);
         if (player == null || !player.IsValid) return;
 
-        ReconcileVisibleIdentity(client, slot, player);
+        ReconcileVisibleIdentity(snapshot, slot, player);
 
-        int ping = client.GetPing(slot);
+        int ping = snapshot.Ping;
         if (ping > 0)
         {
             try
@@ -292,7 +280,7 @@ public partial class BotHiderImplPlugin : BasePlugin
             }
         }
 
-        string cross = client.GetCrosshairCode(slot);
+        string cross = snapshot.CrosshairCode;
         if (_appliedCrosshair[slot] != cross ||
             !string.Equals(player.CrosshairCodes, cross, StringComparison.Ordinal))
         {
@@ -307,7 +295,7 @@ public partial class BotHiderImplPlugin : BasePlugin
             }
         }
 
-        uint flair = client.GetScoreboardFlair(slot);
+        uint flair = snapshot.ScoreboardFlair;
         if (_appliedScoreboardFlair[slot] != flair ||
             !ScoreboardFlairMatches(player, flair))
         {
@@ -315,20 +303,20 @@ public partial class BotHiderImplPlugin : BasePlugin
                 _appliedScoreboardFlair[slot] = flair;
         }
 
-        _clanTags.Apply(slot, player, client.GetClan(slot));
+        _clanTags.Apply(slot, player, snapshot.Clan);
     }
 
     // Sync the controller's published name and SteamID.
-    private static void ReconcileVisibleIdentity(BridgeClient client, int slot,
+    private static void ReconcileVisibleIdentity(BridgeClient.SlotSnapshot snapshot, int slot,
                                                  CCSPlayerController player)
     {
-        string name = client.GetPersonaName(slot);
+        string name = snapshot.PersonaName;
         if (!string.Equals(player.PlayerName, name, StringComparison.Ordinal))
         {
             WriteVisibleName(player, name);
         }
 
-        ulong steamId = client.GetBotSteamId(slot);
+        ulong steamId = snapshot.SteamId;
         if (player.SteamID == steamId) return;
         try
         {

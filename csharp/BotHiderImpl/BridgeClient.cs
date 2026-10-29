@@ -12,7 +12,7 @@ internal sealed unsafe class BridgeClient : IBotHiderApi, IDisposable
     private const int MaxSignatures = 8;
 
     [StructLayout(LayoutKind.Sequential, Pack = 8)]
-    private struct SlotSnapshot
+    internal struct SlotSnapshot
     {
         public ulong SteamId, BaseSteamId, Incarnation, AvatarSteamId;
         public int Ping;
@@ -21,6 +21,21 @@ internal sealed unsafe class BridgeClient : IBotHiderApi, IDisposable
         public fixed byte BaseName[32];
         public fixed byte Crosshair[64];
         public fixed byte ClanTag[128];
+
+        public string PersonaName
+        {
+            get { fixed (byte* text = Name) return ReadText(text, 32); }
+        }
+
+        public string CrosshairCode
+        {
+            get { fixed (byte* text = Crosshair) return ReadText(text, 64); }
+        }
+
+        public (string Tag, uint GroupId) Clan
+        {
+            get { fixed (byte* text = ClanTag) return (ReadText(text, 128), ClanGroupId); }
+        }
     }
 
     [StructLayout(LayoutKind.Sequential, Pack = 8)]
@@ -94,7 +109,7 @@ internal sealed unsafe class BridgeClient : IBotHiderApi, IDisposable
 
     public bool IsConnected() => _library != 0 && Environment.CurrentManagedThreadId == _threadId;
 
-    private bool ReadSlot(int slot, out SlotSnapshot snapshot)
+    internal bool ReadSlot(int slot, out SlotSnapshot snapshot)
     {
         snapshot = default;
         if (!IsConnected()) return false;
@@ -114,13 +129,12 @@ internal sealed unsafe class BridgeClient : IBotHiderApi, IDisposable
     public ulong GetBaseBotSteamId(int slot) => ReadSlot(slot, out var s) ? s.BaseSteamId : 0;
     public ulong GetSlotIncarnation(int slot) => ReadSlot(slot, out var s) ? s.Incarnation : 0;
     public int GetPing(int slot) => ReadSlot(slot, out var s) ? s.Ping : 0;
-    public string GetPersonaName(int slot) => ReadSlot(slot, out var s) ? ReadText(s.Name, 32) : string.Empty;
+    public string GetPersonaName(int slot) => ReadSlot(slot, out var s) ? s.PersonaName : string.Empty;
     public string GetBasePersonaName(int slot) => ReadSlot(slot, out var s) ? ReadText(s.BaseName, 32) : string.Empty;
-    public string GetCrosshairCode(int slot) => ReadSlot(slot, out var s) ? ReadText(s.Crosshair, 64) : string.Empty;
+    public string GetCrosshairCode(int slot) => ReadSlot(slot, out var s) ? s.CrosshairCode : string.Empty;
     public uint GetScoreboardFlair(int slot) => ReadSlot(slot, out var s) ? s.ScoreboardFlair : 0;
     public int GetConfiguredAvatarSize(int slot) => ReadSlot(slot, out var s) ? (int)s.AvatarLength : 0;
-    public (string Tag, uint GroupId) GetClan(int slot) => ReadSlot(slot, out var s)
-        ? (ReadText(s.ClanTag, 128), s.ClanGroupId) : (string.Empty, 0);
+    public (string Tag, uint GroupId) GetClan(int slot) => ReadSlot(slot, out var s) ? s.Clan : (string.Empty, 0);
     public bool HasBotAvatar(int slot) => ReadSlot(slot, out var s) && s.Managed != 0 &&
         s.AvatarApplied != 0 && s.AvatarSteamId == s.SteamId;
 
