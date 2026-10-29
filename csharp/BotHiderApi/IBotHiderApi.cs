@@ -11,7 +11,7 @@ public enum BotIdentityMode
     Bot = 1,
 }
 
-// Slot parameters use the engine player slot.
+// Calls run on the game thread; slot parameters use the engine player slot.
 public interface IBotHiderApi
 {
     bool IsManagedBot(int slot);
@@ -35,7 +35,7 @@ public interface IBotHiderApi
     // Hook addresses; 0=unresolved.
     (string Name, ulong Addr)[] GetSignatures();
 
-    // Queues an exact SteamID64.
+    // Apply an exact SteamID64; true confirms native acceptance.
     bool SetBotSteamId(int slot, ulong steamId64);
 
     // Set crosshair; empty or "0" clears it.

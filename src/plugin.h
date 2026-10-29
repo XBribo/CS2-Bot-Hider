@@ -85,12 +85,15 @@ class HiderPlugin : public ISmmPlugin, public IMetamodListener
     HookDispatchConCommandPost(ICvar*, ConCommandRef command, const CCommandContext&, const CCommand& arguments) noexcept;
 
     // Set the global identity mode.
-    void SetIdentityMode(IdentityMode mode);
+    bool SetIdentityMode(IdentityMode mode);
     bool IsDisguiseEnabled() const { return m_identityMode == IdentityMode::Player; }
     bool IsBotMode() const { return m_identityMode == IdentityMode::Bot; }
 
     // Name source: true=bot_info.json, false=botprofile.
     void SetUseBotInfoName(bool useBotInfo) { m_useBotInfoName = useBotInfo; }
+
+    bool ApplySteamIdCommand(int slot, uint64_t steamId);
+    bool ApplyPersonaNameCommand(int slot, const char* name);
 
   private:
     using OnClientConnectedHook =
@@ -107,12 +110,6 @@ class HiderPlugin : public ISmmPlugin, public IMetamodListener
     bool RemoveVirtualHooks();
     // Queue unload after the command hook detaches.
     void ProcessPendingUnload();
-    // Dispatch shared-memory commands.
-    void DrainBridgeCommands();
-    // Applies an exact SteamID.
-    void ApplySteamIdCommand(int slot, uint64_t steamId);
-    // Update and publish a managed client's name.
-    void ApplyPersonaNameCommand(int slot, const char* name);
 
     INetworkGameServer* m_hookedGameServer = nullptr;
     OnClientConnectedHook m_onClientConnectedHook;

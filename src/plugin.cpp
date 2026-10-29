@@ -198,24 +198,15 @@ bool HiderPlugin::Load(PluginId id, ISmmAPI* ismm, char* error, size_t maxlen, b
 
     Manager().Init();
 
-    // Open the bridge.
-    const bool sharedMemoryReady = Publisher().Init();
-    if (sharedMemoryReady)
-    {
-        // Publish hook addresses for bh_status; 0=unresolved.
-        Publisher().PublishSignature("UTIL_Remove", entity_access::UtilRemoveTarget());
-        Publisher().PublishSignature("MaintainBotQuota", identity_hooks::MaintainQuotaTarget());
-        Publisher().PublishSignature("CountPotentialVoters", identity_hooks::CountPotentialVotersTarget());
-        Publisher().PublishSignature("PackEntities", identity_hooks::PackEntitiesTarget());
-        Publisher().PublishSignature("HandleJoinTeam", identity_hooks::HandleJoinTeamTarget());
-        Publisher().PublishSignature("HumanTeamRestriction", identity_hooks::HumanTeamRestrictionTarget());
-        Publisher().PublishSignature("SameMapTeardown", identity_hooks::SameMapTeardownTarget());
-        Publisher().PublishSignature("ScriptIsBot", identity_hooks::ScriptIsBotTarget());
-    }
-    else
-    {
-        BH_LOG_WARN("CSS bridge disabled: shared memory init failed");
-    }
+    Publisher().Init();
+    Publisher().PublishSignature("UTIL_Remove", entity_access::UtilRemoveTarget());
+    Publisher().PublishSignature("MaintainBotQuota", identity_hooks::MaintainQuotaTarget());
+    Publisher().PublishSignature("CountPotentialVoters", identity_hooks::CountPotentialVotersTarget());
+    Publisher().PublishSignature("PackEntities", identity_hooks::PackEntitiesTarget());
+    Publisher().PublishSignature("HandleJoinTeam", identity_hooks::HandleJoinTeamTarget());
+    Publisher().PublishSignature("HumanTeamRestriction", identity_hooks::HumanTeamRestrictionTarget());
+    Publisher().PublishSignature("SameMapTeardown", identity_hooks::SameMapTeardownTarget());
+    Publisher().PublishSignature("ScriptIsBot", identity_hooks::ScriptIsBotTarget());
 
     // Load bot identities.
     std::string jsonPath = g_SMAPI->GetBaseDir();
@@ -244,15 +235,21 @@ bool HiderPlugin::Load(PluginId id, ISmmAPI* ismm, char* error, size_t maxlen, b
     if (identity_hooks::SameMapTeardownTarget()) ++installedHooks;
     if (identity_hooks::ScriptIsBotTarget()) ++installedHooks;
     BH_LOG_INFO("Loaded %s", GetVersion());
-    BH_LOG_DEBUG("mode=%s ping=%s range=%d-%d identities=%zu hooks=%d/7 cleanup=%s shm=%s avatar=%s", IsBotMode() ? "bot" : "player",
+    BH_LOG_DEBUG("mode=%s ping=%s range=%d-%d identities=%zu hooks=%d/7 cleanup=%s avatar=%s", IsBotMode() ? "bot" : "player",
                  settings.fakePingEnabled ? "on" : "off", settings.fakePingMin, settings.fakePingMax, BotInfo().Count(), installedHooks,
-                 entity_access::UtilRemoveTarget() ? "ok" : "fail", sharedMemoryReady ? "ok" : "fail", networkStringTables ? "ok" : "fail");
+                 entity_access::UtilRemoveTarget() ? "ok" : "fail", networkStringTables ? "ok" : "fail");
     return true;
 }
 
 // Remove hooks and release plugin modules.
 bool HiderPlugin::Unload(char* error, size_t maxlen)
 {
+    if (Publisher().HasProvider())
+    {
+        std::snprintf(error, maxlen, "unload BotHiderImpl before BotHider");
+        return false;
+    }
+    Publisher().BeginShutdown();
     if (!hooks::CanRemoveHooks())
     {
         if (!m_unloadPending)

@@ -11,7 +11,6 @@
 #include "identity_state.h"
 #include "personas.h"
 #include "serversideclient_ref.h"
-#include "slot_publisher.h"
 #include "steam/steamtypes.h"
 
 #include <cstdint>
@@ -89,21 +88,9 @@ KHook::Return<void> HiderPlugin::HookOnClientConnectedPost( // NOLINT(readabilit
         BotInfo().ReleaseAssignment(entry);
         return { KHook::Action::Ignore };
     }
-    if (!Manager().AdoptSlot(index, displayName.c_str(), steamId, crosshairCode, scoreboardFlair,
-                             clanTag, clanGroupId))
-    {
-        BotInfo().ReleaseAssignment(entry);
-        return { KHook::Action::Ignore };
-    }
-
+    Manager().AdoptSlot(index, displayName.c_str(), steamId, crosshairCode, scoreboardFlair, clanTag, clanGroupId);
     identity_state::BindSlot(index, entry, name);
-
-    if (steamId != 0)
-    {
-        ssc::WriteSteamId(client, steamId);
-        Manager().SetSyntheticSid(index, steamId);
-        Publisher().UpdateBaseSyntheticSid(index, steamId);
-    }
+    ssc::WriteSteamId(client, steamId);
 
     if (IsDisguiseEnabled())
     {

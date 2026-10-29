@@ -52,12 +52,14 @@ void FakeClientManager::Init()
     m_steamIds = std::make_unique<SteamIdProvider>(sessionId);
 }
 
-bool FakeClientManager::AdoptSlot(int slot, const char* name, uint64_t steamId64, const char* crosshairCode,
-                                  uint32_t scoreboardFlair, const char* clanTag, uint32_t clanGroupId)
+void FakeClientManager::AdoptSlot(int slot,
+                                  const char* name,
+                                  uint64_t steamId64,
+                                  const char* crosshairCode,
+                                  uint32_t scoreboardFlair,
+                                  const char* clanTag,
+                                  uint32_t clanGroupId)
 {
-    if (slot < 0 || slot >= PersonaPool::kMaxSlots) return false;
-    if (!m_steamIds) return false;
-
     std::lock_guard<std::mutex> g(m_mutex);
     auto& s = m_slots[slot];
 
@@ -75,12 +77,10 @@ bool FakeClientManager::AdoptSlot(int slot, const char* name, uint64_t steamId64
     Personas().SetSlotName(slot, name);
     Publisher().PublishAdopt(slot, s.syntheticSid, name, crosshairCode, scoreboardFlair, clanTag, clanGroupId);
     Publisher().UpdatePing(slot, m_fakePingEnabled ? baseline : 0);
-    return true;
 }
 
 void FakeClientManager::ReleaseSlot(int slot)
 {
-    if (slot < 0 || slot >= PersonaPool::kMaxSlots) return;
     std::lock_guard<std::mutex> g(m_mutex);
     m_slots[slot].active = false;
     m_slots[slot].display.Reset();
@@ -126,21 +126,18 @@ void FakeClientManager::OnTick()
 
 bool FakeClientManager::IsManaged(int slot) const
 {
-    if (slot < 0 || slot >= PersonaPool::kMaxSlots) return false;
     std::lock_guard<std::mutex> g(m_mutex);
     return m_slots[slot].active;
 }
 
 uint64_t FakeClientManager::GetSyntheticSid(int slot) const
 {
-    if (slot < 0 || slot >= PersonaPool::kMaxSlots) return 0;
     std::lock_guard<std::mutex> g(m_mutex);
     return m_slots[slot].syntheticSid;
 }
 
 void FakeClientManager::SetSyntheticSid(int slot, uint64_t sid)
 {
-    if (slot < 0 || slot >= PersonaPool::kMaxSlots) return;
     std::lock_guard<std::mutex> g(m_mutex);
     m_slots[slot].syntheticSid = sid;
 }

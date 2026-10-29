@@ -1,15 +1,14 @@
-// Shared-memory mapping owner.
-
 #pragma once
 
-#include "slot_shm.h"
+#include "native_bridge.h"
 
+#include <array>
 #include <cstdint>
-#include <functional>
 #include <vector>
 
 namespace cs2bh {
 
+// Internal slot access uses indices validated by engine callbacks or the C bridge.
 class SlotPublisher
 {
   public:
@@ -21,63 +20,45 @@ class SlotPublisher
         std::vector<unsigned char> data;
     };
 
-    using SteamIdSink = std::function<void(int slot, uint64_t sid)>;
-    using PersonaSink = std::function<void(int slot, const char* name)>;
-    using IdentityModeSink = std::function<void(bool botMode)>;
-    using NameSourceSink = std::function<void(bool useBotInfo)>;
-
-    ~SlotPublisher();
-
-    // Create the shared mapping.
-    bool Init();
+    void Init();
+    void BeginShutdown() { m_ready = false; }
     void Shutdown();
+    bool IsReady() const;
+    bool Attach();
+    void Detach();
+    bool HasProvider() const { return m_attached; }
 
-    // Data-region writers
-    void PublishAdopt(int slot, uint64_t syntheticSid, const char* personaName, const char* crosshairCode,
-                      uint32_t scoreboardFlair, const char* clanTag, uint32_t clanGroupId);
+    void PublishAdopt(int slot,
+                      uint64_t syntheticSid,
+                      const char* personaName,
+                      const char* crosshairCode,
+                      uint32_t scoreboardFlair,
+                      const char* clanTag,
+                      uint32_t clanGroupId);
     void PublishRelease(int slot);
-    void UpdateBaseSyntheticSid(int slot, uint64_t sid);
     void UpdateSyntheticSid(int slot, uint64_t sid);
     void UpdatePersonaName(int slot, const char* name);
     void UpdatePing(int slot, int ping);
     uint64_t GetIncarnation(int slot) const;
-    bool ReadAvatarMetadata(int slot, uint32_t& sequence, uint32_t& length, uint64_t& incarnation) const;
-    bool ReadAvatarRequest(int slot, AvatarRequest& request) const;
+    const bridge::SlotSnapshot& Slot(int slot) const { return m_slots[slot]; }
+    void UpdateCrosshair(int slot, const char* code);
+    void UpdateScoreboardFlair(int slot, uint32_t flair);
+    void SetAvatarRequest(int slot, const unsigned char* data, uint32_t length);
+    const AvatarRequest& GetAvatarRequest(int slot) const { return m_avatars[slot]; }
     void PublishAvatarState(int slot, bool applied, uint64_t steamId);
 
-    // Append hook status; addr=0 means unresolved.
     void PublishSignature(const char* name, const void* addr);
-
-    // CSS->C++
-    void DrainCommands(const SteamIdSink& onSteamId,
-                       const PersonaSink& onPersona,
-                       const IdentityModeSink& onIdentityMode,
-                       const NameSourceSink& onNameSource);
+    int SignatureCount() const { return m_signatureCount; }
+    const bridge::Signature* Signatures() const { return m_signatures.data(); }
 
   private:
-    unsigned char* SlotStatePtr() const;
-    uint64_t* SidPtr(int slot) const;
-    char* NamePtr(int slot) const;
-    uint64_t* BaseSidPtr(int slot) const;
-    char* BaseNamePtr(int slot) const;
-    uint64_t* IncarnationPtr(int slot) const;
-    int* PingPtr(int slot) const;
-    char* CrosshairPtr(int slot) const;
-    uint32_t* ScoreboardFlairPtr(int slot) const;
-    uint32_t* ClanGroupIdPtr(int slot) const;
-    char* ClanTagPtr(int slot) const;
-    unsigned char* AvatarAppliedPtr(int slot) const;
-    uint64_t* AvatarAppliedSidPtr(int slot) const;
-    uint64_t NextIncarnation();
-    void BumpGen();
-
-#ifdef _WIN32
-    void* m_mappingHandle = nullptr; // HANDLE
-#else
-    int m_mappingFd = -1;
-#endif
-    unsigned char* m_view = nullptr;
+    std::array<bridge::SlotSnapshot, bridge::kMaxSlots> m_slots{};
+    std::array<AvatarRequest, bridge::kMaxSlots> m_avatars{};
+    std::array<bridge::Signature, bridge::kMaxSigs> m_signatures{};
     uint64_t m_nextIncarnation = 0;
+    int m_signatureCount = 0;
+    bool m_ready = false;
+    bool m_attached = false;
 };
 
 SlotPublisher& Publisher();

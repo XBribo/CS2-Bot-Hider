@@ -10,7 +10,6 @@
 #include <array>
 #include <cstdint>
 #include <cstdio>
-#include <cstring>
 #include <vector>
 
 #include <networkstringtabledefs.h>
@@ -146,7 +145,7 @@ void ResetRuntime()
         Publisher().PublishAvatarState(slot, false, 0);
 }
 
-// Applies pending shared-memory avatar requests on the game thread
+// Apply pending avatars on the game thread.
 void ProcessOverrides()
 {
     if (!g_networkStringTables) return;
@@ -161,13 +160,12 @@ void ProcessOverrides()
             Publisher().PublishAvatarState(slot, false, 0);
     }
 
-    static constexpr unsigned char kPngSignature[8] = { 0x89, 'P', 'N', 'G', 0x0d, 0x0a, 0x1a, 0x0a };
     for (int slot = 0; slot < PersonaPool::kMaxSlots; ++slot)
     {
-        uint32_t sequence = 0;
-        uint32_t length = 0;
-        uint64_t incarnation = 0;
-        if (!Publisher().ReadAvatarMetadata(slot, sequence, length, incarnation)) continue;
+        const auto& request = Publisher().GetAvatarRequest(slot);
+        const uint32_t sequence = request.sequence;
+        const uint32_t length = request.length;
+        const uint64_t incarnation = request.incarnation;
 
         AvatarRuntimeState& state = g_avatarStates[slot];
         bool currentRequest =
@@ -193,13 +191,6 @@ void ProcessOverrides()
             continue;
         }
 
-        SlotPublisher::AvatarRequest request;
-        if (!Publisher().ReadAvatarRequest(slot, request) || request.sequence != sequence || request.length != length ||
-            request.incarnation != incarnation)
-        {
-            continue;
-        }
-
         if (state.applied) ClearAvatarOverride(table, state.appliedSteamId);
         state.processedSequence = request.sequence;
         state.processedSteamId = steamId;
@@ -207,11 +198,6 @@ void ProcessOverrides()
         state.applied = false;
         Publisher().PublishAvatarState(slot, false, 0);
 
-        if (request.data.size() < sizeof(kPngSignature) || std::memcmp(request.data.data(), kPngSignature, sizeof(kPngSignature)) != 0)
-        {
-            BH_LOG_WARN("avatar rejected slot=%d: invalid PNG", slot);
-            continue;
-        }
         if (!EnsureReliableAvatarData()) continue;
 
         int index = -1;

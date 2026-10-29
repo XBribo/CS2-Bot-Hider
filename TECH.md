@@ -159,12 +159,17 @@ Returns `bool`. Changes apply to runtime state.
 
 ### Identity Updates
 
-- `SetBotSteamId`, `SetPersonaName`, and global settings queue commands. `true` means queued. Failures include unavailable shared memory, unmanaged slots, and a full queue.
-- Name and SteamID64 writes run on `Server.NextFrame`. `GetPersonaName` may return a pending name before clients display it.
-- Crosshair and flair setters update managed/shared state and schedule presentation directly.
+- API calls run on the game thread through native C exports. Identity and global setters return native acceptance; client presentation follows on `Server.NextFrame`.
+- `GetPersonaName` returns the engine-accepted name. Crosshair and flair overrides persist in native slot state across provider reloads.
 - Names are trimmed, stripped of invisible-only text elements, and limited to `BotHiderContract.MaxPlayerNameUtf8Bytes` at Unicode text-element boundaries. A non-empty normalized name is required.
-- Use distinct SteamID64s; duplicates may be replaced.
+- Explicit SteamID64 conflicts and unavailable collision checks reject the request and preserve the current identity. Automatic assignment selects an available configured identity.
 - `BotHiderImpl` patches `CCSPlayerController.IsBot` to return `true` for managed bots. Use `IsManagedBot` to check BotHider ownership.
+
+### Paired Reloads
+
+- Native and managed components ship together; their C layouts and exports form a private contract.
+- Unload `BotHiderImpl`, unload native `BotHider`, then load native `BotHider` and `BotHiderImpl` in that order.
+- Native unload is rejected while the provider is attached. Disposed API references remain unavailable; acquire the capability again after reload.
 
 ### Avatars
 

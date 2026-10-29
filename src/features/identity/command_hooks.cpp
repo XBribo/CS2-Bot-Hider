@@ -77,6 +77,7 @@ int FindManagedSlotByUserId(const char* value)
 // Capture the bot's client, user ID, and lifetime for deferred removal.
 bool QueueManagedBotKick(int slot)
 {
+    if (slot < 0 || slot >= PersonaPool::kMaxSlots) return false;
     if (!g_icvar || !Manager().IsManaged(slot) || !g_icvar->FindConCommand("bot_kick").IsValidRef()) return false;
     void* client = entity_access::ResolveClientBySlot(slot);
     if (!client || ssc::IsHltv(client) || Personas().GetSlotName(slot).empty()) return false;
@@ -183,7 +184,7 @@ KHook::Return<void> HiderPlugin::HookDispatchConCommandPost(ICvar*, ConCommandRe
 }
 
 // Set the global identity mode.
-void HiderPlugin::SetIdentityMode(IdentityMode mode)
+bool HiderPlugin::SetIdentityMode(IdentityMode mode)
 {
     if (mode == IdentityMode::Player)
     {
@@ -191,13 +192,14 @@ void HiderPlugin::SetIdentityMode(IdentityMode mode)
         if (!identity_hooks::CanEnableDisguise(error, sizeof(error)))
         {
             BH_LOG_WARN("identity mode change rejected: %s", error);
-            return;
+            return false;
         }
     }
-    if (m_identityMode == mode) return;
+    if (m_identityMode == mode) return true;
     m_identityMode = mode;
     identity_runtime::ApplyManagedDisguise(mode == IdentityMode::Player);
     BH_LOG_DEBUG("identity mode=%s", mode == IdentityMode::Bot ? "bot" : "player");
+    return true;
 }
 
 // Restore native identity and clear state before level change.
@@ -217,7 +219,7 @@ HiderPlugin::HookStartChangeLevelPre(INetworkGameServer*,
     return { KHook::Action::Ignore, nullptr };
 }
 
-// Process frame cleanup and bridge commands.
+// Process frame cleanup and avatar requests.
 KHook::Return<void> HiderPlugin::HookGameFramePost(IServerGameDLL*, bool simulating, bool /*firstTick*/, bool /*lastTick*/) noexcept
 {
     const hooks::CallbackScope callbackScope;
@@ -247,47 +249,25 @@ KHook::Return<void> HiderPlugin::HookGameFramePost(IServerGameDLL*, bool simulat
         }
     }
 
-    DrainBridgeCommands();
     avatar::ProcessOverrides();
     return { KHook::Action::Ignore };
 }
 
-// Route shared-memory commands.
-void HiderPlugin::DrainBridgeCommands()
-{
-    Publisher().DrainCommands([this](int slot, uint64_t steamId) {
-        ApplySteamIdCommand(slot, steamId);
-    }, [this](int slot, const char* name) {
-        ApplyPersonaNameCommand(slot, name);
-    }, [this](bool botMode) {
-        SetIdentityMode(botMode ? IdentityMode::Bot : IdentityMode::Player);
-    }, [this](bool useBotInfo) {
-        SetUseBotInfoName(useBotInfo);
-        BH_LOG_DEBUG("name source=%s", useBotInfo ? "bot_info" : "botprofile");
-    });
-}
-
 // Applies an exact SteamID.
-void HiderPlugin::ApplySteamIdCommand(int slot, uint64_t steamId)
+bool HiderPlugin::ApplySteamIdCommand(int slot, uint64_t steamId)
 {
-    if (!Manager().IsManaged(slot)) return;
     void* client = entity_access::ResolveClientBySlot(slot);
     if (!client)
     {
         BH_LOG_WARN("SteamID change rejected slot=%d: client unavailable for collision checking", slot);
-        return;
-    }
-    if (steamId == 0)
-    {
-        BH_LOG_WARN("SteamID change rejected slot=%d: zero is not a valid identity", slot);
-        return;
+        return false;
     }
     const auto availability = identity_runtime::CheckSteamIdAvailability(slot, steamId);
     if (availability != identity_runtime::SteamIdAvailability::Available)
     {
         BH_LOG_WARN("SteamID change rejected slot=%d sid=%llu: %s", slot, static_cast<unsigned long long>(steamId),
                     availability == identity_runtime::SteamIdAvailability::InUse ? "ID already in use" : "availability check failed");
-        return;
+        return false;
     }
     if (IsDisguiseEnabled())
     {
@@ -298,17 +278,19 @@ void HiderPlugin::ApplySteamIdCommand(int slot, uint64_t steamId)
     Manager().SetSyntheticSid(slot, steamId);
     Publisher().UpdateSyntheticSid(slot, steamId);
     entity_access::RefreshClientUserInfo(slot);
+    return true;
 }
 
 // Update engine and slot names, then publish.
-void HiderPlugin::ApplyPersonaNameCommand(int slot, const char* name)
+bool HiderPlugin::ApplyPersonaNameCommand(int slot, const char* name)
 {
-    if (!Manager().IsManaged(slot) || !name || !name[0]) return;
     void* client = entity_access::ResolveClientBySlot(slot);
-    if (!client) return;
-    entity_access::SetEngineName(client, name);
-    Personas().SetSlotName(slot, name);
-    Publisher().UpdatePersonaName(slot, name);
+    if (!client) return false;
+    const char* appliedName = entity_access::SetEngineName(client, name);
+    if (!appliedName || !appliedName[0]) return false;
+    Personas().SetSlotName(slot, appliedName);
+    Publisher().UpdatePersonaName(slot, appliedName);
+    return true;
 }
 
 } // namespace cs2bh

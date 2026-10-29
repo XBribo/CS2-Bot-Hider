@@ -20,7 +20,7 @@ public partial class BotHiderImplPlugin : BasePlugin
     public static PluginCapability<IBotHiderApi> Capability { get; } =
         new("bothider:api");
 
-    private SharedMemoryClient? _client;
+    private NativeClient? _client;
     private IBotHiderApi? _api;
     private readonly string[] _appliedCrosshair = new string[64];
     private readonly uint[] _appliedScoreboardFlair = new uint[64];
@@ -34,37 +34,56 @@ public partial class BotHiderImplPlugin : BasePlugin
         Server.PrintToConsole($"[BotHider] {PluginBuildInfo.DisplayVersion}, built {PluginBuildInfo.BuildTime}");
         LoadCommandPermissions();
         // Bind scoreboard updates.
-        _client = new SharedMemoryClient(
+        _client = new NativeClient(
+            Path.Combine(Server.GameDirectory, "addons", "BotHider", "bin",
+                OperatingSystem.IsWindows() ? "win64" : "linuxsteamrt64",
+                OperatingSystem.IsWindows() ? "BotHider.dll" : "BotHider.so"),
             ApplyVisibleName,
             ApplyVisibleSid,
             ApplyVisibleScoreboardFlair,
             ApplyVisibleCrosshair);
-        _api = new BotHiderCapabilityApi(_client);
-        _client.TryConnect();
-        Capabilities.RegisterPluginCapability(Capability, () => _api);
+        if (!_client.TryConnect())
+        {
+            _client.Dispose();
+            _client = null;
+            throw new InvalidOperationException("Load the matching native BotHider plugin before BotHiderImpl.");
+        }
+        try
+        {
+            _api = new BotHiderCapabilityApi(_client);
+            Capabilities.RegisterPluginCapability(Capability, () => _api);
+            IsBotPatch.Api = _client;
+            _harmony = new Harmony("net.linyz.bothider.isbot");
+            _harmony.PatchAll(typeof(BotHiderImplPlugin).Assembly);
 
-        // IsBot override
-        IsBotPatch.Api = _client;
-        _harmony = new Harmony("net.linyz.bothider.isbot");
-        _harmony.PatchAll(typeof(BotHiderImplPlugin).Assembly);
-
-        RegisterListener<Listeners.OnMapStart>(OnMapStart);
-        RegisterListener<Listeners.OnMapEnd>(OnMapEnd);
-        RegisterListener<Listeners.OnClientDisconnect>(OnClientDisconnect);
-        AddTimer(2.0f, ApplyManagedSlots, TimerFlags.REPEAT);
-        ApplyManagedSlots();
+            RegisterListener<Listeners.OnMapStart>(OnMapStart);
+            RegisterListener<Listeners.OnMapEnd>(OnMapEnd);
+            RegisterListener<Listeners.OnClientDisconnect>(OnClientDisconnect);
+            AddTimer(2.0f, ApplyManagedSlots, TimerFlags.REPEAT);
+            ApplyManagedSlots();
+        }
+        catch
+        {
+            Unload(hotReload);
+            throw;
+        }
     }
 
     public override void Unload(bool hotReload)
     {
-        ResetAppliedState();
-        // Unpatch before releasing the client.
-        _harmony?.UnpatchAll(_harmony.Id);
-        _harmony = null;
-        IsBotPatch.Api = null;
-        _api = null;
-        _client?.Dispose();
-        _client = null;
+        try
+        {
+            ResetAppliedState();
+            _harmony?.UnpatchAll(_harmony.Id);
+        }
+        finally
+        {
+            _harmony = null;
+            IsBotPatch.Api = null;
+            _api = null;
+            _client?.Dispose();
+            _client = null;
+        }
     }
 
     // Reset presentation on map start.
@@ -300,7 +319,7 @@ public partial class BotHiderImplPlugin : BasePlugin
     }
 
     // Sync the controller's published name and SteamID.
-    private static void ReconcileVisibleIdentity(SharedMemoryClient client, int slot,
+    private static void ReconcileVisibleIdentity(NativeClient client, int slot,
                                                  CCSPlayerController player)
     {
         string name = client.GetPersonaName(slot);
@@ -371,9 +390,9 @@ public partial class BotHiderImplPlugin : BasePlugin
 
 internal sealed class BotHiderCapabilityApi : IBotHiderApi
 {
-    private readonly SharedMemoryClient _client;
+    private readonly NativeClient _client;
 
-    public BotHiderCapabilityApi(SharedMemoryClient client)
+    public BotHiderCapabilityApi(NativeClient client)
     {
         _client = client;
     }

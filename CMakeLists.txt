@@ -82,6 +82,7 @@ add_library(
     src/features/identity/identity_runtime.cpp
     src/features/identity/identity_state.cpp
     src/bridge/slot_publisher.cpp
+    src/bridge/exports.cpp
     src/core/entity/entity_access.cpp
     src/core/offsets.cpp
 )

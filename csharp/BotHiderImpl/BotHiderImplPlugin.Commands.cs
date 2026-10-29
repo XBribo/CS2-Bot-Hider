@@ -52,7 +52,7 @@ public partial class BotHiderImplPlugin
             || !ulong.TryParse(cmd.GetArg(2), out ulong sid))
         { cmd.ReplyToCommand("usage: bh_setsid <slot> <sid64>"); return; }
         bool ok = _client.SetBotSteamId(slot, sid);
-        cmd.ReplyToCommand($"[BotHider] sid slot={slot} value={sid}: {(ok ? "queued" : "rejected")}");
+        cmd.ReplyToCommand($"[BotHider] sid slot={slot} value={sid}: {(ok ? "applied" : "rejected")}");
     }
 
     // Set a bot's name.
@@ -66,7 +66,7 @@ public partial class BotHiderImplPlugin
         string name = cmd.GetArg(2);
         bool ok = _client.SetPersonaName(slot, name);
         string appliedName = ok ? _client.GetPersonaName(slot) : name;
-        cmd.ReplyToCommand($"[BotHider] name slot={slot} value='{appliedName}': {(ok ? "queued" : "rejected")}");
+        cmd.ReplyToCommand($"[BotHider] name slot={slot} value='{appliedName}': {(ok ? "applied" : "rejected")}");
     }
 
     // Set a bot's scoreboard flair.
@@ -146,7 +146,7 @@ public partial class BotHiderImplPlugin
         }
 
         bool ok = _client.SetIdentityMode(mode);
-        cmd.ReplyToCommand($"[BotHider] mode={mode.ToString().ToLowerInvariant()}: {(ok ? "queued" : "rejected")}");
+        cmd.ReplyToCommand($"[BotHider] mode={mode.ToString().ToLowerInvariant()}: {(ok ? "applied" : "rejected")}");
     }
 
     // Select botprofile or bot_info names for new bots.
@@ -159,6 +159,6 @@ public partial class BotHiderImplPlugin
         { cmd.ReplyToCommand("usage: bh_namesource <0|1> (0=botprofile 1=bot_info)"); return; }
         bool useBotInfo = v != 0;
         bool ok = _client.SetNameSource(useBotInfo);
-        cmd.ReplyToCommand($"[BotHider] name source={(useBotInfo ? "bot_info" : "botprofile")}: {(ok ? "queued" : "rejected")}");
+        cmd.ReplyToCommand($"[BotHider] name source={(useBotInfo ? "bot_info" : "botprofile")}: {(ok ? "applied" : "rejected")}");
     }
 }
