@@ -109,7 +109,7 @@ void HiderPlugin::AdoptExistingBots()
         if (AdoptClient(slot, client, name))
         {
             const std::string visibleName = Manager().GetSlotName(slot);
-            entity_access::SetEngineName(client, visibleName.c_str());
+            ApplyClientName(slot, client, visibleName.c_str());
         }
     }
 }
@@ -161,7 +161,7 @@ KHook::Return<void> HiderPlugin::HookClientPutInServerPost(IServerGameClients*,
     if (visibleName.empty() && name) visibleName = name;
     if (!visibleName.empty())
     {
-        entity_access::SetEngineName(client, visibleName.c_str());
+        ApplyClientName(index, client, visibleName.c_str());
     }
     else
     {
@@ -169,6 +169,20 @@ KHook::Return<void> HiderPlugin::HookClientPutInServerPost(IServerGameClients*,
     }
 
     return { KHook::Action::Ignore };
+}
+
+bool HiderPlugin::ApplyClientName(int slot, void* client, const char* name)
+{
+    const char* appliedName = entity_access::SetEngineName(client, name);
+    const bool applied = appliedName && appliedName[0];
+    if (!applied)
+    {
+        appliedName = ssc::ReadName(client);
+        BH_LOG_WARN("name change failed slot=%d: retaining current name", slot);
+        entity_access::RefreshClientUserInfo(slot);
+    }
+    Manager().SetSlotName(slot, appliedName);
+    return applied;
 }
 
 // Restore and release identity before disconnect teardown.

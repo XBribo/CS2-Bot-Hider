@@ -109,6 +109,7 @@ class HiderPlugin : public ISmmPlugin, public IMetamodListener
     bool InstallVirtualHooks();
     bool AttachGameServerHook();
     bool RemoveVirtualHooks();
+    bool ApplyClientName(int slot, void* client, const char* name);
     bool AdoptClient(int slot, void* client, const char* name);
     void AdoptExistingBots();
     // Queue unload after the command hook detaches.

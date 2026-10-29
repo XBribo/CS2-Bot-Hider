@@ -281,10 +281,7 @@ bool HiderPlugin::ApplyPersonaNameCommand(int slot, const char* name)
 {
     void* client = entity_access::ResolveClientBySlot(slot);
     if (!client) return false;
-    const char* appliedName = entity_access::SetEngineName(client, name);
-    if (!appliedName || !appliedName[0]) return false;
-    Manager().SetSlotName(slot, appliedName);
-    return true;
+    return ApplyClientName(slot, client, name);
 }
 
 } // namespace cs2bh
