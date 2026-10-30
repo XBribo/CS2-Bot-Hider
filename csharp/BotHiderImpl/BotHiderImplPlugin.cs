@@ -3,7 +3,6 @@ using CounterStrikeSharp.API;
 using CounterStrikeSharp.API.Core;
 using CounterStrikeSharp.API.Core.Capabilities;
 using CounterStrikeSharp.API.Modules.Memory;
-using CounterStrikeSharp.API.Modules.Timers;
 using HarmonyLib;
 
 namespace BotHiderImpl;
@@ -19,6 +18,8 @@ public partial class BotHiderImplPlugin : BasePlugin
     public static PluginCapability<IBotHiderApi> Capability { get; } =
         new("bothider:api");
 
+    private delegate void IsBotPostfix(object __instance, ref bool __result);
+
     private BridgeClient? _client;
     private IBotHiderApi? _api;
     private readonly string[] _appliedCrosshair = new string[64];
@@ -30,6 +31,7 @@ public partial class BotHiderImplPlugin : BasePlugin
     private readonly ClanTagPresenter _clanTags = new();
     private Harmony? _harmony;
     private int _presentationGeneration;
+    private double _nextPresentationUpdate;
 
     public override void Load(bool hotReload)
     {
@@ -53,15 +55,16 @@ public partial class BotHiderImplPlugin : BasePlugin
         try
         {
             _api = new BotHiderCapabilityApi(_client);
-            BotHiderProvider.Attach(_api, supplier => Capabilities.RegisterPluginCapability(Capability, supplier));
-            IsBotPatch.Api = _client;
+            BotHiderProvider.Attach(_api, supplier => Capabilities.RegisterPluginCapability(Capability, supplier),
+                static player => ((CCSPlayerController)player).Slot);
             _harmony = new Harmony("net.linyz.bothider.isbot");
-            _harmony.PatchAll(typeof(BotHiderImplPlugin).Assembly);
+            _harmony.Patch(AccessTools.PropertyGetter(typeof(CCSPlayerController), nameof(CCSPlayerController.IsBot)),
+                postfix: new HarmonyMethod(((IsBotPostfix)BotHiderProvider.ApplyIsBot).Method));
 
             RegisterListener<Listeners.OnMapStart>(OnMapStart);
             RegisterListener<Listeners.OnMapEnd>(OnMapEnd);
             RegisterListener<Listeners.OnClientDisconnect>(OnClientDisconnect);
-            AddTimer(2.0f, ApplyManagedSlots, TimerFlags.REPEAT);
+            RegisterListener<Listeners.OnTick>(OnTick);
             ApplyManagedSlots();
             // Register events after initialization succeeds.
             RegisterEventHandler<EventRoundStart>(OnRoundStart);
@@ -86,7 +89,6 @@ public partial class BotHiderImplPlugin : BasePlugin
         finally
         {
             _harmony = null;
-            IsBotPatch.Api = null;
             BotHiderProvider.Detach(_api);
             _api = null;
             _client?.Dispose();
@@ -111,6 +113,11 @@ public partial class BotHiderImplPlugin : BasePlugin
     private void OnClientDisconnect(int slot)
     {
         ResetAppliedSlot(slot, 0UL);
+    }
+
+    private void OnTick()
+    {
+        if (Server.TickedTime >= _nextPresentationUpdate) ApplyManagedSlots();
     }
 
     // Reapply bot presentation at round start.
@@ -261,6 +268,7 @@ public partial class BotHiderImplPlugin : BasePlugin
     private void ApplyManagedSlots()
     {
         if (_client == null) return;
+        _nextPresentationUpdate = Server.TickedTime + 2.0;
         for (int slot = 0; slot < _observedIncarnations.Length; slot++)
             ApplyManagedSlot(slot);
     }
