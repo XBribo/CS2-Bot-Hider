@@ -78,11 +78,24 @@ internal sealed unsafe class BridgeClient : IBotHiderApi, IDisposable
         _onCrosshairCode = onCrosshairCode;
     }
 
-    public bool TryConnect()
+    public bool TryConnect() => TryConnect(out _);
+
+    public bool TryConnect(out string error)
     {
-        if (_disposed || Environment.CurrentManagedThreadId != _threadId) return false;
+        error = string.Empty;
+        if (_disposed || Environment.CurrentManagedThreadId != _threadId)
+        {
+            error = "client is disposed or called from another thread";
+            return false;
+        }
         if (_library != 0) return true;
-        if (!NativeLibrary.TryLoad(_libraryPath, out nint library)) return false;
+        nint library;
+        try { library = NativeLibrary.Load(_libraryPath); }
+        catch (Exception e) when (e is DllNotFoundException or BadImageFormatException)
+        {
+            error = e.Message;
+            return false;
+        }
         try
         {
             _attach = (delegate* unmanaged[Cdecl]<int>)NativeLibrary.GetExport(library, "BH_Attach");
@@ -96,11 +109,19 @@ internal sealed unsafe class BridgeClient : IBotHiderApi, IDisposable
             _setAvatar = (delegate* unmanaged[Cdecl]<int, ulong, byte*, int, int>)NativeLibrary.GetExport(library, "BH_SetAvatar");
             _setMode = (delegate* unmanaged[Cdecl]<int, int>)NativeLibrary.GetExport(library, "BH_SetMode");
             _setNameSource = (delegate* unmanaged[Cdecl]<int, int>)NativeLibrary.GetExport(library, "BH_SetNameSource");
-            if (_attach() == 0) return false;
+            if (_attach() == 0)
+            {
+                error = "BH_Attach rejected the connection (plugin unavailable, wrong thread, or provider already attached)";
+                return false;
+            }
             _library = library;
             return true;
         }
-        catch (EntryPointNotFoundException) { return false; }
+        catch (EntryPointNotFoundException e)
+        {
+            error = e.Message;
+            return false;
+        }
         finally
         {
             if (_library == 0) NativeLibrary.Free(library);

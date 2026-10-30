@@ -1,7 +1,6 @@
 using BotHiderApi;
 using CounterStrikeSharp.API;
 using CounterStrikeSharp.API.Core;
-using CounterStrikeSharp.API.Core.Attributes.Registration;
 using CounterStrikeSharp.API.Core.Capabilities;
 using CounterStrikeSharp.API.Modules.Memory;
 using CounterStrikeSharp.API.Modules.Timers;
@@ -38,18 +37,18 @@ public partial class BotHiderImplPlugin : BasePlugin
         LoadCommandPermissions();
         // Bind scoreboard updates.
         _client = new BridgeClient(
-            Path.Combine(Server.GameDirectory, "addons", "BotHider", "bin",
+            Path.Combine(Server.GameDirectory, "csgo", "addons", "BotHider", "bin",
                 OperatingSystem.IsWindows() ? "win64" : "linuxsteamrt64",
                 OperatingSystem.IsWindows() ? "BotHider.dll" : "BotHider.so"),
             ApplyVisibleName,
             ApplyVisibleSid,
             ApplyVisibleScoreboardFlair,
             ApplyVisibleCrosshair);
-        if (!_client.TryConnect())
+        if (!_client.TryConnect(out string error))
         {
             _client.Dispose();
             _client = null;
-            throw new InvalidOperationException("Load the matching BotHider plugin before BotHiderImpl.");
+            throw new InvalidOperationException($"BotHider bridge connection failed: {error}");
         }
         try
         {
@@ -64,6 +63,11 @@ public partial class BotHiderImplPlugin : BasePlugin
             RegisterListener<Listeners.OnClientDisconnect>(OnClientDisconnect);
             AddTimer(2.0f, ApplyManagedSlots, TimerFlags.REPEAT);
             ApplyManagedSlots();
+            // Register events after initialization succeeds.
+            RegisterEventHandler<EventRoundStart>(OnRoundStart);
+            RegisterEventHandler<EventPlayerConnectFull>(OnPlayerConnectFull);
+            RegisterEventHandler<EventPlayerSpawn>(OnPlayerSpawn);
+            RegisterEventHandler<EventPlayerDeath>(OnPlayerDeath);
         }
         catch
         {
@@ -110,7 +114,6 @@ public partial class BotHiderImplPlugin : BasePlugin
     }
 
     // Reapply bot presentation at round start.
-    [GameEventHandler]
     public HookResult OnRoundStart(EventRoundStart @event, GameEventInfo info)
     {
         ApplyManagedSlots();
@@ -118,7 +121,6 @@ public partial class BotHiderImplPlugin : BasePlugin
     }
 
     // Apply presentation on full connect.
-    [GameEventHandler]
     public HookResult OnPlayerConnectFull(EventPlayerConnectFull @event, GameEventInfo info)
     {
         var player = @event.Userid;
@@ -127,7 +129,6 @@ public partial class BotHiderImplPlugin : BasePlugin
     }
 
     // Restores presentation after spawn.
-    [GameEventHandler]
     public HookResult OnPlayerSpawn(EventPlayerSpawn @event, GameEventInfo info)
     {
         var player = @event.Userid;
@@ -136,7 +137,6 @@ public partial class BotHiderImplPlugin : BasePlugin
     }
 
     // Reapply presentation after death.
-    [GameEventHandler]
     public HookResult OnPlayerDeath(EventPlayerDeath @event, GameEventInfo info)
     {
         var player = @event.Userid;

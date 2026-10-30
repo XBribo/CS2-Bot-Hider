@@ -16,7 +16,7 @@ public partial class BotHiderImplPlugin
         _commandPermissions = new(true);
         try
         {
-            string path = Path.Combine(Server.GameDirectory, "addons", "BotHider", "config.json");
+            string path = Path.Combine(Server.GameDirectory, "csgo", "addons", "BotHider", "config.json");
             _commandPermissions = CommandPermissionsConfig.Load(path);
         }
         catch (Exception e) when (e is IOException or UnauthorizedAccessException or JsonException)
