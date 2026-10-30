@@ -14,7 +14,7 @@ bool Prepare(char* error, size_t maxlen)
     nlohmann::json gamedata;
     if (!cs2_sdk::gameconfig::LoadGamedata(gamedataPath.c_str(), gamedata))
     {
-        std::snprintf(error, maxlen, "required gamedata unavailable or invalid: %s", gamedataPath.c_str());
+        std::snprintf(error, maxlen, "gamedata load failed: %s", gamedataPath.c_str());
         BH_LOG_ERROR("%s", error);
         return false;
     }
@@ -33,7 +33,7 @@ bool Prepare(char* error, size_t maxlen)
         cs2_sdk::modules::Initialize();
         if (!cs2_sdk::modules::server || !cs2_sdk::modules::server->Code())
         {
-            std::snprintf(error, maxlen, "required server module code unavailable");
+            std::snprintf(error, maxlen, "server code unavailable");
             BH_LOG_ERROR("%s", error);
             return false;
         }

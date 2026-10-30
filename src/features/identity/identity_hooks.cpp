@@ -560,7 +560,7 @@ bool CanEnableDisguise(char* error, size_t maxlen)
     }
     if (!missing.empty())
     {
-        std::snprintf(error, maxlen, "player mode unavailable; missing required dependencies: %s", missing.c_str());
+        std::snprintf(error, maxlen, "player mode unavailable: %s", missing.c_str());
         return false;
     }
     return true;

@@ -140,7 +140,7 @@ bool HiderPlugin::Load(PluginId id, ISmmAPI* ismm, char* error, size_t maxlen, b
 
     if (!KHook::__exported__khook)
     {
-        std::snprintf(error, maxlen, "KHook export unavailable; virtual hooks disabled");
+        std::snprintf(error, maxlen, "KHook export unavailable");
         BH_LOG_ERROR("%s", error);
         log::Close();
         return false;
@@ -204,7 +204,7 @@ bool HiderPlugin::Load(PluginId id, ISmmAPI* ismm, char* error, size_t maxlen, b
     jsonPath += "/addons/BotHider/bot_info.json";
     if (!BotInfo().Load(jsonPath.c_str()))
     {
-        BH_LOG_WARN("bot_info unavailable path='%s': bot identities disabled", jsonPath.c_str());
+        BH_LOG_WARN("identities disabled: bot_info=%s", jsonPath.c_str());
     }
 
     if (!InstallVirtualHooks())
@@ -212,7 +212,7 @@ bool HiderPlugin::Load(PluginId id, ISmmAPI* ismm, char* error, size_t maxlen, b
         BH_LOG_ERROR("KHook virtual hooks failed");
         char cleanupError[256]{};
         Unload(cleanupError, sizeof(cleanupError));
-        std::snprintf(error, maxlen, "failed to install KHook virtual hooks");
+        std::snprintf(error, maxlen, "KHook virtual hooks failed");
         return false;
     }
     g_SMAPI->AddListener(this, this);
@@ -245,12 +245,12 @@ bool HiderPlugin::Unload(char* error, size_t maxlen)
     Manager().BeginShutdown();
     if (!identity_hooks::Remove())
     {
-        std::snprintf(error, maxlen, "failed to uninstall KHook detours");
+        std::snprintf(error, maxlen, "KHook detour removal failed");
         return false;
     }
     if (!RemoveVirtualHooks())
     {
-        std::snprintf(error, maxlen, "KHook export unavailable while removing virtual hooks");
+        std::snprintf(error, maxlen, "KHook export unavailable");
         BH_LOG_ERROR("%s", error);
         return false;
     }

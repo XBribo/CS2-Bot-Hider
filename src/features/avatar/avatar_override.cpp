@@ -54,7 +54,7 @@ bool ClearAvatarOverride(INetworkStringTable* table, uint64_t steamId, char* err
     SetStringUserDataRequest_t empty{};
     if (!table->SetStringUserData(index, &empty, true))
     {
-        std::snprintf(error, errorLength, "failed to clear avatar sid=%s", key);
+        std::snprintf(error, errorLength, "avatar clear failed: sid=%s", key);
         return false;
     }
     return true;
@@ -70,7 +70,7 @@ bool SetAvatarOverride(
         int sentinel = table->AddString(true, "__bothider_no_avatar__", &empty);
         if (sentinel != 0)
         {
-            std::snprintf(error, errorLength, "failed to reserve string-table index 0");
+            std::snprintf(error, errorLength, "string-table index 0 reservation failed");
             return false;
         }
     }
@@ -99,14 +99,14 @@ bool SetAvatarOverride(
         index = table->AddString(true, key, &userData);
         if (index <= 0)
         {
-            std::snprintf(error, errorLength, "failed to allocate a string-table entry");
+            std::snprintf(error, errorLength, "string-table allocation failed");
             return false;
         }
         return true;
     }
     if (!table->SetStringUserData(index, &userData, true))
     {
-        std::snprintf(error, errorLength, "failed to update string-table user data");
+        std::snprintf(error, errorLength, "string-table update failed");
         return false;
     }
     return true;

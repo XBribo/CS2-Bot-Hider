@@ -49,7 +49,7 @@ public partial class BotHiderImplPlugin : BasePlugin
         {
             _client.Dispose();
             _client = null;
-            throw new InvalidOperationException($"BotHider bridge connection failed: {error}");
+            throw new InvalidOperationException($"BotHider bridge failed: {error}");
         }
         try
         {

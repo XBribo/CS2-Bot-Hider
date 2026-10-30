@@ -21,7 +21,7 @@ public partial class BotHiderImplPlugin
         }
         catch (Exception e) when (e is IOException or UnauthorizedAccessException or JsonException)
         {
-            Server.PrintToConsole("[BotHider] command permission config invalid or unreadable: using restricted defaults");
+            Server.PrintToConsole("[BotHider] Permission config failed; using restricted defaults");
         }
     }
 

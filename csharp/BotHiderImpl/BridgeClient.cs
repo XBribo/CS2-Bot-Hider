@@ -109,7 +109,7 @@ internal sealed unsafe class BridgeClient : IBotHiderApi, IDisposable
         error = string.Empty;
         if (_disposed || Environment.CurrentManagedThreadId != _threadId)
         {
-            error = "client is disposed or called from another thread";
+            error = "client disposed or wrong thread";
             return false;
         }
         if (_library != 0) return true;
@@ -125,7 +125,7 @@ internal sealed unsafe class BridgeClient : IBotHiderApi, IDisposable
             Imports.Library = library;
             if (Imports.Attach() == 0)
             {
-                error = "BH_Attach rejected the connection (plugin unavailable, wrong thread, or provider already attached)";
+                error = "BH_Attach rejected";
                 return false;
             }
             _library = library;
@@ -237,12 +237,12 @@ internal sealed unsafe class BridgeClient : IBotHiderApi, IDisposable
         error = string.Empty;
         if (!ReadSlot(slot, out var s))
         {
-            error = "bridge is unavailable";
+            error = "bridge unavailable";
             return false;
         }
         if (s.Managed == 0)
         {
-            error = "slot is not a BotHider-managed bot";
+            error = "unmanaged slot";
             return false;
         }
         byte[] bytes;
@@ -255,7 +255,7 @@ internal sealed unsafe class BridgeClient : IBotHiderApi, IDisposable
                 long length = file.Length;
                 if (length == 0 || length > AvatarMaxBytes)
                 {
-                    error = "avatar PNG must contain 1 to 16384 bytes";
+                    error = "avatar PNG requires 1..16384 bytes";
                     return false;
                 }
                 bytes = new byte[(int)length];
@@ -264,14 +264,14 @@ internal sealed unsafe class BridgeClient : IBotHiderApi, IDisposable
         }
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or ArgumentException or NotSupportedException)
         {
-            error = $"failed to read avatar PNG: {ex.Message}";
+            error = $"avatar read failed: {ex.Message}";
             return false;
         }
         fixed (byte* data = bytes)
         {
             if (Imports.SetAvatar(slot, s.Incarnation, data, bytes.Length) != 0) return true;
         }
-        error = "avatar request rejected: check the managed slot and PNG data";
+        error = "avatar rejected";
         return false;
     }
 
