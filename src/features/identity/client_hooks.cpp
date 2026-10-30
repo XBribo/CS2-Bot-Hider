@@ -49,7 +49,6 @@ KHook::Return<void> HiderPlugin::HookOnClientConnectedPost( // NOLINT(readabilit
     const char* /*address*/,
     bool fakePlayer) noexcept
 {
-    const hooks::CallbackScope callbackScope;
     if (!fakePlayer || identity_runtime::IsHltvConnection(name, networkId))
     {
         return { KHook::Action::Ignore };
@@ -121,7 +120,6 @@ KHook::Return<void> HiderPlugin::HookClientPutInServerPost(IServerGameClients*,
                                                            int type,
                                                            uint64 /*xuid*/) noexcept // NOLINT(readability-make-member-function-const)
 {
-    const hooks::CallbackScope callbackScope;
     (void)type;
     const int index = slot.Get();
     if (index < 0 || index >= bridge::kMaxSlots || !Manager().IsManaged(index))
@@ -194,7 +192,6 @@ KHook::Return<void> HiderPlugin::HookClientDisconnectPre( // NOLINT(readability-
     uint64 /*xuid*/,
     const char* /*networkId*/) noexcept
 {
-    const hooks::CallbackScope callbackScope;
     const int index = slot.Get();
     if (index < 0 || index >= bridge::kMaxSlots || !Manager().IsManaged(index))
     {

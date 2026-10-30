@@ -21,7 +21,6 @@ public partial class BotHiderImplPlugin : BasePlugin
     private delegate void IsBotPostfix(object __instance, ref bool __result);
 
     private BridgeClient? _client;
-    private IBotHiderApi? _api;
     private readonly string[] _appliedCrosshair = new string[64];
     private readonly uint[] _appliedScoreboardFlair = new uint[64];
     private readonly ulong[] _observedIncarnations = new ulong[64];
@@ -54,8 +53,7 @@ public partial class BotHiderImplPlugin : BasePlugin
         }
         try
         {
-            _api = new BotHiderCapabilityApi(_client);
-            BotHiderProvider.Attach(_api, supplier => Capabilities.RegisterPluginCapability(Capability, supplier),
+            BotHiderProvider.Attach(_client, supplier => Capabilities.RegisterPluginCapability(Capability, supplier),
                 static player => ((CCSPlayerController)player).Slot);
             _harmony = new Harmony("net.linyz.bothider.isbot");
             _harmony.Patch(AccessTools.PropertyGetter(typeof(CCSPlayerController), nameof(CCSPlayerController.IsBot)),
@@ -89,8 +87,7 @@ public partial class BotHiderImplPlugin : BasePlugin
         finally
         {
             _harmony = null;
-            BotHiderProvider.Detach(_api);
-            _api = null;
+            BotHiderProvider.Detach(_client);
             _client?.Dispose();
             _client = null;
         }
@@ -411,67 +408,4 @@ public partial class BotHiderImplPlugin : BasePlugin
         }
     }
 
-}
-
-internal sealed class BotHiderCapabilityApi : IBotHiderApi
-{
-    private readonly BridgeClient _client;
-
-    public BotHiderCapabilityApi(BridgeClient client)
-    {
-        _client = client;
-    }
-
-    // Check slot ownership.
-    public bool IsManagedBot(int slot) => _client.IsManagedBot(slot);
-
-    // Read the synthetic SteamID64.
-    public ulong GetBotSteamId(int slot) => _client.GetBotSteamId(slot);
-
-    // List managed engine slots.
-    public int[] GetManagedSlots() => _client.GetManagedSlots();
-
-    // Read the persona name.
-    public string GetPersonaName(int slot) => _client.GetPersonaName(slot);
-
-    // Read the visible ping.
-    public int GetPing(int slot) => _client.GetPing(slot);
-
-    // Read the crosshair code.
-    public string GetCrosshairCode(int slot) => _client.GetCrosshairCode(slot);
-
-    // Check avatar application.
-    public bool HasBotAvatar(int slot) => _client.HasBotAvatar(slot);
-
-    // Read the flair item definition index.
-    public uint GetScoreboardFlair(int slot) => _client.GetScoreboardFlair(slot);
-
-    // Read resolved signatures.
-    public (string Name, ulong Addr)[] GetSignatures() => _client.GetSignatures();
-
-    // Set a managed bot's SteamID64.
-    public bool SetBotSteamId(int slot, ulong steamId64) =>
-        _client.SetBotSteamId(slot, steamId64);
-
-    // Set the visible name through its callback.
-    public bool SetPersonaName(int slot, string name) =>
-        _client.SetPersonaName(slot, name);
-
-    // Set flair through the rank writer.
-    public bool SetScoreboardFlair(int slot, uint itemDefIndex) =>
-        _client.SetScoreboardFlair(slot, itemDefIndex);
-
-    // Set crosshair; empty or "0" clears it.
-    public bool SetCrosshairCode(int slot, string code) =>
-        _client.SetCrosshairCode(slot, code);
-
-    // Apply a PNG avatar; "0" clears it.
-    public bool SetBotAvatar(int slot, string pngPath) =>
-        _client.SetBotAvatar(slot, pngPath);
-
-    // Set the global identity mode.
-    public bool SetIdentityMode(BotIdentityMode mode) => _client.SetIdentityMode(mode);
-
-    // Set the global name source.
-    public bool SetNameSource(bool useBotInfo) => _client.SetNameSource(useBotInfo);
 }

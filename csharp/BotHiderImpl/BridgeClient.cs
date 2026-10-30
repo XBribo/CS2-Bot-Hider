@@ -54,7 +54,6 @@ internal sealed unsafe class BridgeClient : IBotHiderApi, IDisposable
     private nint _library;
     private bool _disposed;
 
-    // C++ reloads replace the provider assembly.
     private static class Imports
     {
         private const string LibraryName = "BotHider";
