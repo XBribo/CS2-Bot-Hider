@@ -53,17 +53,42 @@ internal sealed unsafe class BridgeClient : IBotHiderApi, IDisposable
     private readonly Action<int, string, ulong>? _onCrosshairCode;
     private nint _library;
     private bool _disposed;
-    private delegate* unmanaged[Cdecl]<int> _attach;
-    private delegate* unmanaged[Cdecl]<void> _detach;
-    private delegate* unmanaged[Cdecl]<int, SlotSnapshot*, int, int> _getSlot;
-    private delegate* unmanaged[Cdecl]<Signature*, int, int> _getSignatures;
-    private delegate* unmanaged[Cdecl]<int, ulong, ulong, int> _setSteamId;
-    private delegate* unmanaged[Cdecl]<int, ulong, byte*, int, int> _setName;
-    private delegate* unmanaged[Cdecl]<int, ulong, byte*, int, int> _setCrosshair;
-    private delegate* unmanaged[Cdecl]<int, ulong, uint, int> _setFlair;
-    private delegate* unmanaged[Cdecl]<int, ulong, byte*, int, int> _setAvatar;
-    private delegate* unmanaged[Cdecl]<int, int> _setMode;
-    private delegate* unmanaged[Cdecl]<int, int> _setNameSource;
+
+    // C++ reloads replace the provider assembly.
+    private static class Imports
+    {
+        private const string LibraryName = "BotHider";
+        internal static nint Library;
+
+        static Imports()
+        {
+            NativeLibrary.SetDllImportResolver(typeof(BridgeClient).Assembly,
+                (name, _, _) => name == LibraryName ? Library : 0);
+        }
+
+        [DllImport(LibraryName, EntryPoint = "BH_Attach", CallingConvention = CallingConvention.Cdecl)]
+        internal static extern int Attach();
+        [DllImport(LibraryName, EntryPoint = "BH_Detach", CallingConvention = CallingConvention.Cdecl)]
+        internal static extern void Detach();
+        [DllImport(LibraryName, EntryPoint = "BH_GetSlot", CallingConvention = CallingConvention.Cdecl)]
+        internal static extern int GetSlot(int slot, SlotSnapshot* output, int size);
+        [DllImport(LibraryName, EntryPoint = "BH_GetSignatures", CallingConvention = CallingConvention.Cdecl)]
+        internal static extern int GetSignatures(Signature* output, int capacity);
+        [DllImport(LibraryName, EntryPoint = "BH_SetSteamId", CallingConvention = CallingConvention.Cdecl)]
+        internal static extern int SetSteamId(int slot, ulong incarnation, ulong steamId);
+        [DllImport(LibraryName, EntryPoint = "BH_SetName", CallingConvention = CallingConvention.Cdecl)]
+        internal static extern int SetName(int slot, ulong incarnation, byte* name, int length);
+        [DllImport(LibraryName, EntryPoint = "BH_SetCrosshair", CallingConvention = CallingConvention.Cdecl)]
+        internal static extern int SetCrosshair(int slot, ulong incarnation, byte* code, int length);
+        [DllImport(LibraryName, EntryPoint = "BH_SetFlair", CallingConvention = CallingConvention.Cdecl)]
+        internal static extern int SetFlair(int slot, ulong incarnation, uint flair);
+        [DllImport(LibraryName, EntryPoint = "BH_SetAvatar", CallingConvention = CallingConvention.Cdecl)]
+        internal static extern int SetAvatar(int slot, ulong incarnation, byte* data, int length);
+        [DllImport(LibraryName, EntryPoint = "BH_SetMode", CallingConvention = CallingConvention.Cdecl)]
+        internal static extern int SetMode(int mode);
+        [DllImport(LibraryName, EntryPoint = "BH_SetNameSource", CallingConvention = CallingConvention.Cdecl)]
+        internal static extern int SetNameSource(int useBotInfo);
+    }
 
     public BridgeClient(string libraryPath,
                         Action<int, string, ulong>? onVisibleName = null,
@@ -98,18 +123,8 @@ internal sealed unsafe class BridgeClient : IBotHiderApi, IDisposable
         }
         try
         {
-            _attach = (delegate* unmanaged[Cdecl]<int>)NativeLibrary.GetExport(library, "BH_Attach");
-            _detach = (delegate* unmanaged[Cdecl]<void>)NativeLibrary.GetExport(library, "BH_Detach");
-            _getSlot = (delegate* unmanaged[Cdecl]<int, SlotSnapshot*, int, int>)NativeLibrary.GetExport(library, "BH_GetSlot");
-            _getSignatures = (delegate* unmanaged[Cdecl]<Signature*, int, int>)NativeLibrary.GetExport(library, "BH_GetSignatures");
-            _setSteamId = (delegate* unmanaged[Cdecl]<int, ulong, ulong, int>)NativeLibrary.GetExport(library, "BH_SetSteamId");
-            _setName = (delegate* unmanaged[Cdecl]<int, ulong, byte*, int, int>)NativeLibrary.GetExport(library, "BH_SetName");
-            _setCrosshair = (delegate* unmanaged[Cdecl]<int, ulong, byte*, int, int>)NativeLibrary.GetExport(library, "BH_SetCrosshair");
-            _setFlair = (delegate* unmanaged[Cdecl]<int, ulong, uint, int>)NativeLibrary.GetExport(library, "BH_SetFlair");
-            _setAvatar = (delegate* unmanaged[Cdecl]<int, ulong, byte*, int, int>)NativeLibrary.GetExport(library, "BH_SetAvatar");
-            _setMode = (delegate* unmanaged[Cdecl]<int, int>)NativeLibrary.GetExport(library, "BH_SetMode");
-            _setNameSource = (delegate* unmanaged[Cdecl]<int, int>)NativeLibrary.GetExport(library, "BH_SetNameSource");
-            if (_attach() == 0)
+            Imports.Library = library;
+            if (Imports.Attach() == 0)
             {
                 error = "BH_Attach rejected the connection (plugin unavailable, wrong thread, or provider already attached)";
                 return false;
@@ -135,7 +150,7 @@ internal sealed unsafe class BridgeClient : IBotHiderApi, IDisposable
         snapshot = default;
         if (!IsConnected()) return false;
         fixed (SlotSnapshot* output = &snapshot)
-            return _getSlot(slot, output, sizeof(SlotSnapshot)) != 0;
+            return Imports.GetSlot(slot, output, sizeof(SlotSnapshot)) != 0;
     }
 
     private static string ReadText(byte* text, int capacity)
@@ -171,7 +186,7 @@ internal sealed unsafe class BridgeClient : IBotHiderApi, IDisposable
     {
         if (!IsConnected()) return [];
         Signature* signatures = stackalloc Signature[MaxSignatures];
-        int count = _getSignatures(signatures, MaxSignatures);
+        int count = Imports.GetSignatures(signatures, MaxSignatures);
         var result = new (string, ulong)[count];
         for (int index = 0; index < count; index++)
             result[index] = (ReadText(signatures[index].Name, 32), signatures[index].Address);
@@ -180,7 +195,7 @@ internal sealed unsafe class BridgeClient : IBotHiderApi, IDisposable
 
     public bool SetBotSteamId(int slot, ulong steamId64)
     {
-        if (!ReadSlot(slot, out var s) || _setSteamId(slot, s.Incarnation, steamId64) == 0) return false;
+        if (!ReadSlot(slot, out var s) || Imports.SetSteamId(slot, s.Incarnation, steamId64) == 0) return false;
         _onSteamId?.Invoke(slot, s.Incarnation);
         return true;
     }
@@ -191,7 +206,7 @@ internal sealed unsafe class BridgeClient : IBotHiderApi, IDisposable
         if (normalized.Length == 0 || !ReadSlot(slot, out var s)) return false;
         byte[] bytes = Encoding.UTF8.GetBytes(normalized);
         fixed (byte* text = bytes)
-            if (_setName(slot, s.Incarnation, text, bytes.Length) == 0) return false;
+            if (Imports.SetName(slot, s.Incarnation, text, bytes.Length) == 0) return false;
         _onVisibleName?.Invoke(slot, GetPersonaName(slot), s.Incarnation);
         return true;
     }
@@ -201,20 +216,20 @@ internal sealed unsafe class BridgeClient : IBotHiderApi, IDisposable
         if (code == null || !ReadSlot(slot, out var s)) return false;
         byte[] terminated = Encoding.UTF8.GetBytes((code == "0" ? string.Empty : code) + '\0');
         fixed (byte* text = terminated)
-            if (_setCrosshair(slot, s.Incarnation, text, terminated.Length - 1) == 0) return false;
+            if (Imports.SetCrosshair(slot, s.Incarnation, text, terminated.Length - 1) == 0) return false;
         _onCrosshairCode?.Invoke(slot, GetCrosshairCode(slot), s.Incarnation);
         return true;
     }
 
     public bool SetScoreboardFlair(int slot, uint itemDefIndex)
     {
-        if (!ReadSlot(slot, out var s) || _setFlair(slot, s.Incarnation, itemDefIndex) == 0) return false;
+        if (!ReadSlot(slot, out var s) || Imports.SetFlair(slot, s.Incarnation, itemDefIndex) == 0) return false;
         _onScoreboardFlair?.Invoke(slot, itemDefIndex, s.Incarnation);
         return true;
     }
 
-    public bool SetIdentityMode(BotIdentityMode mode) => IsConnected() && _setMode((int)mode) != 0;
-    public bool SetNameSource(bool useBotInfo) => IsConnected() && _setNameSource(useBotInfo ? 1 : 0) != 0;
+    public bool SetIdentityMode(BotIdentityMode mode) => IsConnected() && Imports.SetMode((int)mode) != 0;
+    public bool SetNameSource(bool useBotInfo) => IsConnected() && Imports.SetNameSource(useBotInfo ? 1 : 0) != 0;
 
     public bool SetBotAvatar(int slot, string pngPath) => TrySetBotAvatar(slot, pngPath, out _);
 
@@ -255,7 +270,7 @@ internal sealed unsafe class BridgeClient : IBotHiderApi, IDisposable
         }
         fixed (byte* data = bytes)
         {
-            if (_setAvatar(slot, s.Incarnation, data, bytes.Length) != 0) return true;
+            if (Imports.SetAvatar(slot, s.Incarnation, data, bytes.Length) != 0) return true;
         }
         error = "avatar request rejected: check the managed slot and PNG data";
         return false;
@@ -354,7 +369,7 @@ internal sealed unsafe class BridgeClient : IBotHiderApi, IDisposable
             throw new InvalidOperationException("Dispose on the game thread.");
         _disposed = true;
         if (_library == 0) return;
-        _detach();
+        Imports.Detach();
         NativeLibrary.Free(_library);
         _library = 0;
     }
