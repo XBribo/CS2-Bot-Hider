@@ -117,7 +117,7 @@ void HiderPlugin::AdoptExistingBots()
 KHook::Return<void> HiderPlugin::HookClientPutInServerPost(IServerGameClients*,
                                                            CPlayerSlot slot,
                                                            char const* name,
-                                                           int type,
+                                                           ClientPutInServerType_t type,
                                                            uint64 /*xuid*/) noexcept // NOLINT(readability-make-member-function-const)
 {
     (void)type;
