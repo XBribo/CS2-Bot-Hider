@@ -8,37 +8,36 @@ namespace BotHiderImpl;
 
 public partial class BotHiderImplPlugin
 {
-    // List managed slots and hook status.
-    [ConsoleCommand("bh_status", "List all BotHider-managed slots")]
+    // List slot and hook status.
+    [ConsoleCommand("bh_status", "List BotHider status")]
     [CommandHelper(0, "", CommandUsage.CLIENT_AND_SERVER)]
     public void OnStatus(CCSPlayerController? player, CommandInfo cmd)
     {
         if (!CanExecuteCommand(player, cmd)) return;
         if (_client == null) { cmd.ReplyToCommand("[BotHider] not initialized"); return; }
-        // All signatures must resolve.
         var sigs = _client.GetSignatures();
         if (sigs.Length > 0)
         {
-            bool allOk = sigs.All(s => s.Addr != 0);
+            int resolved = sigs.Count(s => s.Addr != 0);
             string detail = string.Join(" ", sigs.Select(s => $"{s.Name}={s.Addr:X16}"));
-            cmd.ReplyToCommand($"[BotHider] hooks: {(allOk ? "ok" : "FAIL")} | {detail}");
+            cmd.ReplyToCommand($"[BotHider] signatures: {resolved}/{sigs.Length} resolved | {detail}");
         }
         var slots = _client.GetManagedSlots();
         cmd.ReplyToCommand($"[BotHider] managed slots: {slots.Length}");
         foreach (int s in slots)
         {
-            var p = Utilities.GetPlayerFromSlot(s);
-            string isBot = (p != null && p.IsValid) ? p.IsBot.ToString() : "n/a";
             var clan = _client.GetClan(s);
-            cmd.ReplyToCommand(
-                $"  slot={s} incarnation={_client.GetSlotIncarnation(s)} " +
-                $"sid={_client.GetBotSteamId(s)}/{_client.GetBaseBotSteamId(s)} " +
-                $"name='{_client.GetPersonaName(s)}'/'{_client.GetBasePersonaName(s)}' " +
+            string status =
+                $"  slot={s} sid={_client.GetBotSteamId(s)} name='{_client.GetPersonaName(s)}' " +
                 $"ping={_client.GetPing(s)} " +
-                $"crosshair='{_client.GetCrosshairCode(s)}' " +
-                $"clan='{clan.Tag}'/{clan.GroupId} " +
-                $"avatar={_client.HasBotAvatar(s)}/{_client.GetConfiguredAvatarSize(s)}B " +
-                $"isbot={isBot}");
+                $"crosshair='{_client.GetCrosshairCode(s)}'";
+            if (clan.Tag.Length != 0 || clan.GroupId != 0)
+                status += $" clan='{clan.Tag}'/{clan.GroupId}";
+            bool hasAvatar = _client.HasBotAvatar(s);
+            int avatarSize = _client.GetConfiguredAvatarSize(s);
+            if (hasAvatar || avatarSize > 0)
+                status += $" avatar={hasAvatar}/{avatarSize}B";
+            cmd.ReplyToCommand(status);
         }
     }
 
@@ -52,7 +51,7 @@ public partial class BotHiderImplPlugin
             || !ulong.TryParse(cmd.GetArg(2), out ulong sid))
         { cmd.ReplyToCommand("usage: bh_setsid <slot> <sid64>"); return; }
         bool ok = _client.SetBotSteamId(slot, sid);
-        cmd.ReplyToCommand($"[BotHider] sid slot={slot} value={sid}: {(ok ? "queued" : "rejected")}");
+        cmd.ReplyToCommand($"[BotHider] sid slot={slot} value={sid}: {(ok ? "applied" : "rejected")}");
     }
 
     // Set a bot's name.
@@ -66,7 +65,7 @@ public partial class BotHiderImplPlugin
         string name = cmd.GetArg(2);
         bool ok = _client.SetPersonaName(slot, name);
         string appliedName = ok ? _client.GetPersonaName(slot) : name;
-        cmd.ReplyToCommand($"[BotHider] name slot={slot} value='{appliedName}': {(ok ? "queued" : "rejected")}");
+        cmd.ReplyToCommand($"[BotHider] name slot={slot} value='{appliedName}': {(ok ? "applied" : "rejected")}");
     }
 
     // Set a bot's scoreboard flair.
@@ -146,7 +145,7 @@ public partial class BotHiderImplPlugin
         }
 
         bool ok = _client.SetIdentityMode(mode);
-        cmd.ReplyToCommand($"[BotHider] mode={mode.ToString().ToLowerInvariant()}: {(ok ? "queued" : "rejected")}");
+        cmd.ReplyToCommand($"[BotHider] mode={mode.ToString().ToLowerInvariant()}: {(ok ? "applied" : "rejected")}");
     }
 
     // Select botprofile or bot_info names for new bots.
@@ -159,6 +158,6 @@ public partial class BotHiderImplPlugin
         { cmd.ReplyToCommand("usage: bh_namesource <0|1> (0=botprofile 1=bot_info)"); return; }
         bool useBotInfo = v != 0;
         bool ok = _client.SetNameSource(useBotInfo);
-        cmd.ReplyToCommand($"[BotHider] name source={(useBotInfo ? "bot_info" : "botprofile")}: {(ok ? "queued" : "rejected")}");
+        cmd.ReplyToCommand($"[BotHider] name source={(useBotInfo ? "bot_info" : "botprofile")}: {(ok ? "applied" : "rejected")}");
     }
 }

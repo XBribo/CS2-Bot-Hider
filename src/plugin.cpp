@@ -1,5 +1,6 @@
 #include "core/log.h"
 #include "plugin.h"
+#include "plugin_build_info.h"
 #include "ISmmPlugin.h"
 #include "ISmmPluginExt.h"
 #include "ISmmAPI.h"
@@ -13,7 +14,6 @@
 #include "fake_client_manager.h"
 #include "identity_hooks.h"
 #include "playerslot.h"
-#include "slot_publisher.h"
 #include "steam/steamtypes.h"
 #include "offsets.h"
 #include "core/cs2_sdk/src/core/memory_module.h"
@@ -69,7 +69,7 @@ bool HiderPlugin::InstallVirtualHooks()
 {
     if (!m_onClientConnectedHook.AddChecked(g_gameclients) || !m_clientPutInServerHook.AddChecked(g_gameclients) ||
         !m_clientDisconnectHook.AddChecked(g_gameclients) || !m_gameFrameHook.AddChecked(g_server) ||
-        !m_dispatchConCommandHook.AddChecked(g_icvar))
+        !m_dispatchConCommandHook.AddChecked(g_icvar) || !AttachGameServerHook())
     {
         RemoveVirtualHooks();
         return false;
@@ -89,21 +89,17 @@ bool HiderPlugin::RemoveVirtualHooks()
     return onClientConnected && clientPutInServer && clientDisconnect && gameFrame && dispatchConCommand && startChangeLevel;
 }
 
-// Queue unload outside the frame callback.
-void HiderPlugin::ProcessPendingUnload()
-{
-    if (!m_unloadPending || m_dispatchConCommandHook.HasRegistrations()) return;
-    char command[64];
-    std::snprintf(command, sizeof(command), "meta unload %d\n", static_cast<int>(g_PLID));
-    m_unloadPending = false;
-    g_engine->ServerCommand(command);
-}
-
 // Attach level hooks and reset runtime state.
 void HiderPlugin::OnLevelInit(char const* mapName, char const*, char const*, char const*, bool, bool)
 {
     identity_runtime::ClearPendingControllerRemovals();
     avatar::ResetRuntime();
+    if (!AttachGameServerHook()) SetIdentityMode(IdentityMode::Bot);
+    BH_LOG_DEBUG("level init map=%s", mapName ? mapName : "?");
+}
+
+bool HiderPlugin::AttachGameServerHook()
+{
     auto* gameServer = g_pNetworkServerService ? g_pNetworkServerService->GetIGameServer() : nullptr;
     if (gameServer && gameServer != m_hookedGameServer)
     {
@@ -117,37 +113,34 @@ void HiderPlugin::OnLevelInit(char const* mapName, char const*, char const*, cha
         {
             m_hookedGameServer = nullptr;
             BH_LOG_WARN("StartChangeLevel hook failed target=%p", static_cast<void*>(gameServer));
+            return false;
         }
     }
-    BH_LOG_DEBUG("level init map=%s", mapName ? mapName : "?");
+    return true;
 }
 
 // Release level state.
 void HiderPlugin::OnLevelShutdown()
 {
-    identity_state::ClearAll();
-    Manager().ReleaseAll();
+    identity_state::ReleaseAll();
     avatar::ProcessOverrides();
     avatar::ResetRuntime();
-    BotInfo().ResetAssignments();
     BH_LOG_DEBUG("level shutdown");
 }
 
 // Resolve interfaces and install plugin modules.
-bool HiderPlugin::Load(PluginId id, ISmmAPI* ismm, char* error, size_t maxlen, bool /*late*/)
+bool HiderPlugin::Load(PluginId id, ISmmAPI* ismm, char* error, size_t maxlen, bool late)
 {
     PLUGIN_SAVEVARS();
 
-    // Reset state for plugin reloads.
     m_identityMode = IdentityMode::Bot;
-    m_unloadPending = false;
 
     if (!interfaces::Init(ismm, error, maxlen)) return false;
     if (!log::Init(g_SMAPI->GetBaseDir(), "BotHider", error, maxlen)) return false;
 
     if (!KHook::__exported__khook)
     {
-        std::snprintf(error, maxlen, "KHook export unavailable; virtual hooks disabled");
+        std::snprintf(error, maxlen, "KHook export unavailable");
         BH_LOG_ERROR("%s", error);
         log::Close();
         return false;
@@ -197,32 +190,21 @@ bool HiderPlugin::Load(PluginId id, ISmmAPI* ismm, char* error, size_t maxlen, b
     m_identityMode = settings.botMode ? IdentityMode::Bot : IdentityMode::Player;
 
     Manager().Init();
-
-    // Open the bridge.
-    const bool sharedMemoryReady = Publisher().Init();
-    if (sharedMemoryReady)
-    {
-        // Publish hook addresses for bh_status; 0=unresolved.
-        Publisher().PublishSignature("UTIL_Remove", entity_access::UtilRemoveTarget());
-        Publisher().PublishSignature("MaintainBotQuota", identity_hooks::MaintainQuotaTarget());
-        Publisher().PublishSignature("CountPotentialVoters", identity_hooks::CountPotentialVotersTarget());
-        Publisher().PublishSignature("PackEntities", identity_hooks::PackEntitiesTarget());
-        Publisher().PublishSignature("HandleJoinTeam", identity_hooks::HandleJoinTeamTarget());
-        Publisher().PublishSignature("HumanTeamRestriction", identity_hooks::HumanTeamRestrictionTarget());
-        Publisher().PublishSignature("SameMapTeardown", identity_hooks::SameMapTeardownTarget());
-        Publisher().PublishSignature("ScriptIsBot", identity_hooks::ScriptIsBotTarget());
-    }
-    else
-    {
-        BH_LOG_WARN("CSS bridge disabled: shared memory init failed");
-    }
+    Manager().PublishSignature("UTIL_Remove", entity_access::UtilRemoveTarget());
+    Manager().PublishSignature("MaintainBotQuota", identity_hooks::MaintainQuotaTarget());
+    Manager().PublishSignature("CountPotentialVoters", identity_hooks::CountPotentialVotersTarget());
+    Manager().PublishSignature("PackEntities", identity_hooks::PackEntitiesTarget());
+    Manager().PublishSignature("HandleJoinTeam", identity_hooks::HandleJoinTeamTarget());
+    Manager().PublishSignature("HumanTeamRestriction", identity_hooks::HumanTeamRestrictionTarget());
+    Manager().PublishSignature("SameMapTeardown", identity_hooks::SameMapTeardownTarget());
+    Manager().PublishSignature("ScriptIsBot", identity_hooks::ScriptIsBotTarget());
 
     // Load bot identities.
     std::string jsonPath = g_SMAPI->GetBaseDir();
     jsonPath += "/addons/BotHider/bot_info.json";
     if (!BotInfo().Load(jsonPath.c_str()))
     {
-        BH_LOG_WARN("bot_info unavailable path='%s': using engine names", jsonPath.c_str());
+        BH_LOG_WARN("identities disabled: bot_info=%s", jsonPath.c_str());
     }
 
     if (!InstallVirtualHooks())
@@ -230,10 +212,11 @@ bool HiderPlugin::Load(PluginId id, ISmmAPI* ismm, char* error, size_t maxlen, b
         BH_LOG_ERROR("KHook virtual hooks failed");
         char cleanupError[256]{};
         Unload(cleanupError, sizeof(cleanupError));
-        std::snprintf(error, maxlen, "failed to install KHook virtual hooks");
+        std::snprintf(error, maxlen, "KHook virtual hooks failed");
         return false;
     }
     g_SMAPI->AddListener(this, this);
+    if (late) AdoptExistingBots();
 
     int installedHooks = 0;
     if (identity_hooks::MaintainQuotaTarget()) ++installedHooks;
@@ -243,49 +226,40 @@ bool HiderPlugin::Load(PluginId id, ISmmAPI* ismm, char* error, size_t maxlen, b
     if (identity_hooks::HumanTeamRestrictionTarget()) ++installedHooks;
     if (identity_hooks::SameMapTeardownTarget()) ++installedHooks;
     if (identity_hooks::ScriptIsBotTarget()) ++installedHooks;
+    m_loaded = true;
     BH_LOG_INFO("Loaded %s", GetVersion());
-    BH_LOG_DEBUG("mode=%s ping=%s range=%d-%d identities=%zu hooks=%d/7 cleanup=%s shm=%s avatar=%s", IsBotMode() ? "bot" : "player",
+    BH_LOG_DEBUG("mode=%s ping=%s range=%d-%d identities=%zu hooks=%d/7 cleanup=%s avatar=%s", IsBotMode() ? "bot" : "player",
                  settings.fakePingEnabled ? "on" : "off", settings.fakePingMin, settings.fakePingMax, BotInfo().Count(), installedHooks,
-                 entity_access::UtilRemoveTarget() ? "ok" : "fail", sharedMemoryReady ? "ok" : "fail", networkStringTables ? "ok" : "fail");
+                 entity_access::UtilRemoveTarget() ? "ok" : "fail", networkStringTables ? "ok" : "fail");
     return true;
 }
 
-// Remove hooks and release plugin modules.
+// Roll back partial initialization.
 bool HiderPlugin::Unload(char* error, size_t maxlen)
 {
-    if (!hooks::CanRemoveHooks())
+    if (m_loaded)
     {
-        if (!m_unloadPending)
-        {
-            if (!m_dispatchConCommandHook.RemoveAll(true))
-            {
-                std::snprintf(error, maxlen, "KHook export unavailable while scheduling unload");
-                return false;
-            }
-            m_unloadPending = true;
-        }
-        std::snprintf(error, maxlen, "unload deferred until the command hook detaches; automatic retry queued");
+        std::snprintf(error, maxlen, "Restart required");
         return false;
     }
+    Manager().BeginShutdown();
     if (!identity_hooks::Remove())
     {
-        std::snprintf(error, maxlen, "failed to uninstall KHook detours");
+        std::snprintf(error, maxlen, "KHook detour removal failed");
         return false;
     }
     if (!RemoveVirtualHooks())
     {
-        std::snprintf(error, maxlen, "KHook export unavailable while removing virtual hooks");
+        std::snprintf(error, maxlen, "KHook export unavailable");
         BH_LOG_ERROR("%s", error);
         return false;
     }
     m_hookedGameServer = nullptr;
-    m_unloadPending = false;
     identity_runtime::RestoreManagedClientsForEngineTeardown();
-    identity_state::ClearAll();
-    Manager().ReleaseAll();
+    identity_state::ReleaseAll();
     avatar::ProcessOverrides();
     avatar::ResetRuntime();
-    Publisher().Shutdown();
+    Manager().Shutdown();
     avatar::SetStringTableContainer(nullptr);
     entity_access::Reset();
     cs2_sdk::schema::Reset();

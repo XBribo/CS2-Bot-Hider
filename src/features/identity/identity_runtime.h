@@ -1,10 +1,11 @@
 #pragma once
 
 #include <cstdint>
+#include <unordered_set>
 
 namespace cs2bh::identity_runtime {
 
-// Apply native or disguised identity to managed clients.
+// Apply the selected identity mode.
 void ApplyManagedDisguise(bool disguised);
 
 enum class SteamIdAvailability
@@ -17,13 +18,13 @@ enum class SteamIdAvailability
 // Checks SteamID availability.
 SteamIdAvailability CheckSteamIdAvailability(int slot, uint64_t steamId);
 
-// Selects an automatic identity.
-uint64_t SelectSteamIdForBot(int slot, uint64_t desired);
+// Collect live SteamIDs and managed reservations for this allocation.
+bool CollectOccupiedSteamIds(int slot, std::unordered_set<uint64_t>& occupied);
 
 // Sync the controller's fake-client bit.
 bool SetControllerFakeClientFlag(int slot, bool fakeClient);
 
-// Restore native bot identity before engine teardown.
+// Restore bot identity before teardown.
 int RestoreManagedClientsForEngineTeardown();
 
 // Queue identity-checked controller removal.

@@ -11,7 +11,7 @@ public enum BotIdentityMode
     Bot = 1,
 }
 
-// Slot parameters use the engine player slot.
+// Game-thread API; player slots are 0-63.
 public interface IBotHiderApi
 {
     bool IsManagedBot(int slot);
@@ -26,7 +26,7 @@ public interface IBotHiderApi
 
     string GetCrosshairCode(int slot);
 
-    // Check native avatar application.
+    // Check avatar application.
     bool HasBotAvatar(int slot);
 
     // Read the flair item definition index.
@@ -35,7 +35,6 @@ public interface IBotHiderApi
     // Hook addresses; 0=unresolved.
     (string Name, ulong Addr)[] GetSignatures();
 
-    // Queues an exact SteamID64.
     bool SetBotSteamId(int slot, ulong steamId64);
 
     // Set crosshair; empty or "0" clears it.
@@ -47,7 +46,6 @@ public interface IBotHiderApi
     // Normalize to at most 31 UTF-8 bytes; empty names fail.
     bool SetPersonaName(int slot, string name);
 
-    // Set flair; false for invalid slots or flair.
     bool SetScoreboardFlair(int slot, uint itemDefIndex);
 
     // Set the global identity mode.

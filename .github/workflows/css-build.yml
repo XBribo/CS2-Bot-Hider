@@ -1,0 +1,22 @@
+name: CSS build
+
+on:
+  pull_request:
+    paths:
+      - "csharp/**"
+      - "CMakeLists.txt"
+      - ".github/workflows/css-build.yml"
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-dotnet@v6
+        with:
+          dotnet-version: 10.0.x
+      - run: dotnet build csharp/BotHiderImpl -c Release -o build/csharp

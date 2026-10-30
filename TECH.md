@@ -58,7 +58,7 @@ C# provider and API contract:
 dotnet build csharp/BotHiderImpl/BotHiderImpl.csproj -c Release -o build/csharp
 ```
 
-Native output: `<build-directory>/package/addons/`. Use `build.ps1` for complete packages.
+C++ output: `<build-directory>/package/addons/`. Use `build.ps1` for complete packages.
 
 ## C# Integration
 
@@ -118,7 +118,7 @@ See CounterStrikeSharp's [shared plugin API guide](https://docs.cssharp.dev/docs
 
 ## API Reference
 
-Contract: [IBotHiderApi.cs](csharp/BotHiderApi/IBotHiderApi.cs). Use engine player slots (`CCSPlayerController.Slot.Value`) and check ownership with `IsManagedBot(slot)`.
+Contract: [IBotHiderApi.cs](csharp/BotHiderApi/IBotHiderApi.cs). Use player slots (`CCSPlayerController.Slot`) and check ownership with `IsManagedBot(slot)`.
 
 ### Read State
 
@@ -159,11 +159,11 @@ Returns `bool`. Changes apply to runtime state.
 
 ### Identity Updates
 
-- `SetBotSteamId`, `SetPersonaName`, and global settings queue commands. `true` means queued. Failures include unavailable shared memory, unmanaged slots, and a full queue.
-- Name and SteamID64 writes run on `Server.NextFrame`. `GetPersonaName` may return a pending name before clients display it.
-- Crosshair and flair setters update managed/shared state and schedule presentation directly.
-- Names are trimmed, stripped of invisible-only text elements, and limited to `BotHiderContract.MaxPlayerNameUtf8Bytes` at Unicode text-element boundaries. A non-empty normalized name is required.
-- Use distinct SteamID64s; duplicates may be replaced.
+- Call the API on the game thread. Display updates are asynchronous.
+- `GetPersonaName` returns the final applied name.
+- Names are normalized to at most 31 UTF-8 bytes; empty names are rejected.
+- SteamID64 conflicts or failed availability checks leave the current identity unchanged. New bots use available configured identities.
+- Player mode requires the active server's change-level hook. Failed level-hook rebinding switches to Bot mode.
 - `BotHiderImpl` patches `CCSPlayerController.IsBot` to return `true` for managed bots. Use `IsManagedBot` to check BotHider ownership.
 
 ### Avatars

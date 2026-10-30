@@ -1,27 +1,21 @@
 #pragma once
 
 #include "plugin.h"
+#include "entity_access.h"
 #include "core/cs2_sdk/src/core/memory_module.h"
 
 #include <array>
-#include <cstdint>
 #include <vector>
 
 #include <nlohmann/json.hpp>
 
 namespace cs2bh {
 
-struct BotPawnRef
-{
-    void* instance = nullptr;
-    uint32_t handle = 0xFFFFFFFF;
-};
-
 // Clear FL_BOT for managed pawns during packing.
-void ApplyBotFlagOverride(std::vector<BotPawnRef>& modified);
+void ApplyBotFlagOverride(std::vector<entity_access::PawnRef>& modified);
 
 // Restore FL_BOT for the packing scope's pawns.
-void RestoreBotFlagOverride(const std::vector<BotPawnRef>& pawns);
+void RestoreBotFlagOverride(const std::vector<entity_access::PawnRef>& pawns);
 
 // Check managed, non-HLTV controller ownership.
 bool IsManagedBotController(void* controller);

@@ -67,7 +67,11 @@ class HiderPlugin : public ISmmPlugin, public IMetamodListener
                                                   const char* networkId,
                                                   const char* address,
                                                   bool fakePlayer) noexcept;
-    KHook::Return<void> HookClientPutInServerPost(IServerGameClients*, CPlayerSlot slot, char const* name, int type, uint64 xuid) noexcept;
+    KHook::Return<void> HookClientPutInServerPost(IServerGameClients*,
+                                                CPlayerSlot slot,
+                                                char const* name,
+                                                ClientPutInServerType_t type,
+                                                uint64 xuid) noexcept;
     KHook::Return<void> HookClientDisconnectPre(IServerGameClients*,
                                                 CPlayerSlot slot,
                                                 ENetworkDisconnectionReason reason,
@@ -85,17 +89,21 @@ class HiderPlugin : public ISmmPlugin, public IMetamodListener
     HookDispatchConCommandPost(ICvar*, ConCommandRef command, const CCommandContext&, const CCommand& arguments) noexcept;
 
     // Set the global identity mode.
-    void SetIdentityMode(IdentityMode mode);
+    bool SetIdentityMode(IdentityMode mode);
     bool IsDisguiseEnabled() const { return m_identityMode == IdentityMode::Player; }
     bool IsBotMode() const { return m_identityMode == IdentityMode::Bot; }
 
     // Name source: true=bot_info.json, false=botprofile.
     void SetUseBotInfoName(bool useBotInfo) { m_useBotInfoName = useBotInfo; }
 
+    bool ApplySteamIdCommand(int slot, uint64_t steamId);
+    bool ApplyPersonaNameCommand(int slot, const char* name);
+
   private:
     using OnClientConnectedHook =
         hooks::CheckedVirtual<IServerGameClients, void, CPlayerSlot, const char*, uint64, const char*, const char*, bool>;
-    using ClientPutInServerHook = hooks::CheckedVirtual<IServerGameClients, void, CPlayerSlot, char const*, int, uint64>;
+    using ClientPutInServerHook =
+        hooks::CheckedVirtual<IServerGameClients, void, CPlayerSlot, char const*, ClientPutInServerType_t, uint64>;
     using ClientDisconnectHook =
         hooks::CheckedVirtual<IServerGameClients, void, CPlayerSlot, ENetworkDisconnectionReason, const char*, uint64, const char*>;
     using StartChangeLevelHook =
@@ -104,16 +112,11 @@ class HiderPlugin : public ISmmPlugin, public IMetamodListener
     using DispatchConCommandHook = hooks::CheckedVirtual<ICvar, void, ConCommandRef, const CCommandContext&, const CCommand&>;
 
     bool InstallVirtualHooks();
+    bool AttachGameServerHook();
     bool RemoveVirtualHooks();
-    // Queue unload after the command hook detaches.
-    void ProcessPendingUnload();
-    // Dispatch shared-memory commands.
-    void DrainBridgeCommands();
-    // Applies an exact SteamID.
-    void ApplySteamIdCommand(int slot, uint64_t steamId);
-    // Update and publish a managed client's name.
-    void ApplyPersonaNameCommand(int slot, const char* name);
-
+    bool ApplyClientName(int slot, void* client, const char* name);
+    bool AdoptClient(int slot, void* client, const char* name);
+    void AdoptExistingBots();
     INetworkGameServer* m_hookedGameServer = nullptr;
     OnClientConnectedHook m_onClientConnectedHook;
     ClientPutInServerHook m_clientPutInServerHook;
@@ -121,7 +124,7 @@ class HiderPlugin : public ISmmPlugin, public IMetamodListener
     StartChangeLevelHook m_startChangeLevelHook;
     GameFrameHook m_gameFrameHook;
     DispatchConCommandHook m_dispatchConCommandHook;
-    bool m_unloadPending = false;
+    bool m_loaded = false;
     unsigned int m_tickCounter = 0; // throttles per-tick idle-timer reset
     IdentityMode m_identityMode = IdentityMode::Player;
 

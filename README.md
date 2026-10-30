@@ -41,7 +41,7 @@ Edit `game/csgo/addons/BotHider/config.json`. See the [default config](configs/a
 
 ## Commands
 
-Use engine player slots (`0–63`) from `bh_status`. Quote names and paths containing spaces.
+Use player slots (`0–63`) from `bh_status`. Quote names and paths containing spaces.
 
 | Command | Description |
 | --- | --- |
