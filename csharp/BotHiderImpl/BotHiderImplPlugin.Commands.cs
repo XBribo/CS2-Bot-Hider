@@ -8,8 +8,8 @@ namespace BotHiderImpl;
 
 public partial class BotHiderImplPlugin
 {
-    // List managed slots and hook status.
-    [ConsoleCommand("bh_status", "List all BotHider-managed slots")]
+    // List slot and hook status.
+    [ConsoleCommand("bh_status", "List BotHider status")]
     [CommandHelper(0, "", CommandUsage.CLIENT_AND_SERVER)]
     public void OnStatus(CCSPlayerController? player, CommandInfo cmd)
     {
@@ -26,18 +26,18 @@ public partial class BotHiderImplPlugin
         cmd.ReplyToCommand($"[BotHider] managed slots: {slots.Length}");
         foreach (int s in slots)
         {
-            var p = Utilities.GetPlayerFromSlot(s);
-            string isBot = (p != null && p.IsValid) ? p.IsBot.ToString() : "n/a";
             var clan = _client.GetClan(s);
-            cmd.ReplyToCommand(
-                $"  slot={s} incarnation={_client.GetSlotIncarnation(s)} " +
-                $"sid={_client.GetBotSteamId(s)}/{_client.GetBaseBotSteamId(s)} " +
-                $"name='{_client.GetPersonaName(s)}'/'{_client.GetBasePersonaName(s)}' " +
+            string status =
+                $"  slot={s} sid={_client.GetBotSteamId(s)} name='{_client.GetPersonaName(s)}' " +
                 $"ping={_client.GetPing(s)} " +
-                $"crosshair='{_client.GetCrosshairCode(s)}' " +
-                $"clan='{clan.Tag}'/{clan.GroupId} " +
-                $"avatar={_client.HasBotAvatar(s)}/{_client.GetConfiguredAvatarSize(s)}B " +
-                $"isbot={isBot}");
+                $"crosshair='{_client.GetCrosshairCode(s)}'";
+            if (clan.Tag.Length != 0 || clan.GroupId != 0)
+                status += $" clan='{clan.Tag}'/{clan.GroupId}";
+            bool hasAvatar = _client.HasBotAvatar(s);
+            int avatarSize = _client.GetConfiguredAvatarSize(s);
+            if (hasAvatar || avatarSize > 0)
+                status += $" avatar={hasAvatar}/{avatarSize}B";
+            cmd.ReplyToCommand(status);
         }
     }
 
