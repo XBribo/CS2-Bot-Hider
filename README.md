@@ -16,10 +16,12 @@
 
 A Counter-Strike 2 plugin that removes the scoreboard's `BOT` tag and gives bots custom SteamID64s, names, ping, crosshairs, scoreboard flair, clan tags, and PNG avatars.
 
-### Signature Status
+<details>
+<summary>Signature Status</summary>
 
-[![CS2 Bot Signatures Tracker](https://raw.githubusercontent.com/XBribo/cs2-bot-signatures/main/.github/docs/summary.svg)](https://github.com/XBribo/cs2-bot-signatures)
+[![Signature Status](https://raw.githubusercontent.com/XBribo/cs2-bot-signatures/main/.github/docs/summary.svg)](https://github.com/XBribo/cs2-bot-signatures)
 
+</details>
 ## Quick Start
 
 1. Install Metamod:Source and CounterStrikeSharp.
