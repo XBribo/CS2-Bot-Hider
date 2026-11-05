@@ -1,6 +1,9 @@
 #include "bot_info.h"
 #include "clan_tag_config.h"
+#include "bridge.h"
+#include "core/log.h"
 
+#include <algorithm>
 #include <charconv>
 #include <chrono>
 #include <cstdint>
@@ -33,6 +36,7 @@ uint64_t NextRand(uint64_t& s)
 bool ParseAccountId(const std::string& text, uint32_t& accountId)
 {
     accountId = 0;
+    if (text.empty() || text.front() == '0') return false;
     const char* begin = text.data();
     const char* end = begin + text.size();
     auto [position, error] = std::from_chars(begin, end, accountId);
@@ -47,8 +51,7 @@ BotInfoStore& BotInfo() { return g_botInfo; }
 bool BotInfoStore::Load(const char* path)
 {
     m_entries.clear();
-    m_byName.clear();
-    m_assignmentCounts.clear();
+    m_assigned.clear();
     m_rngState = static_cast<uint64_t>(std::chrono::steady_clock::now().time_since_epoch().count()) | 1ULL;
 
     std::ifstream ifs(path);
@@ -69,73 +72,67 @@ bool BotInfoStore::Load(const char* path)
         return false;
     }
 
+    size_t rejected = 0;
     for (const auto& [key, val] : root["players"].items())
     {
-        if (!val.is_object()) continue;
+        if (!val.is_object())
+        {
+            ++rejected;
+            continue;
+        }
         BotEntry e;
         if (!ParseAccountId(key, e.accountId) || !val.contains("player_name") || !val["player_name"].is_string())
         {
+            ++rejected;
             continue;
         }
         e.name = val["player_name"].get<std::string>();
-        if (e.name.empty()) continue;
+        const bool hasControl = std::ranges::any_of(e.name, [](unsigned char ch) {
+            return ch < 0x20 || ch == 0x7F;
+        });
+        if (e.name.size() >= bridge::kNameLen || hasControl || e.name.find_first_not_of(' ') == std::string::npos)
+        {
+            ++rejected;
+            continue;
+        }
         e.steamId64 = kSteamId64Base + static_cast<uint64_t>(e.accountId);
         if (val.contains("crosshair_code") && val["crosshair_code"].is_string()) e.crosshairCode = val["crosshair_code"].get<std::string>();
-        if (val.contains("scoreboard_flair") && val["scoreboard_flair"].is_number_unsigned())
+        if (e.crosshairCode.size() >= bridge::kCrosshairLen || e.crosshairCode.find('\0') != std::string::npos)
         {
-            uint64_t flair = val["scoreboard_flair"].get<uint64_t>();
-            e.scoreboardFlair = flair <= 0xFFFFU ? static_cast<uint32_t>(flair) : 0;
+            ++rejected;
+            continue;
         }
-        else if (val.contains("scoreboard_flair") && val["scoreboard_flair"].is_number_integer())
+        if (e.crosshairCode == "0") e.crosshairCode.clear();
+        if (val.contains("scoreboard_flair") && val["scoreboard_flair"].is_number_integer())
         {
-            int64_t flair = val["scoreboard_flair"].get<int64_t>();
-            e.scoreboardFlair = (flair >= 0 && flair <= 0xFFFF) ? static_cast<uint32_t>(flair) : 0;
+            const auto& flair = val["scoreboard_flair"];
+            if (flair >= 0 && flair <= UINT16_MAX) e.scoreboardFlair = flair.get<uint32_t>();
         }
         e.clanTag = ParseClanTag(val);
-        m_byName[e.name].push_back(m_entries.size());
         m_entries.push_back(std::move(e));
     }
-    m_assignmentCounts.assign(m_entries.size(), 0);
+    m_assigned.assign(m_entries.size(), false);
+    if (rejected) BH_LOG_WARN("bot_info skipped %zu invalid identities", rejected);
     return !m_entries.empty();
 }
 
 // Pick an available identity, preferring an exact name match.
-const BotEntry* BotInfoStore::PickForBot(const char* engineName)
+const BotEntry* BotInfoStore::PickForBot(const char* engineName, const std::unordered_set<uint64_t>& occupied)
 {
-    if (m_entries.empty()) return nullptr;
-
-    if (engineName && engineName[0])
-    {
-        auto it = m_byName.find(engineName);
-        if (it != m_byName.end())
-        {
-            std::vector<size_t> freeMatches;
-            freeMatches.reserve(it->second.size());
-            for (size_t index : it->second)
-            {
-                if (m_assignmentCounts[index] == 0) freeMatches.push_back(index);
-            }
-
-            const std::vector<size_t>& candidates = freeMatches.empty() ? it->second : freeMatches;
-            const size_t pick = candidates[NextRand(m_rngState) % candidates.size()];
-            ++m_assignmentCounts[pick];
-            return &m_entries[pick];
-        }
-    }
-
-    std::vector<size_t> free;
-    free.reserve(m_entries.size());
+    std::vector<size_t> available;
+    std::vector<size_t> matches;
+    available.reserve(m_entries.size());
     for (size_t i = 0; i < m_entries.size(); ++i)
-        if (m_assignmentCounts[i] == 0) free.push_back(i);
-
-    if (free.empty())
     {
-        const size_t index = NextRand(m_rngState) % m_entries.size();
-        ++m_assignmentCounts[index];
-        return &m_entries[index];
+        const auto& entry = m_entries[i];
+        if (m_assigned[i] || occupied.contains(entry.steamId64)) continue;
+        available.push_back(i);
+        if (engineName && entry.name == engineName) matches.push_back(i);
     }
-    const size_t pick = free[NextRand(m_rngState) % free.size()];
-    ++m_assignmentCounts[pick];
+    const auto& candidates = matches.empty() ? available : matches;
+    if (candidates.empty()) return nullptr;
+    const size_t pick = candidates[NextRand(m_rngState) % candidates.size()];
+    m_assigned[pick] = true;
     return &m_entries[pick];
 }
 
@@ -143,19 +140,10 @@ const BotEntry* BotInfoStore::PickForBot(const char* engineName)
 void BotInfoStore::ReleaseAssignment(const BotEntry* entry)
 {
     if (!entry) return;
-    auto it = m_byName.find(entry->name);
-    if (it != m_byName.end())
-    {
-        for (size_t index : it->second)
-        {
-            if (&m_entries[index] != entry) continue;
-            if (m_assignmentCounts[index] > 0) --m_assignmentCounts[index];
-            return;
-        }
-    }
+    m_assigned[entry - m_entries.data()] = false;
 }
 
-// Clear identity assignment counts.
-void BotInfoStore::ResetAssignments() { m_assignmentCounts.assign(m_entries.size(), 0); }
+// Clear identity assignments.
+void BotInfoStore::ResetAssignments() { std::fill(m_assigned.begin(), m_assigned.end(), false); }
 
 } // namespace cs2bh

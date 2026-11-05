@@ -2,17 +2,14 @@
 #include "identity_runtime.h"
 
 #include "ISmmPlugin.h"
-#include "bot_info.h"
 #include "entity_access.h"
 #include "fake_client_manager.h"
 #include "identity_hooks.h"
 #include "identity_state.h"
-#include "personas.h"
 #include "serversideclient_ref.h"
 #include "offsets.h"
 
 #include <algorithm>
-#include <chrono>
 #include <cstdint>
 #include <cstring>
 #include <string>
@@ -32,58 +29,10 @@ namespace cs2bh {
 
 namespace {
 
-// Generate a random value for SteamID selection.
-uint64_t NextSteamIdRandom()
-{
-    static uint64_t state = static_cast<uint64_t>(std::chrono::steady_clock::now().time_since_epoch().count()) | 1ULL;
-    uint64_t x = state;
-    x ^= x >> 12;
-    x ^= x << 25;
-    x ^= x >> 27;
-    state = x;
-    return x * 0x2545F4914F6CDD1DULL;
-}
-
-// Resolve a managed bot's current pawn.
-BotPawnRef ResolveManagedBotPawn(int slot)
-{
-    BotPawnRef result;
-    const int pawnHandleOffset = entity_access::BotPawnHandleOffset();
-    if (pawnHandleOffset < 0 || !Manager().IsManaged(slot)) return result;
-
-    void* client = entity_access::ResolveClientBySlot(slot);
-    if (!client) return result;
-
-    const int controllerIndex = *reinterpret_cast<int*>(reinterpret_cast<unsigned char*>(client) + ssc::g_entityIndexOffset);
-    char className[64];
-    void* controller = entity_access::ResolveEntityInstance(controllerIndex, className, sizeof(className));
-    if (!controller || std::strcmp(className, "cs_player_controller") != 0 || entity_access::IsEntityBeingDeleted(controller))
-    {
-        return result;
-    }
-
-    const uint32_t pawnHandle = *reinterpret_cast<uint32_t*>(reinterpret_cast<unsigned char*>(controller) + pawnHandleOffset);
-    if (pawnHandle == 0xFFFFFFFF) return result;
-
-    const int pawnIndex = CEntityHandle(pawnHandle).GetEntryIndex();
-    void* pawn = entity_access::ResolveEntityInstance(pawnIndex, nullptr, 0);
-    if (!pawn || entity_access::IsEntityBeingDeleted(pawn)) return result;
-
-    auto* pawnEntity = reinterpret_cast<CEntityInstance*>(pawn);
-    if (std::cmp_not_equal(static_cast<uint32_t>(pawnEntity->GetRefEHandle().ToInt()), pawnHandle))
-    {
-        return result;
-    }
-
-    result.instance = pawn;
-    result.handle = pawnHandle;
-    return result;
-}
-
 // Check whether a client references the controller.
 bool IsControllerReferencedByClient(void* controller, uint16_t* userIdOut)
 {
-    for (int slot = 0; slot < PersonaPool::kMaxSlots; ++slot)
+    for (int slot = 0; slot < bridge::kMaxSlots; ++slot)
     {
         void* client = entity_access::ResolveClientBySlot(slot);
         if (!client) continue;
@@ -111,7 +60,7 @@ bool IsManagedBotController(void* controller)
 {
     if (!controller) return false;
 
-    for (int slot = 0; slot < PersonaPool::kMaxSlots; ++slot)
+    for (int slot = 0; slot < bridge::kMaxSlots; ++slot)
     {
         if (!Manager().IsManaged(slot)) continue;
         void* client = entity_access::ResolveClientBySlot(slot);
@@ -130,12 +79,13 @@ bool IsManagedBotController(void* controller)
 }
 
 // Clear FL_BOT for managed pawns during packing.
-void ApplyBotFlagOverride(std::vector<BotPawnRef>& modified)
+void ApplyBotFlagOverride(std::vector<entity_access::PawnRef>& modified)
 {
-    modified.reserve(PersonaPool::kMaxSlots);
-    for (int slot = 0; slot < PersonaPool::kMaxSlots; ++slot)
+    modified.reserve(bridge::kMaxSlots);
+    for (int slot = 0; slot < bridge::kMaxSlots; ++slot)
     {
-        BotPawnRef pawn = ResolveManagedBotPawn(slot);
+        if (!Manager().IsManaged(slot)) continue;
+        const auto pawn = entity_access::ResolveClientPawn(entity_access::ResolveClientBySlot(slot));
         if (!pawn.instance) continue;
         auto* flags = reinterpret_cast<uint32_t*>(reinterpret_cast<unsigned char*>(pawn.instance) + offsets::g_baseEntityFlagsOffset);
         // Process shared pawns once.
@@ -147,9 +97,9 @@ void ApplyBotFlagOverride(std::vector<BotPawnRef>& modified)
 }
 
 // Restore FL_BOT on lifetime-matched pawns.
-void RestoreBotFlagOverride(const std::vector<BotPawnRef>& pawns)
+void RestoreBotFlagOverride(const std::vector<entity_access::PawnRef>& pawns)
 {
-    for (const BotPawnRef& pawn : pawns)
+    for (const auto& pawn : pawns)
     {
         const int pawnIndex = CEntityHandle(pawn.handle).GetEntryIndex();
         void* currentPawn = entity_access::ResolveEntityInstance(pawnIndex, nullptr, 0);
@@ -174,7 +124,7 @@ namespace identity_runtime {
 // Update bot flags and preserve the managed SteamID.
 void ApplyManagedDisguise(bool disguised)
 {
-    for (int slot = 0; slot < PersonaPool::kMaxSlots; ++slot)
+    for (int slot = 0; slot < bridge::kMaxSlots; ++slot)
     {
         if (!Manager().IsManaged(slot)) continue;
         void* client = entity_access::ResolveClientBySlot(slot);
@@ -195,19 +145,17 @@ void ApplyManagedDisguise(bool disguised)
     }
 }
 
-SteamIdAvailability CheckSteamIdAvailability(int slot, uint64_t steamId)
+bool CollectOccupiedSteamIds(int slot, std::unordered_set<uint64_t>& occupied)
 {
-    if (steamId == 0 || !g_pNetworkServerService)
-    {
-        return SteamIdAvailability::CheckFailed;
-    }
+    occupied.clear();
+    if (!g_pNetworkServerService) return false;
     auto* gameServer = g_pNetworkServerService->GetIGameServer();
-    if (!gameServer) return SteamIdAvailability::CheckFailed;
+    if (!gameServer) return false;
     auto* clients = reinterpret_cast<CUtlVector<void*>*>(reinterpret_cast<unsigned char*>(gameServer) + offsets::g_clientListOffset);
     const int count = clients->Count();
     if (count < 0 || count > 256 || slot < 0 || slot >= count || !clients->Element(slot))
     {
-        return SteamIdAvailability::CheckFailed;
+        return false;
     }
     for (int otherSlot = 0; otherSlot < count; ++otherSlot)
     {
@@ -216,46 +164,20 @@ SteamIdAvailability CheckSteamIdAvailability(int slot, uint64_t steamId)
         if (!client) continue;
         uint64_t otherSteamId = 0;
         std::memcpy(&otherSteamId, static_cast<const unsigned char*>(client) + ssc::g_steamIdOffset, sizeof(otherSteamId));
-        if (otherSteamId == steamId) return SteamIdAvailability::InUse;
+        if (otherSteamId) occupied.insert(otherSteamId);
     }
-    return SteamIdAvailability::Available;
+    for (int otherSlot = 0; otherSlot < bridge::kMaxSlots; ++otherSlot)
+    {
+        if (otherSlot != slot && Manager().IsManaged(otherSlot)) occupied.insert(Manager().GetSyntheticSid(otherSlot));
+    }
+    return true;
 }
 
-// Selects an available configured SteamID.
-uint64_t SelectSteamIdForBot(int slot, uint64_t desired)
+SteamIdAvailability CheckSteamIdAvailability(int slot, uint64_t steamId)
 {
-    if (desired != 0)
-    {
-        const auto availability = CheckSteamIdAvailability(slot, desired);
-        if (availability == SteamIdAvailability::Available) return desired;
-        if (availability == SteamIdAvailability::CheckFailed)
-        {
-            BH_LOG_WARN("automatic SteamID assignment skipped slot=%d: availability check failed", slot);
-            return 0;
-        }
-    }
-
-    std::vector<uint64_t> available;
-    available.reserve(BotInfo().Count());
-    for (const BotEntry& entry : BotInfo().All())
-    {
-        if (entry.steamId64 == 0 || std::ranges::find(available, entry.steamId64) != available.end())
-        {
-            continue;
-        }
-        const auto availability = CheckSteamIdAvailability(slot, entry.steamId64);
-        if (availability == SteamIdAvailability::CheckFailed)
-        {
-            BH_LOG_WARN("automatic SteamID assignment skipped slot=%d: availability check failed", slot);
-            return 0;
-        }
-        if (availability == SteamIdAvailability::InUse) continue;
-        available.push_back(entry.steamId64);
-    }
-    if (!available.empty()) return available[NextSteamIdRandom() % available.size()];
-
-    BH_LOG_WARN("automatic SteamID assignment skipped slot=%d: no available configured identity", slot);
-    return 0;
+    std::unordered_set<uint64_t> occupied;
+    if (steamId == 0 || !CollectOccupiedSteamIds(slot, occupied)) return SteamIdAvailability::CheckFailed;
+    return occupied.contains(steamId) ? SteamIdAvailability::InUse : SteamIdAvailability::Available;
 }
 
 // Sync the controller's fake-client bit.
@@ -284,11 +206,11 @@ bool SetControllerFakeClientFlag(int slot, bool fakeClient)
     return true;
 }
 
-// Restore native bot identity before engine teardown.
+// Restore bot identity before teardown.
 int RestoreManagedClientsForEngineTeardown()
 {
     int restored = 0;
-    for (int slot = 0; slot < PersonaPool::kMaxSlots; ++slot)
+    for (int slot = 0; slot < bridge::kMaxSlots; ++slot)
     {
         if (!Manager().IsManaged(slot)) continue;
         void* client = entity_access::ResolveClientBySlot(slot);
@@ -396,7 +318,7 @@ bool IsHltvConnection(const char* name, const char* networkId)
 // Release managed slots identified as SourceTV.
 bool ReleaseManagedHltvSlot(int slot, void* client)
 {
-    if (slot < 0 || slot >= PersonaPool::kMaxSlots || !client || !Manager().IsManaged(slot) || !ssc::IsHltv(client))
+    if (slot < 0 || slot >= bridge::kMaxSlots || !client || !Manager().IsManaged(slot) || !ssc::IsHltv(client))
     {
         return false;
     }
@@ -409,9 +331,7 @@ bool ReleaseManagedHltvSlot(int slot, void* client)
     }
     entity_access::RefreshClientUserInfo(slot);
 
-    BotInfo().ReleaseAssignment(identity_state::SlotEntry(slot));
-    identity_state::ClearSlot(slot);
-    Manager().ReleaseSlot(slot);
+    identity_state::ReleaseSlot(slot);
 
     BH_LOG_DEBUG("slot=%d released: HLTV", slot);
     return true;

@@ -1,6 +1,8 @@
 #include "identity_state.h"
 
-#include "personas.h"
+#include "bridge.h"
+#include "bot_info.h"
+#include "fake_client_manager.h"
 
 #include <array>
 #include <string>
@@ -10,42 +12,29 @@ namespace cs2bh::identity_state {
 
 namespace {
 
-std::array<const BotEntry*, PersonaPool::kMaxSlots> g_slotEntries{};
-std::array<std::string, PersonaPool::kMaxSlots> g_originalSlotNames{};
+std::array<const BotEntry*, bridge::kMaxSlots> g_slotEntries{};
+std::array<std::string, bridge::kMaxSlots> g_originalSlotNames{};
 std::vector<PendingControllerRemoval> g_pendingControllerRemovals;
 std::vector<PendingBotKick> g_pendingBotKicks;
-const std::string kGEmptyName;
 
 } // namespace
 
 // Bind slot identity and its original name.
 void BindSlot(int slot, const BotEntry* entry, const char* originalName)
 {
-    if (slot < 0 || slot >= PersonaPool::kMaxSlots) return;
     g_slotEntries[slot] = entry;
     g_originalSlotNames[slot] = originalName ? originalName : "";
 }
 
-// Read the slot's identity entry.
-const BotEntry* SlotEntry(int slot)
-{
-    if (slot < 0 || slot >= PersonaPool::kMaxSlots) return nullptr;
-    return g_slotEntries[slot];
-}
-
 // Read the slot's original engine name.
-const std::string& OriginalSlotName(int slot)
-{
-    if (slot < 0 || slot >= PersonaPool::kMaxSlots) return kGEmptyName;
-    return g_originalSlotNames[slot];
-}
+const std::string& OriginalSlotName(int slot) { return g_originalSlotNames[slot]; }
 
-// Clear slot identity.
-void ClearSlot(int slot)
+void ReleaseSlot(int slot)
 {
-    if (slot < 0 || slot >= PersonaPool::kMaxSlots) return;
+    BotInfo().ReleaseAssignment(g_slotEntries[slot]);
     g_slotEntries[slot] = nullptr;
     g_originalSlotNames[slot].clear();
+    Manager().ReleaseSlot(slot);
 }
 
 // Access the controller-removal queue.
@@ -54,9 +43,10 @@ std::vector<PendingControllerRemoval>& PendingControllerRemovals() { return g_pe
 // Access the deferred bot-kick queue.
 std::vector<PendingBotKick>& PendingBotKicks() { return g_pendingBotKicks; }
 
-// Clear level bindings and deferred work.
-void ClearAll()
+void ReleaseAll()
 {
+    Manager().ReleaseAll();
+    BotInfo().ResetAssignments();
     g_slotEntries.fill(nullptr);
     for (std::string& name : g_originalSlotNames)
         name.clear();

@@ -8,3 +8,13 @@ updates:
       interval: "cron"
       cronjob: "0 9 * * *"
       timezone: "Asia/Singapore"
+  - package-ecosystem: "nuget"
+    directory: "/csharp/BotHiderImpl"
+    allow:
+      - dependency-name: "CounterStrikeSharp.API"
+    cooldown:
+      default-days: 0
+    schedule:
+      interval: "cron"
+      cronjob: "0 9 * * *"
+      timezone: "Asia/Singapore"

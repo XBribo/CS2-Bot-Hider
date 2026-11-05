@@ -128,3 +128,6 @@ CheckOptions:
   readability-identifier-naming.ClassConstantPrefix: 'k'
   readability-identifier-naming.EnumConstantCase: CamelCase
   readability-identifier-naming.ScopedEnumConstantCase: CamelCase
+  readability-identifier-naming.FunctionIgnoredRegexp: '^BH_.*'
+  readability-identifier-naming.MethodIgnoredRegexp: '^(Schema_DynamicBinding_Unused|unk[0-9]+)$'
+  readability-identifier-naming.PublicMemberIgnoredRegexp: '^m_.*'

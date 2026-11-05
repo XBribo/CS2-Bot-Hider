@@ -30,14 +30,11 @@ struct PendingBotKick
 // Bind slot identity and its original name.
 void BindSlot(int slot, const BotEntry* entry, const char* originalName);
 
-// Read the slot's identity entry.
-const BotEntry* SlotEntry(int slot);
-
 // Read the slot's original engine name.
 const std::string& OriginalSlotName(int slot);
 
-// Clear slot identity.
-void ClearSlot(int slot);
+// Release the slot's complete identity.
+void ReleaseSlot(int slot);
 
 // Access the controller-removal queue.
 std::vector<PendingControllerRemoval>& PendingControllerRemovals();
@@ -45,8 +42,8 @@ std::vector<PendingControllerRemoval>& PendingControllerRemovals();
 // Access the deferred bot-kick queue.
 std::vector<PendingBotKick>& PendingBotKicks();
 
-// Clear slot bindings and deferred work.
-void ClearAll();
+// Release all identities and deferred work.
+void ReleaseAll();
 
 } // namespace identity_state
 

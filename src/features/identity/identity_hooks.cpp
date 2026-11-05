@@ -7,7 +7,6 @@
 #include "fake_client_manager.h"
 #include "identity_runtime.h"
 #include "nlohmann/json.hpp"
-#include "personas.h"
 #include "plugin.h"
 #include "serversideclient_ref.h"
 #include "core/cs2_sdk/src/core/schema.h"
@@ -44,7 +43,7 @@ thread_local uint32_t g_packEntitiesDepth = 0;
 thread_local uint32_t g_hookDepth = 0;
 std::array<bool, 64> g_identityResolveWarned{};
 
-struct NativeBotIdentitySnapshot
+struct BotIdentitySnapshot
 {
     int slot = -1;
     void* client = nullptr;
@@ -64,20 +63,20 @@ bool IsValidController(void* controller, const char* className, uint32_t handle)
            std::cmp_equal(static_cast<uint32_t>(reinterpret_cast<CEntityInstance*>(controller)->GetRefEHandle().ToInt()), handle);
 }
 
-class ScopedNativeBotIdentityRestore
+class ScopedBotIdentityRestore
 {
   public:
     // Control network notifications during temporary identity changes.
-    explicit ScopedNativeBotIdentityRestore(bool markNetworkChanges = true) : m_markNetworkChanges(markNetworkChanges) { Capture(); }
-    ~ScopedNativeBotIdentityRestore() { Restore(); }
+    explicit ScopedBotIdentityRestore(bool markNetworkChanges = true) : m_markNetworkChanges(markNetworkChanges) { Capture(); }
+    ~ScopedBotIdentityRestore() { Restore(); }
 
   private:
-    std::array<NativeBotIdentitySnapshot, 64> m_snapshots{};
+    std::array<BotIdentitySnapshot, 64> m_snapshots{};
     bool m_markNetworkChanges = true;
 
     void Capture()
     {
-        for (int slot = 0; slot < PersonaPool::kMaxSlots; ++slot)
+        for (int slot = 0; slot < bridge::kMaxSlots; ++slot)
         {
             if (!Manager().IsManaged(slot)) continue;
 
@@ -192,7 +191,7 @@ class ScopedNativeBotIdentityRestore
 
 unsigned int g_populationTransactionDepth = 0;
 bool g_populationTransactionRedisguise = false;
-std::unique_ptr<ScopedNativeBotIdentityRestore> g_populationIdentity;
+std::unique_ptr<ScopedBotIdentityRestore> g_populationIdentity;
 
 } // namespace
 
@@ -201,7 +200,7 @@ void BeginPopulationTransaction(bool redisguise)
     if (g_populationTransactionDepth++ == 0)
     {
         g_populationTransactionRedisguise = redisguise;
-        g_populationIdentity = std::make_unique<ScopedNativeBotIdentityRestore>();
+        g_populationIdentity = std::make_unique<ScopedBotIdentityRestore>();
     }
     else
     {
@@ -241,9 +240,9 @@ thread_local std::vector<bool> g_quotaFrames;
 thread_local std::vector<bool> g_humanTeamFrames;
 thread_local std::vector<bool> g_joinTeamFrames;
 thread_local std::vector<bool> g_teardownFrames;
-thread_local std::vector<std::unique_ptr<ScopedNativeBotIdentityRestore>> g_voterFrames;
-thread_local std::vector<std::unique_ptr<ScopedNativeBotIdentityRestore>> g_scriptIsBotFrames;
-thread_local std::vector<BotPawnRef> g_packedPawns;
+thread_local std::vector<std::unique_ptr<ScopedBotIdentityRestore>> g_voterFrames;
+thread_local std::vector<std::unique_ptr<ScopedBotIdentityRestore>> g_scriptIsBotFrames;
+thread_local std::vector<entity_access::PawnRef> g_packedPawns;
 
 // Pair PRE/POST state across nesting and mode changes.
 void BeginPopulationFrame(std::vector<bool>& frames, bool enabled)
@@ -280,7 +279,7 @@ KHook::Return<int64_t> QuotaPost(void*) noexcept
 KHook::Return<int> VotersPre(void*) noexcept
 {
     ++g_hookDepth;
-    g_voterFrames.push_back(g_plugin.IsDisguiseEnabled() ? std::make_unique<ScopedNativeBotIdentityRestore>() : nullptr);
+    g_voterFrames.push_back(g_plugin.IsDisguiseEnabled() ? std::make_unique<ScopedBotIdentityRestore>() : nullptr);
     return { KHook::Action::Ignore };
 }
 
@@ -297,7 +296,7 @@ KHook::Return<void> ScriptIsBotPre(void*) noexcept
 {
     g_packEntitiesMutex.lock();
     ++g_hookDepth;
-    g_scriptIsBotFrames.push_back(g_plugin.IsDisguiseEnabled() ? std::make_unique<ScopedNativeBotIdentityRestore>(false) : nullptr);
+    g_scriptIsBotFrames.push_back(g_plugin.IsDisguiseEnabled() ? std::make_unique<ScopedBotIdentityRestore>(false) : nullptr);
     return { KHook::Action::Ignore };
 }
 
@@ -310,7 +309,7 @@ KHook::Return<void> ScriptIsBotPost(void*) noexcept
     return { KHook::Action::Ignore };
 }
 
-// Restores native identity while applying mp_humanteam.
+// Restore bot identity for mp_humanteam.
 KHook::Return<int64_t> HumanTeamPre() noexcept
 {
     BeginPopulationFrame(g_humanTeamFrames, g_plugin.IsDisguiseEnabled());
@@ -324,7 +323,7 @@ KHook::Return<int64_t> HumanTeamPost() noexcept
     return { KHook::Action::Ignore };
 }
 
-// Restore native identity for managed, non-HLTV team joins.
+// Restore bot identity during managed team joins.
 KHook::Return<bool> JoinTeamPre(void* controller, unsigned int, uint8_t) noexcept
 {
     const bool enabled = g_plugin.IsDisguiseEnabled() && IsManagedBotController(controller);
@@ -361,7 +360,7 @@ KHook::Return<void> PackPost(void*, void*, int, void*, void*) noexcept
     return { KHook::Action::Ignore };
 }
 
-// Restore native identity during end-match team resets.
+// Restore bot identity during end-match team resets.
 KHook::Return<bool> EndMatchPre(void* gameRules) noexcept
 {
     const bool enabled = g_plugin.IsDisguiseEnabled() && gameRules && g_pickNewTeamsOnResetOffset >= 0 &&
@@ -395,8 +394,7 @@ EndMatchHook g_endMatchHook;
 ScriptIsBotHook g_scriptIsBotHook;
 
 // Clear failed diagnostic targets.
-template <typename Hook, typename Pre, typename Post>
-void InstallHook(Hook& hook, void*& target, Pre pre, Post post, const char* name)
+template <typename Hook, typename Pre, typename Post> void InstallHook(Hook& hook, void*& target, Pre pre, Post post, const char* name)
 {
     if (!target) return;
     hook.Remove();
@@ -497,7 +495,8 @@ void PrepareScriptIsBotHook(const nlohmann::json& gamedata, const cs2_sdk::modul
 {
     g_scriptIsBotHookTarget = nullptr;
     char error[256]{};
-    g_scriptIsBotHookTarget = cs2_sdk::gameconfig::ResolveSig(gamedata, serverModule, "CSPlayerController::ScriptIsBot", error, sizeof(error));
+    g_scriptIsBotHookTarget =
+        cs2_sdk::gameconfig::ResolveSig(gamedata, serverModule, "CSPlayerController::ScriptIsBot", error, sizeof(error));
     if (!g_scriptIsBotHookTarget) BH_LOG_WARN("%s", error);
 }
 
@@ -561,7 +560,7 @@ bool CanEnableDisguise(char* error, size_t maxlen)
     }
     if (!missing.empty())
     {
-        std::snprintf(error, maxlen, "player mode unavailable; missing required dependencies: %s", missing.c_str());
+        std::snprintf(error, maxlen, "player mode unavailable: %s", missing.c_str());
         return false;
     }
     return true;

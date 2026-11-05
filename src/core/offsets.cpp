@@ -20,8 +20,7 @@ bool LoadFromSchema(char* error, size_t maxlen)
     const bool fieldsReady = cs2_sdk::schema::ResolveFields(fields);
     if (!fieldsReady)
     {
-        std::snprintf(error, maxlen, "required CBaseEntity Schema offset unavailable: m_fFlags=%d; identity hooks disabled",
-                      offsets::g_baseEntityFlagsOffset);
+        std::snprintf(error, maxlen, "CBaseEntity.m_fFlags unavailable: %d", offsets::g_baseEntityFlagsOffset);
         BH_LOG_ERROR("%s", error);
         return false;
     }
@@ -37,7 +36,7 @@ bool LoadFromSchema(char* error, size_t maxlen)
     else
     {
         g_botPawnHandleOffset = -1;
-        BH_LOG_WARN("idle-kick and FL_BOT overrides disabled: Schema unavailable");
+        BH_LOG_WARN("idle-kick/FL_BOT disabled: Schema unavailable");
     }
     return true;
 }
@@ -73,8 +72,7 @@ bool LoadFromGamedata(const nlohmann::json& gamedata, char* error, size_t maxlen
     g_vtableSlotClientSetName = cs2_sdk::gameconfig::FindPlatformOffset(gamedata, "CServerSideClient::SetName", -1);
     if (!invalid.empty())
     {
-        std::snprintf(error, maxlen, "required gamedata offsets missing or invalid (%s): %s", cs2_sdk::gameconfig::PlatformName(),
-                      invalid.c_str());
+        std::snprintf(error, maxlen, "gamedata offsets invalid (%s): %s", cs2_sdk::gameconfig::PlatformName(), invalid.c_str());
         return false;
     }
     return true;

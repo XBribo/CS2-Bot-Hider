@@ -3,14 +3,12 @@
 
 #include "ISmmPlugin.h"
 #include "fake_client_manager.h"
-#include "personas.h"
 #include "plugin.h" // NOLINT(misc-include-cleaner)
-#include "slot_publisher.h"
 
 #include <array>
+#include <chrono>
 #include <cstdint>
 #include <cstdio>
-#include <cstring>
 #include <vector>
 
 #include <networkstringtabledefs.h>
@@ -22,14 +20,16 @@ namespace {
 
 struct AvatarRuntimeState
 {
-    uint32_t processedSequence = 0xFFFFFFFFU;
-    uint64_t processedSteamId = 0;
+    uint32_t sequence = 0xFFFFFFFFU;
+    uint64_t steamId = 0;
     uint64_t appliedSteamId = 0;
-    bool applied = false;
+    bool processed = false;
+    bool failureLogged = false;
+    std::chrono::steady_clock::time_point retryAt{};
 };
 
 INetworkStringTableContainer* g_networkStringTables = nullptr;
-std::array<AvatarRuntimeState, PersonaPool::kMaxSlots> g_avatarStates{};
+std::array<AvatarRuntimeState, bridge::kMaxSlots> g_avatarStates{};
 INetworkStringTable* g_lastAvatarTable = nullptr;
 
 // Formats a SteamID64 key for ServerAvatarOverrides
@@ -39,37 +39,38 @@ void FormatAvatarSteamId(uint64_t steamId, char* buffer, size_t length)
 }
 
 // Clears one SteamID entry from ServerAvatarOverrides
-void ClearAvatarOverride(INetworkStringTable* table, uint64_t steamId)
+bool ClearAvatarOverride(INetworkStringTable* table, uint64_t steamId, char* error, size_t errorLength)
 {
-    if (!table || steamId == 0) return;
     char key[32];
     FormatAvatarSteamId(steamId, key, sizeof(key));
     int index = table->FindStringIndex(key);
-    if (index <= 0) return;
+    if (index < 0) return true;
+    if (index == 0)
+    {
+        std::snprintf(error, errorLength, "avatar key uses reserved index 0");
+        return false;
+    }
 
     SetStringUserDataRequest_t empty{};
     if (!table->SetStringUserData(index, &empty, true))
     {
-        BH_LOG_WARN("avatar clear failed sid=%s index=%d", key, index);
+        std::snprintf(error, errorLength, "avatar clear failed: sid=%s", key);
+        return false;
     }
+    return true;
 }
 
 // Writes one validated PNG to ServerAvatarOverrides
 bool SetAvatarOverride(
     INetworkStringTable* table, uint64_t steamId, const std::vector<unsigned char>& bytes, int& index, char* error, size_t errorLength)
 {
-    if (!table || steamId == 0 || bytes.empty())
-    {
-        std::snprintf(error, errorLength, "invalid avatar request");
-        return false;
-    }
     if (table->GetNumStrings() == 0)
     {
         SetStringUserDataRequest_t empty{};
         int sentinel = table->AddString(true, "__bothider_no_avatar__", &empty);
         if (sentinel != 0)
         {
-            std::snprintf(error, errorLength, "failed to reserve string-table index 0");
+            std::snprintf(error, errorLength, "string-table index 0 reservation failed");
             return false;
         }
     }
@@ -98,26 +99,26 @@ bool SetAvatarOverride(
         index = table->AddString(true, key, &userData);
         if (index <= 0)
         {
-            std::snprintf(error, errorLength, "failed to allocate a string-table entry");
+            std::snprintf(error, errorLength, "string-table allocation failed");
             return false;
         }
         return true;
     }
     if (!table->SetStringUserData(index, &userData, true))
     {
-        std::snprintf(error, errorLength, "failed to update string-table user data");
+        std::snprintf(error, errorLength, "string-table update failed");
         return false;
     }
     return true;
 }
 
 // Enables reliable server avatar data before writing overrides
-bool EnsureReliableAvatarData()
+bool EnsureReliableAvatarData(char* error, size_t errorLength)
 {
     ConVarRefAbstract reliableAvatarData("sv_reliableavatardata");
     if (!reliableAvatarData.IsValidRef() || !reliableAvatarData.IsConVarDataAvailable())
     {
-        BH_LOG_ERROR("avatar failed: sv_reliableavatardata unavailable");
+        std::snprintf(error, errorLength, "sv_reliableavatardata unavailable");
         return false;
     }
     if (!reliableAvatarData.GetBool())
@@ -125,7 +126,7 @@ bool EnsureReliableAvatarData()
         reliableAvatarData.SetBool(true);
         if (!reliableAvatarData.GetBool())
         {
-            BH_LOG_ERROR("avatar failed: sv_reliableavatardata enable failed");
+            std::snprintf(error, errorLength, "sv_reliableavatardata enable failed");
             return false;
         }
     }
@@ -142,11 +143,11 @@ void ResetRuntime()
 {
     g_avatarStates.fill(AvatarRuntimeState{});
     g_lastAvatarTable = nullptr;
-    for (int slot = 0; slot < PersonaPool::kMaxSlots; ++slot)
-        Publisher().PublishAvatarState(slot, false, 0);
+    for (int slot = 0; slot < bridge::kMaxSlots; ++slot)
+        Manager().PublishAvatarState(slot, false, 0);
 }
 
-// Applies pending shared-memory avatar requests on the game thread
+// Apply pending avatars on the game thread.
 void ProcessOverrides()
 {
     if (!g_networkStringTables) return;
@@ -157,74 +158,75 @@ void ProcessOverrides()
     {
         g_avatarStates.fill(AvatarRuntimeState{});
         g_lastAvatarTable = table;
-        for (int slot = 0; slot < PersonaPool::kMaxSlots; ++slot)
-            Publisher().PublishAvatarState(slot, false, 0);
+        for (int slot = 0; slot < bridge::kMaxSlots; ++slot)
+            Manager().PublishAvatarState(slot, false, 0);
     }
 
-    static constexpr unsigned char kPngSignature[8] = { 0x89, 'P', 'N', 'G', 0x0d, 0x0a, 0x1a, 0x0a };
-    for (int slot = 0; slot < PersonaPool::kMaxSlots; ++slot)
+    const auto now = std::chrono::steady_clock::now();
+    for (int slot = 0; slot < bridge::kMaxSlots; ++slot)
     {
-        uint32_t sequence = 0;
-        uint32_t length = 0;
-        uint64_t incarnation = 0;
-        if (!Publisher().ReadAvatarMetadata(slot, sequence, length, incarnation)) continue;
+        const auto& request = Manager().GetAvatarRequest(slot);
+        const uint32_t sequence = request.sequence;
+        const uint32_t length = request.length;
+        const uint64_t incarnation = request.incarnation;
 
         AvatarRuntimeState& state = g_avatarStates[slot];
-        bool currentRequest =
-            Manager().IsManaged(slot) && length > 0 && incarnation != 0 && incarnation == Publisher().GetIncarnation(slot);
+        bool currentRequest = Manager().IsManaged(slot) && length > 0 && incarnation != 0 && incarnation == Manager().GetIncarnation(slot);
         uint64_t steamId = currentRequest ? Manager().GetSyntheticSid(slot) : 0;
-        if (!currentRequest || steamId == 0)
+        if (state.sequence != sequence || state.steamId != steamId)
         {
-            if (!state.applied && state.processedSequence == sequence && state.processedSteamId == 0)
+            state.sequence = sequence;
+            state.steamId = steamId;
+            state.processed = false;
+            state.failureLogged = false;
+            state.retryAt = {};
+        }
+        if (state.processed || now < state.retryAt) continue;
+
+        Manager().PublishAvatarState(slot, false, 0);
+        char avatarError[128]{};
+        const auto retry = [&] {
+            state.retryAt = now + std::chrono::seconds(1);
+            if (!state.failureLogged)
             {
+                BH_LOG_WARN("avatar pending slot=%d sid=%llu: %s", slot, static_cast<unsigned long long>(steamId), avatarError);
+                state.failureLogged = true;
+            }
+        };
+
+        if (state.appliedSteamId != 0 && state.appliedSteamId != steamId)
+        {
+            if (!ClearAvatarOverride(table, state.appliedSteamId, avatarError, sizeof(avatarError)))
+            {
+                retry();
                 continue;
             }
-            if (state.applied) ClearAvatarOverride(table, state.appliedSteamId);
-            state.processedSequence = sequence;
-            state.processedSteamId = 0;
             state.appliedSteamId = 0;
-            state.applied = false;
-            Publisher().PublishAvatarState(slot, false, 0);
-            continue;
         }
-
-        if (state.processedSequence == sequence && state.processedSteamId == steamId)
+        if (steamId == 0)
         {
+            state.processed = true;
             continue;
         }
-
-        SlotPublisher::AvatarRequest request;
-        if (!Publisher().ReadAvatarRequest(slot, request) || request.sequence != sequence || request.length != length ||
-            request.incarnation != incarnation)
+        if (!EnsureReliableAvatarData(avatarError, sizeof(avatarError)))
         {
+            retry();
             continue;
         }
-
-        if (state.applied) ClearAvatarOverride(table, state.appliedSteamId);
-        state.processedSequence = request.sequence;
-        state.processedSteamId = steamId;
-        state.appliedSteamId = 0;
-        state.applied = false;
-        Publisher().PublishAvatarState(slot, false, 0);
-
-        if (request.data.size() < sizeof(kPngSignature) || std::memcmp(request.data.data(), kPngSignature, sizeof(kPngSignature)) != 0)
-        {
-            BH_LOG_WARN("avatar rejected slot=%d: invalid PNG", slot);
-            continue;
-        }
-        if (!EnsureReliableAvatarData()) continue;
 
         int index = -1;
-        char avatarError[128] = { 0 };
         if (!SetAvatarOverride(table, steamId, request.data, index, avatarError, sizeof(avatarError)))
         {
-            BH_LOG_WARN("avatar rejected slot=%d sid=%llu: %s", slot, steamId, avatarError);
+            retry();
             continue;
         }
 
+        // Transfer cleanup ownership when a SteamID is reused.
+        for (auto& previous : g_avatarStates)
+            if (previous.appliedSteamId == steamId) previous.appliedSteamId = 0;
         state.appliedSteamId = steamId;
-        state.applied = true;
-        Publisher().PublishAvatarState(slot, true, steamId);
+        state.processed = true;
+        Manager().PublishAvatarState(slot, true, steamId);
         BH_LOG_DEBUG("avatar applied slot=%d sid=%llu bytes=%u index=%d", slot, steamId, request.length, index);
     }
 }

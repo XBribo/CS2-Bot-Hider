@@ -9,9 +9,7 @@
 #include "identity_hooks.h"
 #include "identity_runtime.h"
 #include "identity_state.h"
-#include "personas.h"
 #include "serversideclient_ref.h"
-#include "slot_publisher.h"
 #include "steam/steamtypes.h"
 
 #include <cstdint>
@@ -51,14 +49,13 @@ KHook::Return<void> HiderPlugin::HookOnClientConnectedPost( // NOLINT(readabilit
     const char* /*address*/,
     bool fakePlayer) noexcept
 {
-    const hooks::CallbackScope callbackScope;
     if (!fakePlayer || identity_runtime::IsHltvConnection(name, networkId))
     {
         return { KHook::Action::Ignore };
     }
 
     const int index = slot.Get();
-    if (index < 0 || index >= PersonaPool::kMaxSlots || Manager().IsManaged(index))
+    if (index < 0 || index >= bridge::kMaxSlots || Manager().IsManaged(index))
     {
         return { KHook::Action::Ignore };
     }
@@ -66,44 +63,30 @@ KHook::Return<void> HiderPlugin::HookOnClientConnectedPost( // NOLINT(readabilit
     void* client = entity_access::ResolveClientBySlot(index);
     if (!client || ssc::IsHltv(client)) return { KHook::Action::Ignore };
 
-    const BotEntry* entry = BotInfo().PickForBot(name);
-    std::string displayName;
-    if (entry && (m_useBotInfoName || !name || !name[0])) displayName = entry->name;
-    else if (name && name[0])
-        displayName = name;
+    AdoptClient(index, client, name);
+    return { KHook::Action::Ignore };
+}
 
-    if (displayName.empty())
+bool HiderPlugin::AdoptClient(int index, void* client, const char* name)
+{
+    std::unordered_set<uint64_t> occupied;
+    if (!identity_runtime::CollectOccupiedSteamIds(index, occupied))
     {
-        BotInfo().ReleaseAssignment(entry);
-        return { KHook::Action::Ignore };
+        BH_LOG_WARN("bot identity skipped slot=%d: availability check failed", index);
+        return false;
     }
-
-    const uint64_t configuredSteamId = entry && entry->steamId64 != 0 ? entry->steamId64 : 0;
-    const char* crosshairCode = entry ? entry->crosshairCode.c_str() : nullptr;
-    const uint32_t scoreboardFlair = entry ? entry->scoreboardFlair : 0;
-    const char* clanTag = entry ? entry->clanTag.tag.c_str() : nullptr;
-    const uint32_t clanGroupId = entry ? entry->clanTag.groupId : 0;
-    const uint64_t steamId = identity_runtime::SelectSteamIdForBot(index, configuredSteamId);
-    if (steamId == 0)
+    const BotEntry* entry = BotInfo().PickForBot(name, occupied);
+    if (!entry)
     {
-        BotInfo().ReleaseAssignment(entry);
-        return { KHook::Action::Ignore };
+        BH_LOG_WARN("bot identity skipped slot=%d: configured pool exhausted", index);
+        return false;
     }
-    if (!Manager().AdoptSlot(index, displayName.c_str(), steamId, crosshairCode, scoreboardFlair,
-                             clanTag, clanGroupId))
-    {
-        BotInfo().ReleaseAssignment(entry);
-        return { KHook::Action::Ignore };
-    }
-
+    const char* displayName = m_useBotInfoName || !name || !name[0] ? entry->name.c_str() : name;
+    const uint64_t steamId = entry->steamId64;
+    Manager().AdoptSlot(index, displayName, steamId, entry->crosshairCode.c_str(), entry->scoreboardFlair, entry->clanTag.tag.c_str(),
+                        entry->clanTag.groupId);
     identity_state::BindSlot(index, entry, name);
-
-    if (steamId != 0)
-    {
-        ssc::WriteSteamId(client, steamId);
-        Manager().SetSyntheticSid(index, steamId);
-        Publisher().UpdateBaseSyntheticSid(index, steamId);
-    }
+    ssc::WriteSteamId(client, steamId);
 
     if (IsDisguiseEnabled())
     {
@@ -111,20 +94,35 @@ KHook::Return<void> HiderPlugin::HookOnClientConnectedPost( // NOLINT(readabilit
         identity_runtime::SetControllerFakeClientFlag(index, identity_hooks::PopulationTransactionActive());
     }
 
-    return { KHook::Action::Ignore };
+    return true;
+}
+
+void HiderPlugin::AdoptExistingBots()
+{
+    for (int slot = 0; slot < bridge::kMaxSlots; ++slot)
+    {
+        void* client = entity_access::ResolveClientBySlot(slot);
+        if (!client || !ssc::IsFakePlayerSet(client) || ssc::IsHltv(client)) continue;
+        const char* name = ssc::ReadName(client);
+        if (identity_runtime::IsHltvConnection(name, nullptr)) continue;
+        if (AdoptClient(slot, client, name))
+        {
+            const std::string visibleName = Manager().GetSlotName(slot);
+            ApplyClientName(slot, client, visibleName.c_str());
+        }
+    }
 }
 
 // Reapply managed identity on server entry.
 KHook::Return<void> HiderPlugin::HookClientPutInServerPost(IServerGameClients*,
                                                            CPlayerSlot slot,
                                                            char const* name,
-                                                           int type,
+                                                           ClientPutInServerType_t type,
                                                            uint64 /*xuid*/) noexcept // NOLINT(readability-make-member-function-const)
 {
-    const hooks::CallbackScope callbackScope;
     (void)type;
     const int index = slot.Get();
-    if (index < 0 || index >= PersonaPool::kMaxSlots || !Manager().IsManaged(index))
+    if (index < 0 || index >= bridge::kMaxSlots || !Manager().IsManaged(index))
     {
         return { KHook::Action::Ignore };
     }
@@ -146,9 +144,7 @@ KHook::Return<void> HiderPlugin::HookClientPutInServerPost(IServerGameClients*,
         identity_runtime::SetControllerFakeClientFlag(index, true);
         ssc::WriteSteamId(client, 0);
         entity_access::RefreshClientUserInfo(index);
-        BotInfo().ReleaseAssignment(identity_state::SlotEntry(index));
-        identity_state::ClearSlot(index);
-        Manager().ReleaseSlot(index);
+        identity_state::ReleaseSlot(index);
         return { KHook::Action::Ignore };
     }
 
@@ -159,11 +155,11 @@ KHook::Return<void> HiderPlugin::HookClientPutInServerPost(IServerGameClients*,
     }
     ssc::WriteSteamId(client, desiredSteamId);
 
-    std::string visibleName = Personas().GetSlotName(index);
+    std::string visibleName = Manager().GetSlotName(index);
     if (visibleName.empty() && name) visibleName = name;
     if (!visibleName.empty())
     {
-        entity_access::SetEngineName(client, visibleName.c_str());
+        ApplyClientName(index, client, visibleName.c_str());
     }
     else
     {
@@ -171,6 +167,20 @@ KHook::Return<void> HiderPlugin::HookClientPutInServerPost(IServerGameClients*,
     }
 
     return { KHook::Action::Ignore };
+}
+
+bool HiderPlugin::ApplyClientName(int slot, void* client, const char* name)
+{
+    const char* appliedName = entity_access::SetEngineName(client, name);
+    const bool applied = appliedName && appliedName[0];
+    if (!applied)
+    {
+        appliedName = ssc::ReadName(client);
+        BH_LOG_WARN("name change failed slot=%d: retaining current name", slot);
+        entity_access::RefreshClientUserInfo(slot);
+    }
+    Manager().SetSlotName(slot, appliedName);
+    return applied;
 }
 
 // Restore and release identity before disconnect teardown.
@@ -182,9 +192,8 @@ KHook::Return<void> HiderPlugin::HookClientDisconnectPre( // NOLINT(readability-
     uint64 /*xuid*/,
     const char* /*networkId*/) noexcept
 {
-    const hooks::CallbackScope callbackScope;
     const int index = slot.Get();
-    if (index < 0 || index >= PersonaPool::kMaxSlots || !Manager().IsManaged(index))
+    if (index < 0 || index >= bridge::kMaxSlots || !Manager().IsManaged(index))
     {
         return { KHook::Action::Ignore };
     }
@@ -201,9 +210,7 @@ KHook::Return<void> HiderPlugin::HookClientDisconnectPre( // NOLINT(readability-
         }
     }
 
-    BotInfo().ReleaseAssignment(identity_state::SlotEntry(index));
-    identity_state::ClearSlot(index);
-    Manager().ReleaseSlot(index);
+    identity_state::ReleaseSlot(index);
 
     return { KHook::Action::Ignore };
 }
