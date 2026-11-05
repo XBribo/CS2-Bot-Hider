@@ -22,6 +22,7 @@ A Counter-Strike 2 plugin that removes the scoreboard's `BOT` tag and gives bots
 [![Signature Status](https://raw.githubusercontent.com/XBribo/cs2-bot-signatures/main/.github/docs/summary.svg)](https://github.com/XBribo/cs2-bot-signatures)
 
 </details>
+
 ## Quick Start
 
 1. Install Metamod:Source and CounterStrikeSharp.
