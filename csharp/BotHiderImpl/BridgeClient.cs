@@ -2,6 +2,7 @@ using System.Globalization;
 using System.Runtime.InteropServices;
 using System.Text;
 using BotHiderApi;
+using Microsoft.Win32.SafeHandles;
 
 namespace BotHiderImpl;
 
@@ -47,6 +48,8 @@ internal sealed unsafe class BridgeClient : IBotHiderApi, IDisposable
 
     private readonly int _threadId = Environment.CurrentManagedThreadId;
     private readonly string _libraryPath;
+    private readonly string _avatarDirectory;
+    private readonly (ulong Incarnation, Task<byte[]>? Read)[] _avatarReads = new (ulong, Task<byte[]>?)[MaxSlots];
     private readonly Action<int, string, ulong>? _onVisibleName;
     private readonly Action<int, ulong>? _onSteamId;
     private readonly Action<int, uint, ulong>? _onScoreboardFlair;
@@ -89,13 +92,14 @@ internal sealed unsafe class BridgeClient : IBotHiderApi, IDisposable
         internal static extern int SetNameSource(int useBotInfo);
     }
 
-    public BridgeClient(string libraryPath,
+    public BridgeClient(string libraryPath, string avatarDirectory,
                         Action<int, string, ulong>? onVisibleName = null,
                         Action<int, ulong>? onSteamId = null,
                         Action<int, uint, ulong>? onScoreboardFlair = null,
                         Action<int, string, ulong>? onCrosshairCode = null)
     {
         _libraryPath = libraryPath;
+        _avatarDirectory = avatarDirectory;
         _onVisibleName = onVisibleName;
         _onSteamId = onSteamId;
         _onScoreboardFlair = onScoreboardFlair;
@@ -245,34 +249,69 @@ internal sealed unsafe class BridgeClient : IBotHiderApi, IDisposable
             error = "unmanaged slot";
             return false;
         }
-        byte[] bytes;
-        try
+        if (pngPath == "0")
         {
-            if (pngPath == "0") bytes = [];
-            else
-            {
-                using var file = File.OpenRead(pngPath);
-                long length = file.Length;
-                if (length == 0 || length > AvatarMaxBytes)
-                {
-                    error = "avatar PNG requires 1..16384 bytes";
-                    return false;
-                }
-                bytes = new byte[(int)length];
-                file.ReadExactly(bytes);
-            }
+            _avatarReads[slot].Incarnation = 0; // Ignore the pending result.
+            return Imports.SetAvatar(slot, s.Incarnation, null, 0) != 0;
         }
-        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or ArgumentException or NotSupportedException)
+        var name = Path.GetFileName(pngPath);
+        var directory = Path.GetDirectoryName(pngPath);
+        if (string.IsNullOrEmpty(name) || !name.EndsWith(".png", StringComparison.OrdinalIgnoreCase) ||
+            name.IndexOfAny(['/', '\\', ':', '\0']) >= 0 ||
+            (!string.IsNullOrEmpty(directory) && !string.Equals(directory, _avatarDirectory,
+                OperatingSystem.IsWindows() ? StringComparison.OrdinalIgnoreCase : StringComparison.Ordinal)))
         {
-            error = $"avatar read failed: {ex.Message}";
+            error = "expected a PNG in addons/avatars";
             return false;
         }
-        fixed (byte* data = bytes)
+        if (_avatarReads[slot].Read != null)
         {
-            if (Imports.SetAvatar(slot, s.Incarnation, data, bytes.Length) != 0) return true;
+            error = "avatar read pending";
+            return false;
         }
-        error = "avatar rejected";
-        return false;
+        var path = Path.Combine(_avatarDirectory, name);
+        _avatarReads[slot] = (s.Incarnation, Task.Run(() => ReadAvatar(path)));
+        return true;
+    }
+
+    [DllImport("libc", EntryPoint = "open", SetLastError = true)]
+    private static extern int OpenLinux(string path, int flags);
+
+    private static byte[] ReadAvatar(string path)
+    {
+        if ((File.GetAttributes(path) & (FileAttributes.Directory | FileAttributes.ReparsePoint)) != 0)
+            throw new IOException("expected a regular PNG file");
+        using var handle = OperatingSystem.IsLinux()
+            ? new SafeFileHandle(OpenLinux(path, 0x800 | 0x20000 | 0x80000), true) // O_NONBLOCK | O_NOFOLLOW | O_CLOEXEC
+            : File.OpenHandle(path);
+        if (handle.IsInvalid) throw new IOException(Marshal.GetPInvokeErrorMessage(Marshal.GetLastPInvokeError()));
+        using var file = new FileStream(handle, FileAccess.Read);
+        long length = file.CanSeek ? file.Length : 0;
+        if (length is not (> 0 and <= AvatarMaxBytes))
+            throw new IOException("expected a PNG of 1..16384 bytes");
+        var bytes = new byte[(int)length];
+        file.ReadExactly(bytes);
+        return bytes;
+    }
+
+    internal void FinishAvatarReads(Action<string> log)
+    {
+        for (int slot = 0; slot < _avatarReads.Length; ++slot)
+        {
+            var (incarnation, read) = _avatarReads[slot];
+            if (read == null || !read.IsCompleted) continue;
+            _avatarReads[slot] = default;
+            string? error = read.Exception?.GetBaseException().Message;
+            if (!ReadSlot(slot, out var s) || s.Incarnation != incarnation || incarnation == 0) continue;
+            if (error == null)
+            {
+                var bytes = read.Result;
+                fixed (byte* data = bytes)
+                    if (Imports.SetAvatar(slot, incarnation, data, bytes.Length) != 0) continue;
+                error = "invalid PNG";
+            }
+            log($"[BotHider] avatar rejected slot={slot}: {error}");
+        }
     }
 
     // Normalize a visible name to the UTF-8 field limit.

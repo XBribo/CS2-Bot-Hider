@@ -116,7 +116,7 @@ public partial class BotHiderImplPlugin
         cmd.ReplyToCommand(ok
             ? path == "0"
                 ? $"[BotHider] avatar clear queued slot={slot}"
-                : $"[BotHider] avatar queued slot={slot} bytes={_client.GetConfiguredAvatarSize(slot)}"
+                : $"[BotHider] avatar read queued slot={slot}"
             : $"[BotHider] avatar rejected slot={slot}: {error}");
     }
 

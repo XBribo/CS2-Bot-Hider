@@ -37,10 +37,12 @@ public partial class BotHiderImplPlugin : BasePlugin
         Server.PrintToConsole($"[BotHider] {PluginBuildInfo.DisplayVersion}, built {PluginBuildInfo.BuildTime}");
         LoadCommandPermissions();
         // Bind scoreboard updates.
+        string addons = Path.Combine(Server.GameDirectory, "csgo", "addons");
         _client = new BridgeClient(
-            Path.Combine(Server.GameDirectory, "csgo", "addons", "BotHider", "bin",
+            Path.Combine(addons, "BotHider", "bin",
                 OperatingSystem.IsWindows() ? "win64" : "linuxsteamrt64",
                 OperatingSystem.IsWindows() ? "BotHider.dll" : "BotHider.so"),
+            Path.Combine(addons, "avatars"),
             ApplyVisibleName,
             ApplyVisibleSid,
             ApplyVisibleScoreboardFlair,
@@ -114,6 +116,7 @@ public partial class BotHiderImplPlugin : BasePlugin
 
     private void OnTick()
     {
+        _client?.FinishAvatarReads(Server.PrintToConsole);
         if (Server.TickedTime >= _nextPresentationUpdate) ApplyManagedSlots();
     }
 

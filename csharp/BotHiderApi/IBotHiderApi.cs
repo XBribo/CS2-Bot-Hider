@@ -40,7 +40,7 @@ public interface IBotHiderApi
     // Set crosshair; empty or "0" clears it.
     bool SetCrosshairCode(int slot, string code);
 
-    // Apply a PNG avatar; "0" clears it.
+    // Queue a fresh PNG read from addons/avatars; "0" clears it. True does not mean applied.
     bool SetBotAvatar(int slot, string pngPath);
 
     // Normalize to at most 31 UTF-8 bytes; empty names fail.
