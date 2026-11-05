@@ -1,175 +1,63 @@
 # BotHider Developer Guide
 
-Installation and usage: [README.md](README.md).
+CounterStrikeSharp plugins use the `bothider:api` capability. Install the native plugin and `BotHiderImpl` as described in the [README](README.md).
 
-- [Build](#build)
-- [C# Integration](#c-integration)
-- [API Reference](#api-reference)
-- [Behavior and Limits](#behavior-and-limits)
+## Plugin integration
 
-## Build
-
-Run commands from the repository root.
-
-### Requirements
-
-- **Windows:** Visual Studio 2026 C++ build tools and CMake.
-- **Linux:** `g++`, CMake, and Make.
-- **C#:** .NET 10 SDK.
-- **Build script:** PowerShell 7+; WSL for Linux (`Ubuntu-24.04` by default).
-- **Dependencies:** Git and the `cs2_sdk` submodule.
-
-```bash
-git submodule update --init --recursive
-```
-
-### Build Script
-
-On a Windows host:
-
-```powershell
-./build.ps1                  # Windows, Linux (WSL), and C#
-./build.ps1 -Windows         # Windows and C#
-./build.ps1 -Linux -CSharp   # Linux (WSL) and C#
-./build.ps1 -CSharp          # C# only
-```
-
-Packages: `dist/windows/` and `dist/linux/`. C# output: `build/csharp/`. Add `-CSharp` to Linux builds to include the C# provider. Use `-Clean` for a clean rebuild.
-
-### Manual Build
-
-Windows:
-
-```powershell
-cmake -S . -B build -G "Visual Studio 18 2026" -A x64
-cmake --build build --config Release
-```
-
-Linux:
-
-```bash
-cmake -S . -B out/linux -DCMAKE_BUILD_TYPE=Release
-cmake --build out/linux -j$(nproc)
-```
-
-C# provider and API contract:
-
-```bash
-dotnet build csharp/BotHiderImpl/BotHiderImpl.csproj -c Release -o build/csharp
-```
-
-C++ output: `<build-directory>/package/addons/`. Use `build.ps1` for complete packages.
-
-## C# Integration
-
-Install the BotHider Metamod plugin and `BotHiderImpl`. Shared API contract:
-
-```text
-game/csgo/addons/counterstrikesharp/shared/BotHiderApi/BotHiderApi.dll
-```
-
-Reference the matching `BotHiderApi.dll` in your CounterStrikeSharp plugin. Set `HintPath` to the DLL and `Private=false` to use the shared contract:
+Reference the release's shared `BotHiderApi.dll`, not the provider. It is installed in `addons/counterstrikesharp/shared/BotHiderApi/`. Do not bundle a second copy in your plugin.
 
 ```xml
-<ItemGroup>
-  <Reference Include="BotHiderApi">
-    <HintPath>libs/BotHiderApi.dll</HintPath>
-    <Private>false</Private>
-  </Reference>
-</ItemGroup>
+<Reference Include="BotHiderApi">
+  <HintPath>libs/BotHiderApi.dll</HintPath>
+  <Private>false</Private>
+</Reference>
 ```
 
-Resolve `bothider:api` after plugins load and check for null:
+Resolve the capability on the game thread after plugins load. Look it up again after a provider reload.
+
+Import `BotHiderApi` and `CounterStrikeSharp.API.Core.Capabilities`. In your `BasePlugin` subclass:
 
 ```csharp
-using System.Collections.Generic;
-using BotHiderApi;
-using CounterStrikeSharp.API;
-using CounterStrikeSharp.API.Core;
-using CounterStrikeSharp.API.Core.Capabilities;
+private static readonly PluginCapability<IBotHiderApi> BotHider = new("bothider:api");
 
-public class BotHiderConsumer : BasePlugin
+public override void OnAllPluginsLoaded(bool hotReload)
 {
-    public override string ModuleName => "BotHider Consumer";
-    public override string ModuleVersion => "1.0.0";
-    public override string ModuleAuthor => "Example";
-    public override string ModuleDescription => "Reads managed bot identities";
+    IBotHiderApi? api;
+    try { api = BotHider.Get(); }
+    catch (KeyNotFoundException) { return; }
+    if (api == null) return;
 
-    private static readonly PluginCapability<IBotHiderApi> BotHider = new("bothider:api");
-
-    // Resolve the API after providers load.
-    public override void OnAllPluginsLoaded(bool hotReload)
-    {
-        IBotHiderApi? api;
-        try { api = BotHider.Get(); }
-        catch (KeyNotFoundException) { return; }
-        if (api == null) return;
-
-        foreach (int slot in api.GetManagedSlots())
-        {
-            Server.PrintToConsole(
-                $"slot={slot} name='{api.GetPersonaName(slot)}' sid={api.GetBotSteamId(slot)}");
-        }
-    }
+    foreach (int slot in api.GetManagedSlots())
+        Console.WriteLine($"{slot}: {api.GetPersonaName(slot)}");
 }
 ```
 
-See CounterStrikeSharp's [shared plugin API guide](https://docs.cssharp.dev/docs/features/shared-plugin-api.html) for details.
+## API reference
 
-## API Reference
+Use [`IBotHiderApi`](csharp/BotHiderApi/IBotHiderApi.cs) on the game thread. A slot is `CCSPlayerController.Slot` (0–63), not a user ID. Check `IsManagedBot(slot)` for ownership; `IsBot` also includes unmanaged bots. Slots can be reused after disconnect.
 
-Contract: [IBotHiderApi.cs](csharp/BotHiderApi/IBotHiderApi.cs). Use player slots (`CCSPlayerController.Slot`) and check ownership with `IsManagedBot(slot)`.
-
-### Read State
-
-| Method | Returns |
+| Read | Result |
 | --- | --- |
-| `IsManagedBot(int slot)` | `bool`: slot is managed by BotHider |
-| `GetManagedSlots()` | `int[]`: managed bot slots |
-| `GetBotSteamId(int slot)` | `ulong`: assigned SteamID64 |
-| `GetPersonaName(int slot)` | `string`: assigned display name |
-| `GetPing(int slot)` | `int`: displayed ping in milliseconds |
-| `GetCrosshairCode(int slot)` | `string`: assigned crosshair share code |
-| `HasBotAvatar(int slot)` | `bool`: avatar applied to the current SteamID64 |
-| `GetScoreboardFlair(int slot)` | `uint`: flair item definition index; `0` = empty |
-| `GetSignatures()` | `(string Name, ulong Addr)[]`: hook addresses; `0` = unresolved |
+| `GetManagedSlots`, `IsManagedBot` | Managed slots and ownership |
+| `GetBotSteamId`, `GetPersonaName` | Assigned SteamID64 and engine-applied name |
+| `GetPing`, `GetCrosshairCode`, `GetScoreboardFlair` | Ping (ms), crosshair share code, flair item index |
+| `HasBotAvatar` | An override is applied to the bot's current SteamID64 |
+| `GetSignatures` | Hook names and addresses; `0` means unresolved |
 
-### Change a Bot
+Setters return `bool`. An accepted change may appear on the scoreboard later.
 
-Setters return `bool`; client presentation updates asynchronously. See [Behavior and Limits](#behavior-and-limits).
-
-| Method | Input |
+| Write | Behavior |
 | --- | --- |
-| `SetBotSteamId(int slot, ulong steamId64)` | Full SteamID64 |
-| `SetPersonaName(int slot, string name)` | Visible name, normalized to at most 31 UTF-8 bytes |
-| `SetCrosshairCode(int slot, string code)` | Crosshair share code; empty string or `"0"` clears it |
-| `SetBotAvatar(int slot, string pngPath)` | Server-local PNG path; `"0"` clears it |
-| `SetScoreboardFlair(int slot, uint itemDefIndex)` | Item definition index, at most `65535`; `0` clears it |
+| `SetBotSteamId(slot, id)` | Requires a nonzero, unused SteamID64. Rejection preserves the current ID. |
+| `SetPersonaName(slot, name)` | Normalizes to 31 UTF-8 bytes; rejects empty names. |
+| `SetCrosshairCode(slot, code)` | Empty string or `"0"` clears. |
+| `SetScoreboardFlair(slot, index)` | Accepts 0–65535; `0` clears. |
+| `SetBotAvatar(slot, pngPath)` | Queues a file read; `"0"` clears. See below. |
+| `SetIdentityMode(mode)` | `Player` requires the active server's change-level hook. Binding failure keeps bots in `Bot` mode. |
+| `SetNameSource(useBotInfo)` | New bots only: `true` uses the configured name; `false` uses the engine name. |
 
-### Global Settings
+**Avatars:** Use a PNG filename from `game/csgo/addons/avatars/` (≤16 KiB), or its full path. For file requests, `true` means queued, not applied. One read per slot can be pending. Call again after editing the file. An invalid file leaves the current override unchanged; disconnect or slot reuse discards a pending result. `HasBotAvatar` reports current state, not completion of a particular request.
 
-| Method | Effect |
-| --- | --- |
-| `SetIdentityMode(BotIdentityMode mode)` | `Player` enables synthetic-player presentation; `Bot` retains Valve's bot flags |
-| `SetNameSource(bool useBotInfo)` | New-bot names: `true` = `bot_info.json`; `false` = `botprofile.db` |
+## Build from source
 
-Returns `bool`. Changes apply to runtime state.
-
-## Behavior and Limits
-
-### Identity Updates
-
-- Call the API on the game thread. Display updates are asynchronous.
-- `GetPersonaName` returns the final applied name.
-- Names are normalized to at most 31 UTF-8 bytes; empty names are rejected.
-- SteamID64 conflicts or failed availability checks leave the current identity unchanged. New bots use available configured identities.
-- Player mode requires the active server's change-level hook. Failed level-hook rebinding switches to Bot mode.
-- `BotHiderImpl` patches `CCSPlayerController.IsBot` to return `true` for managed bots. Use `IsManagedBot` to check BotHider ownership.
-
-### Avatars
-
-- `SetBotAvatar` validates and queues the file. Check applied state later with `HasBotAvatar`.
-- Requests belong to the bot occupying the slot. Overrides follow its SteamID64 changes and clear on disconnect.
-- Scoreboard avatars use `ServerAvatarOverrides`. Prefer absolute file paths.
-
-File requirements and HUD caching: [Custom Avatars](README.md#custom-avatars).
+Initialize submodules with `git submodule update --init --recursive`. On Windows, run `./build.ps1 -Windows` for native and managed binaries, or `./build.ps1 -Linux -CSharp` for the Linux package via WSL. For the provider alone, run `./build.ps1 -CSharp` (.NET 10).

@@ -14,30 +14,33 @@
 
 </div>
 
-A Counter-Strike 2 plugin that removes the scoreboard's `BOT` tag and gives bots custom SteamID64s, names, ping, crosshairs, scoreboard flair, clan tags, and PNG avatars.
+Give CS2 bots player names, avatars and ping on the scoreboard, and hide the `BOT` tag.
 
-### Signature Status
+<details>
+<summary>Signature Status</summary>
 
-[![CS2 Bot Signatures Tracker](https://raw.githubusercontent.com/XBribo/cs2-bot-signatures/main/.github/docs/summary.svg)](https://github.com/XBribo/cs2-bot-signatures)
+[![Signature Status](https://raw.githubusercontent.com/XBribo/cs2-bot-signatures/main/.github/docs/summary.svg)](https://github.com/XBribo/cs2-bot-signatures)
+
+</details>
 
 ## Quick Start
 
 1. Install Metamod:Source and CounterStrikeSharp.
 2. Download the Windows or Linux package from [Releases](https://github.com/XBribo/CS2-Bot-Hider/releases/latest).
 3. Copy `addons/` into `game/csgo/` and restart the server.
+4. Run `bh_status` to list managed bots.
 
 ## Configuration
 
-Edit `game/csgo/addons/BotHider/config.json`. See the [default config](configs/addons/BotHider/config.json).
+Edit [`config.json`](configs/addons/BotHider/config.json) in `game/csgo/addons/BotHider/`.
 
 | Setting | Default | Description |
 | --- | --- | --- |
-| `identity_mode` | `"player"` | Player-like presentation; `"bot"` retains Valve's bot flags |
-| `fake_ping.enabled` | `true` | Fake ping between `fake_ping.min` and `fake_ping.max` (20–90 ms by default) |
-| `commands.require_permissions` | `false` | Require admin permission for all `bh_*` commands |
-| `commands.permission` | `"@bothider/admin"` | Required flag when checks are enabled |
+| `identity_mode` | `"player"` | Show bots as players; use `"bot"` to keep the bot tag |
+| `fake_ping.enabled` | `true` | Show simulated ping; `fake_ping.min` and `max` set the range (20–90 ms by default) |
+| `commands.require_permissions` | `false` | Restrict commands to admins or players with `commands.permission` (default: `@bothider/admin`) |
 
-> **Public servers:** all commands are public by default. Set `commands.require_permissions` to `true` and reload `BotHiderImpl` to restrict access.
+**Public servers:** enable `commands.require_permissions` before opening the server to players. Otherwise anyone can run the commands below. The server console and RCON keep access.
 
 ## Commands
 
@@ -50,36 +53,15 @@ Use player slots (`0–63`) from `bh_status`. Quote names and paths containing s
 | `bh_setsid <slot> <SteamID64>` | Set SteamID64 |
 | `bh_setcrosshair <slot> <code>` | Set crosshair; `0` clears |
 | `bh_setflair <slot> <item_def_index>` | Set scoreboard flair; `0` clears |
-| `bh_setavatar <slot> <png_path\|0>` | Set server-local PNG avatar; `0` clears |
+| `bh_setavatar <slot> <file.png\|0>` | Set a PNG avatar from `addons/avatars/`; `0` clears |
 | `bh_identity_mode <player\|bot>` | Set identity mode |
-| `bh_namesource <0\|1>` | Names from `botprofile.db` (**0**, default) or `bot_info.json` (**1**); new bots only |
-
-<details>
-<summary><strong>Permissions and admin groups</strong></summary>
-
-When checks are enabled, players need `commands.permission`, `@css/root`, or `@css/admin`. Console and RCON bypass checks. Missing settings keep commands public; invalid or unreadable config restricts access.
-
-Add a BotHider group to CSS `configs/admin_groups.json`, preserving existing groups:
-
-```json
-{
-    "#bothider/admin": {
-        "flags": ["@bothider/admin"]
-    }
-}
-```
-
-Add `"#bothider/admin"` to the admin's `groups` in CSS `configs/admins.json`. Run `css_groups_reload`, then `css_admins_reload` from the server console.
-
-Keep the group's flag in sync with `commands.permission`.
-
-</details>
+| `bh_namesource <0\|1>` | Names for new bots: `0` = engine (default), `1` = configured name |
 
 ## Customization
 
-### Bot Identities
+### Bot identities
 
-Edit `game/csgo/addons/BotHider/bot_info.json`, then restart the server and respawn bots:
+Add one entry per bot to [`bot_info.json`](configs/addons/BotHider/bot_info.json), using a unique Steam account ID as the key. Only `player_name` is required:
 
 ```json
 {
@@ -87,31 +69,25 @@ Edit `game/csgo/addons/BotHider/bot_info.json`, then restart the server and resp
     "73936547": {
       "player_name": "s1mple",
       "crosshair_code": "CSGO-pE5f8-6RQvk-HLpdN-KW3J6-BQwLA",
-      "scoreboard_flair": 6034,
-      "clan_tag": "DRAGODINDE",
-      "clan_group_id": 33294804
+      "scoreboard_flair": 6034
     }
   }
 }
 ```
 
-- **Identity:** `players` keys are nonzero 32-bit account IDs, auto-converted to SteamID64. Use unique IDs; duplicates may be replaced.
-- **Name:** `player_name` is required. Exact engine-name matches take priority; otherwise, an unused entry is chosen, reusing one if needed. `bh_namesource 1` applies the entry's name to new bots.
-- **Crosshair and flair:** optional. Missing, invalid, or `0` flair stays empty. Look up flair IDs in [cs2-econ-id-index](https://github.com/unicbm/cs2-econ-id-index).
-- **Clan tag:** `clan_tag` and the 32-bit `clan_group_id` must both be valid. Requires `sv_clantags_enabled 1`.
+Restart the server after editing the file. Use `bh_namesource 1` for new bots to take their configured names. If all entries are in use, additional bots keep their normal appearance.
 
-### Custom Avatars
+For clan tags, set both `clan_tag` and `clan_group_id` and enable `sv_clantags_enabled 1`. For flair IDs, see [cs2-econ-id-index](https://github.com/unicbm/cs2-econ-id-index).
 
-Use a valid server-local PNG up to **16 KiB**, readable by the server:
+### Custom avatars
+
+Put a PNG up to **16 KiB** in `game/csgo/addons/avatars/`. To set it for slot 1:
 
 ```text
-bh_setavatar 1 "E:/game/csgo/addons/avatars/player.png"
-bh_setavatar 1 0
+bh_setavatar 1 player.png
 ```
 
-`bh_status` shows avatar state and size, e.g. `avatar=True/8011B`.
-
-> The scoreboard updates, but the compact score strip may keep a cached avatar.
+After replacing the image, run the same command again. Use `bh_setavatar 1 0` to clear it.
 
 ## Credits
 
@@ -121,10 +97,6 @@ Created by [XBribo](https://github.com/XBribo), with thanks to [un1](https://git
 
 [![BotHider contributors](https://contrib.rocks/image?repo=XBribo/CS2-Bot-Hider)](https://github.com/XBribo/CS2-Bot-Hider/graphs/contributors)
 
-Star BotHider to support development.
-
 ## License
 
-CS2-Bot-Hider is licensed under the GNU Affero General Public License version 3 (AGPL-3.0).
-Commercial use involving closed-source distribution or hosted services may require a separate license.
-See [LICENSE](LICENSE) for details.
+[GNU Affero General Public License v3.0](LICENSE).
