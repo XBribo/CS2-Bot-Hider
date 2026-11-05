@@ -187,8 +187,13 @@ bool HiderPlugin::SetIdentityMode(IdentityMode mode)
             BH_LOG_WARN("identity mode change rejected: %s", error);
             return false;
         }
-        if (!AttachGameServerHook()) return false;
+        if (!AttachGameServerHook())
+        {
+            if (IsDisguiseEnabled()) SetIdentityMode(IdentityMode::Bot);
+            return false;
+        }
     }
+    m_startInPlayerMode = false;
     if (m_identityMode == mode) return true;
     m_identityMode = mode;
     identity_runtime::ApplyManagedDisguise(mode == IdentityMode::Player);

@@ -126,7 +126,8 @@ class HiderPlugin : public ISmmPlugin, public IMetamodListener
     DispatchConCommandHook m_dispatchConCommandHook;
     bool m_loaded = false;
     unsigned int m_tickCounter = 0; // throttles per-tick idle-timer reset
-    IdentityMode m_identityMode = IdentityMode::Player;
+    IdentityMode m_identityMode = IdentityMode::Bot;
+    bool m_startInPlayerMode = false;
 
     // Name source: false=botprofile, true=bot_info.json.
     bool m_useBotInfoName = false;

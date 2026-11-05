@@ -69,7 +69,7 @@ bool HiderPlugin::InstallVirtualHooks()
 {
     if (!m_onClientConnectedHook.AddChecked(g_gameclients) || !m_clientPutInServerHook.AddChecked(g_gameclients) ||
         !m_clientDisconnectHook.AddChecked(g_gameclients) || !m_gameFrameHook.AddChecked(g_server) ||
-        !m_dispatchConCommandHook.AddChecked(g_icvar) || !AttachGameServerHook())
+        !m_dispatchConCommandHook.AddChecked(g_icvar))
     {
         RemoveVirtualHooks();
         return false;
@@ -95,27 +95,24 @@ void HiderPlugin::OnLevelInit(char const* mapName, char const*, char const*, cha
     identity_runtime::ClearPendingControllerRemovals();
     avatar::ResetRuntime();
     if (!AttachGameServerHook()) SetIdentityMode(IdentityMode::Bot);
+    else if (m_startInPlayerMode) SetIdentityMode(IdentityMode::Player);
     BH_LOG_DEBUG("level init map=%s", mapName ? mapName : "?");
 }
 
 bool HiderPlugin::AttachGameServerHook()
 {
     auto* gameServer = g_pNetworkServerService ? g_pNetworkServerService->GetIGameServer() : nullptr;
-    if (gameServer && gameServer != m_hookedGameServer)
+    if (gameServer == m_hookedGameServer) return gameServer != nullptr;
+    if (m_hookedGameServer) m_startChangeLevelHook.Remove(m_hookedGameServer);
+    m_hookedGameServer = nullptr;
+    if (!gameServer) return false;
+    if (!m_startChangeLevelHook.AddChecked(gameServer))
     {
-        if (m_hookedGameServer) m_startChangeLevelHook.Remove(m_hookedGameServer);
-        if (m_startChangeLevelHook.AddChecked(gameServer))
-        {
-            m_hookedGameServer = gameServer;
-            BH_LOG_DEBUG("StartChangeLevel attached target=%p", static_cast<void*>(gameServer));
-        }
-        else
-        {
-            m_hookedGameServer = nullptr;
-            BH_LOG_WARN("StartChangeLevel hook failed target=%p", static_cast<void*>(gameServer));
-            return false;
-        }
+        BH_LOG_WARN("StartChangeLevel hook failed target=%p", static_cast<void*>(gameServer));
+        return false;
     }
+    m_hookedGameServer = gameServer;
+    BH_LOG_DEBUG("StartChangeLevel attached target=%p", static_cast<void*>(gameServer));
     return true;
 }
 
@@ -125,6 +122,13 @@ void HiderPlugin::OnLevelShutdown()
     identity_state::ReleaseAll();
     avatar::ProcessOverrides();
     avatar::ResetRuntime();
+    if (m_hookedGameServer) m_startChangeLevelHook.Remove(m_hookedGameServer);
+    m_hookedGameServer = nullptr;
+    if (IsDisguiseEnabled())
+    {
+        m_startInPlayerMode = true;
+        m_identityMode = IdentityMode::Bot;
+    }
     BH_LOG_DEBUG("level shutdown");
 }
 
@@ -134,6 +138,7 @@ bool HiderPlugin::Load(PluginId id, ISmmAPI* ismm, char* error, size_t maxlen, b
     PLUGIN_SAVEVARS();
 
     m_identityMode = IdentityMode::Bot;
+    m_startInPlayerMode = false;
 
     if (!interfaces::Init(ismm, error, maxlen)) return false;
     if (!log::Init(g_SMAPI->GetBaseDir(), "BotHider", error, maxlen)) return false;
@@ -187,8 +192,6 @@ bool HiderPlugin::Load(PluginId id, ISmmAPI* ismm, char* error, size_t maxlen, b
         log::Close();
         return false;
     }
-    m_identityMode = settings.botMode ? IdentityMode::Bot : IdentityMode::Player;
-
     Manager().Init();
     Manager().PublishSignature("UTIL_Remove", entity_access::UtilRemoveTarget());
     Manager().PublishSignature("MaintainBotQuota", identity_hooks::MaintainQuotaTarget());
@@ -214,6 +217,14 @@ bool HiderPlugin::Load(PluginId id, ISmmAPI* ismm, char* error, size_t maxlen, b
         Unload(cleanupError, sizeof(cleanupError));
         std::snprintf(error, maxlen, "KHook virtual hooks failed");
         return false;
+    }
+    if (g_pNetworkServerService && g_pNetworkServerService->GetIGameServer())
+    {
+        if (AttachGameServerHook() && !settings.botMode) m_identityMode = IdentityMode::Player;
+    }
+    else
+    {
+        m_startInPlayerMode = !settings.botMode;
     }
     g_SMAPI->AddListener(this, this);
     if (late) AdoptExistingBots();
