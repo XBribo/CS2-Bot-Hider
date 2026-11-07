@@ -67,11 +67,8 @@ class HiderPlugin : public ISmmPlugin, public IMetamodListener
                                                   const char* networkId,
                                                   const char* address,
                                                   bool fakePlayer) noexcept;
-    KHook::Return<void> HookClientPutInServerPost(IServerGameClients*,
-                                                CPlayerSlot slot,
-                                                char const* name,
-                                                ClientPutInServerType_t type,
-                                                uint64 xuid) noexcept;
+    KHook::Return<void>
+    HookClientPutInServerPost(IServerGameClients*, CPlayerSlot slot, char const* name, ClientPutInServerType_t type, uint64 xuid) noexcept;
     KHook::Return<void> HookClientDisconnectPre(IServerGameClients*,
                                                 CPlayerSlot slot,
                                                 ENetworkDisconnectionReason reason,
@@ -106,8 +103,7 @@ class HiderPlugin : public ISmmPlugin, public IMetamodListener
         hooks::CheckedVirtual<IServerGameClients, void, CPlayerSlot, char const*, ClientPutInServerType_t, uint64>;
     using ClientDisconnectHook =
         hooks::CheckedVirtual<IServerGameClients, void, CPlayerSlot, ENetworkDisconnectionReason, const char*, uint64, const char*>;
-    using StartChangeLevelHook =
-        hooks::CheckedVirtual<INetworkGameServer, CServerChangelevelState*, const char*, const char*, void*>;
+    using StartChangeLevelHook = hooks::CheckedVirtual<INetworkGameServer, CServerChangelevelState*, const char*, const char*, void*>;
     using GameFrameHook = hooks::CheckedVirtual<IServerGameDLL, void, bool, bool, bool>;
     using DispatchConCommandHook = hooks::CheckedVirtual<ICvar, void, ConCommandRef, const CCommandContext&, const CCommand&>;
 

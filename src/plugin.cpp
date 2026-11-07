@@ -95,7 +95,8 @@ void HiderPlugin::OnLevelInit(char const* mapName, char const*, char const*, cha
     identity_runtime::ClearPendingControllerRemovals();
     avatar::ResetRuntime();
     if (!AttachGameServerHook()) SetIdentityMode(IdentityMode::Bot);
-    else if (m_startInPlayerMode) SetIdentityMode(IdentityMode::Player);
+    else if (m_startInPlayerMode)
+        SetIdentityMode(IdentityMode::Player);
     BH_LOG_DEBUG("level init map=%s", mapName ? mapName : "?");
 }
 
