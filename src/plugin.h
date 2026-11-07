@@ -76,7 +76,7 @@ class HiderPlugin : public ISmmPlugin, public IMetamodListener
                                                 uint64 xuid,
                                                 const char* networkId) noexcept;
     KHook::Return<CServerChangelevelState*>
-    HookStartChangeLevelPre(INetworkGameServer*, const char* mapName, const char* landmark, void* changelevelState) noexcept;
+    HookStartChangeLevelPre(INetworkGameServer*, const char* mapName, const char* landmark, const char* addons) noexcept;
     KHook::Return<void> HookGameFramePost(IServerGameDLL*, bool simulating, bool firstTick, bool lastTick) noexcept;
 
     // Wrap Valve population commands in an identity transaction.
@@ -103,7 +103,7 @@ class HiderPlugin : public ISmmPlugin, public IMetamodListener
         hooks::CheckedVirtual<IServerGameClients, void, CPlayerSlot, char const*, ClientPutInServerType_t, uint64>;
     using ClientDisconnectHook =
         hooks::CheckedVirtual<IServerGameClients, void, CPlayerSlot, ENetworkDisconnectionReason, const char*, uint64, const char*>;
-    using StartChangeLevelHook = hooks::CheckedVirtual<INetworkGameServer, CServerChangelevelState*, const char*, const char*, void*>;
+    using StartChangeLevelHook = hooks::CheckedVirtual<INetworkGameServer, CServerChangelevelState*, const char*, const char*, const char*>;
     using GameFrameHook = hooks::CheckedVirtual<IServerGameDLL, void, bool, bool, bool>;
     using DispatchConCommandHook = hooks::CheckedVirtual<ICvar, void, ConCommandRef, const CCommandContext&, const CCommand&>;
 

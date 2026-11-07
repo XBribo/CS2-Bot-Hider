@@ -206,7 +206,7 @@ KHook::Return<CServerChangelevelState*>
 HiderPlugin::HookStartChangeLevelPre(INetworkGameServer*,
                                      const char* mapName,
                                      const char* landmark,
-                                     void* /*changelevelState*/) noexcept // NOLINT(readability-make-member-function-const)
+                                     const char* /*addons*/) noexcept // NOLINT(readability-make-member-function-const)
 {
     const int restoredClients = identity_runtime::RestoreManagedClientsForEngineTeardown();
     identity_state::ReleaseAll();
