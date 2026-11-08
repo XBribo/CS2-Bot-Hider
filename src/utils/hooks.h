@@ -2,11 +2,33 @@
 
 #include <khook.hpp>
 
+#include <cstdint>
 #include <mutex>
 #include <utility>
 #include <vector>
 
 namespace cs2bh::hooks {
+
+inline thread_local uint32_t g_callbackDepth = 0;
+inline thread_local uint32_t g_dispatchDepth = 0;
+
+// Track callback depth.
+class CallbackScope
+{
+  public:
+    CallbackScope() noexcept { ++g_callbackDepth; }
+    ~CallbackScope() { --g_callbackDepth; }
+};
+
+// Track dispatch depth for safe hook removal.
+inline void BeginDispatch() noexcept { ++g_dispatchDepth; }
+inline void EndDispatch() noexcept
+{
+    if (g_dispatchDepth != 0) --g_dispatchDepth;
+}
+
+// Check synchronous removal safety on this thread.
+inline bool CanRemoveHooks() noexcept { return g_callbackDepth == 0 && g_dispatchDepth == 0; }
 
 template <typename CLASS, typename RETURN, typename... ARGS> class CheckedVirtual : public KHook::Virtual<CLASS, RETURN, ARGS...>
 {

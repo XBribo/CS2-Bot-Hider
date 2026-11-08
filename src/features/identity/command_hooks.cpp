@@ -125,6 +125,8 @@ void DrainPendingBotKicks()
 KHook::Return<void>
 HiderPlugin::HookDispatchConCommandPre(ICvar*, ConCommandRef command, const CCommandContext&, const CCommand& arguments) noexcept
 {
+    const hooks::CallbackScope callbackScope;
+    hooks::BeginDispatch();
     g_populationCommandFrames.push_back(false);
     if (!command.IsValidRef()) return { KHook::Action::Ignore };
     const char* commandName = command.GetName();
@@ -170,9 +172,11 @@ HiderPlugin::HookDispatchConCommandPre(ICvar*, ConCommandRef command, const CCom
 // End the transaction after nested quota work completes.
 KHook::Return<void> HiderPlugin::HookDispatchConCommandPost(ICvar*, ConCommandRef, const CCommandContext&, const CCommand&) noexcept
 {
+    const hooks::CallbackScope callbackScope;
     const bool populationCommand = g_populationCommandFrames.back();
     g_populationCommandFrames.pop_back();
     if (populationCommand) identity_hooks::EndPopulationTransaction(IsDisguiseEnabled());
+    hooks::EndDispatch();
     return { KHook::Action::Ignore };
 }
 
@@ -208,6 +212,7 @@ HiderPlugin::HookStartChangeLevelPre(INetworkGameServer*,
                                      const char* landmark,
                                      const char* /*addons*/) noexcept // NOLINT(readability-make-member-function-const)
 {
+    const hooks::CallbackScope callbackScope;
     const int restoredClients = identity_runtime::RestoreManagedClientsForEngineTeardown();
     identity_state::ReleaseAll();
     avatar::ProcessOverrides();
@@ -218,7 +223,9 @@ HiderPlugin::HookStartChangeLevelPre(INetworkGameServer*,
 // Process frame cleanup and avatar requests.
 KHook::Return<void> HiderPlugin::HookGameFramePost(IServerGameDLL*, bool simulating, bool /*firstTick*/, bool /*lastTick*/) noexcept
 {
-    DrainPendingBotKicks();
+    const hooks::CallbackScope callbackScope;
+    if (!m_unloadPending) DrainPendingBotKicks();
+    ProcessPendingUnload();
     if (!simulating) return { KHook::Action::Ignore };
 
     identity_runtime::DrainPendingControllerRemovals();
