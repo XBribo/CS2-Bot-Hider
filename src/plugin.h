@@ -113,6 +113,9 @@ class HiderPlugin : public ISmmPlugin, public IMetamodListener
     bool ApplyClientName(int slot, void* client, const char* name);
     bool AdoptClient(int slot, void* client, const char* name);
     void AdoptExistingBots();
+    // Queue unload after the command hook detaches.
+    void ProcessPendingUnload();
+
     INetworkGameServer* m_hookedGameServer = nullptr;
     OnClientConnectedHook m_onClientConnectedHook;
     ClientPutInServerHook m_clientPutInServerHook;
@@ -120,7 +123,7 @@ class HiderPlugin : public ISmmPlugin, public IMetamodListener
     StartChangeLevelHook m_startChangeLevelHook;
     GameFrameHook m_gameFrameHook;
     DispatchConCommandHook m_dispatchConCommandHook;
-    bool m_loaded = false;
+    bool m_unloadPending = false;
     unsigned int m_tickCounter = 0; // throttles per-tick idle-timer reset
     IdentityMode m_identityMode = IdentityMode::Bot;
     bool m_startInPlayerMode = false;

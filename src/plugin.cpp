@@ -89,6 +89,23 @@ bool HiderPlugin::RemoveVirtualHooks()
     return onClientConnected && clientPutInServer && clientDisconnect && gameFrame && dispatchConCommand && startChangeLevel;
 }
 
+// Queue unload outside the frame callback.
+void HiderPlugin::ProcessPendingUnload()
+{
+    if (!m_unloadPending || hooks::g_dispatchDepth != 0) return;
+    // Leave the dispatch hook in place until its outermost POST has returned.
+    if (!m_dispatchConCommandHook.RemoveAll())
+    {
+        BH_LOG_ERROR("KHook export unavailable while scheduling unload");
+        m_unloadPending = false;
+        return;
+    }
+    char command[64];
+    std::snprintf(command, sizeof(command), "meta unload %d\n", static_cast<int>(g_PLID));
+    m_unloadPending = false;
+    g_engine->ServerCommand(command);
+}
+
 // Attach level hooks and reset runtime state.
 void HiderPlugin::OnLevelInit(char const* mapName, char const*, char const*, char const*, bool, bool)
 {
@@ -138,8 +155,10 @@ bool HiderPlugin::Load(PluginId id, ISmmAPI* ismm, char* error, size_t maxlen, b
 {
     PLUGIN_SAVEVARS();
 
+    // Reset state for plugin reloads.
     m_identityMode = IdentityMode::Bot;
     m_startInPlayerMode = false;
+    m_unloadPending = false;
 
     if (!interfaces::Init(ismm, error, maxlen)) return false;
     if (!log::Init(g_SMAPI->GetBaseDir(), "BotHider", error, maxlen)) return false;
@@ -238,7 +257,6 @@ bool HiderPlugin::Load(PluginId id, ISmmAPI* ismm, char* error, size_t maxlen, b
     if (identity_hooks::HumanTeamRestrictionTarget()) ++installedHooks;
     if (identity_hooks::SameMapTeardownTarget()) ++installedHooks;
     if (identity_hooks::ScriptIsBotTarget()) ++installedHooks;
-    m_loaded = true;
     BH_LOG_INFO("Loaded %s", GetVersion());
     BH_LOG_DEBUG("mode=%s ping=%s range=%d-%d identities=%zu hooks=%d/7 cleanup=%s avatar=%s", IsBotMode() ? "bot" : "player",
                  settings.fakePingEnabled ? "on" : "off", settings.fakePingMin, settings.fakePingMax, BotInfo().Count(), installedHooks,
@@ -246,15 +264,21 @@ bool HiderPlugin::Load(PluginId id, ISmmAPI* ismm, char* error, size_t maxlen, b
     return true;
 }
 
-// Roll back partial initialization.
+// Remove hooks and release plugin modules.
 bool HiderPlugin::Unload(char* error, size_t maxlen)
 {
-    if (m_loaded)
+    if (Manager().HasProvider())
     {
-        std::snprintf(error, maxlen, "Restart required");
+        std::snprintf(error, maxlen, "unload BotHiderImpl before BotHider");
         return false;
     }
     Manager().BeginShutdown();
+    if (!hooks::CanRemoveHooks())
+    {
+        m_unloadPending = true;
+        std::snprintf(error, maxlen, "unload deferred until the command hook detaches; automatic retry queued");
+        return false;
+    }
     if (!identity_hooks::Remove())
     {
         std::snprintf(error, maxlen, "KHook detour removal failed");
@@ -267,6 +291,7 @@ bool HiderPlugin::Unload(char* error, size_t maxlen)
         return false;
     }
     m_hookedGameServer = nullptr;
+    m_unloadPending = false;
     identity_runtime::RestoreManagedClientsForEngineTeardown();
     identity_state::ReleaseAll();
     avatar::ProcessOverrides();
