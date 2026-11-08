@@ -567,9 +567,11 @@ bool CanEnableDisguise(char* error, size_t maxlen)
 }
 
 // Remove identity detours outside callbacks.
+bool CanRemove() { return g_hookDepth == 0; }
+
 bool Remove()
 {
-    if (g_hookDepth != 0)
+    if (!CanRemove())
     {
         BH_LOG_ERROR("hook removal rejected: identity callback active");
         return false;

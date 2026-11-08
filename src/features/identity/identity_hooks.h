@@ -49,6 +49,7 @@ void InstallPrepared();
 bool CanEnableDisguise(char* error, size_t maxlen);
 
 // Remove identity hooks before releasing plugin state.
+bool CanRemove();
 bool Remove();
 
 // Read the bot-quota hook target.

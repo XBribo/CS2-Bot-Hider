@@ -92,11 +92,11 @@ bool HiderPlugin::RemoveVirtualHooks()
 // Queue unload outside the frame callback.
 void HiderPlugin::ProcessPendingUnload()
 {
-    if (!m_unloadPending || hooks::g_dispatchDepth != 0) return;
+    if (!m_unloadPending || hooks::g_dispatchDepth != 0 || !identity_hooks::CanRemove()) return;
     // Leave the dispatch hook in place until its outermost POST has returned.
     if (!m_dispatchConCommandHook.RemoveAll())
     {
-        BH_LOG_ERROR("KHook export unavailable while scheduling unload");
+        BH_LOG_ERROR("Unload retry failed: KHook unavailable");
         m_unloadPending = false;
         return;
     }
@@ -267,16 +267,27 @@ bool HiderPlugin::Load(PluginId id, ISmmAPI* ismm, char* error, size_t maxlen, b
 // Remove hooks and release plugin modules.
 bool HiderPlugin::Unload(char* error, size_t maxlen)
 {
+    m_unloadPending = false;
     if (Manager().HasProvider())
     {
-        std::snprintf(error, maxlen, "unload BotHiderImpl before BotHider");
+        // C# may reattach while the unload retry is queued.
+        if (!m_dispatchConCommandHook.IsActive() && !m_dispatchConCommandHook.AddChecked(g_icvar))
+        {
+            std::snprintf(error, maxlen, "Command hook restore failed");
+            return false;
+        }
+        std::snprintf(error, maxlen, "Unload BotHiderImpl first");
         return false;
     }
-    Manager().BeginShutdown();
-    if (!hooks::CanRemoveHooks())
+    if (!KHook::__exported__khook)
+    {
+        std::snprintf(error, maxlen, "KHook unavailable");
+        return false;
+    }
+    if (!hooks::CanRemoveHooks() || !identity_hooks::CanRemove())
     {
         m_unloadPending = true;
-        std::snprintf(error, maxlen, "unload deferred until the command hook detaches; automatic retry queued");
+        std::snprintf(error, maxlen, "Unload pending; retry queued");
         return false;
     }
     if (!identity_hooks::Remove())
@@ -286,12 +297,12 @@ bool HiderPlugin::Unload(char* error, size_t maxlen)
     }
     if (!RemoveVirtualHooks())
     {
-        std::snprintf(error, maxlen, "KHook export unavailable");
+        std::snprintf(error, maxlen, "KHook unavailable");
         BH_LOG_ERROR("%s", error);
         return false;
     }
+    Manager().BeginShutdown();
     m_hookedGameServer = nullptr;
-    m_unloadPending = false;
     identity_runtime::RestoreManagedClientsForEngineTeardown();
     identity_state::ReleaseAll();
     avatar::ProcessOverrides();

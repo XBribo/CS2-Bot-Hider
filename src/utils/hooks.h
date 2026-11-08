@@ -70,7 +70,7 @@ template <typename CLASS, typename RETURN, typename... ARGS> class CheckedVirtua
             }
         }
 
-        this->ClearHooks();
+        if (available) this->ClearHooks();
         return available;
     }
 };
