@@ -1,0 +1,39 @@
+name: Dependabot auto-merge
+
+on:
+  workflow_run:
+    workflows: [CSS build, Build]
+    types: [completed]
+
+jobs:
+  merge:
+    if: >-
+      github.event.workflow_run.event == 'pull_request' &&
+      github.event.workflow_run.conclusion == 'success' &&
+      github.event.workflow_run.head_repository.full_name == github.repository &&
+      github.event.workflow_run.pull_requests[0].number &&
+      startsWith(github.event.workflow_run.head_branch, 'dependabot/')
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: write
+      pull-requests: write
+    steps:
+      - name: Merge the verified Dependabot revision
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          PR: ${{ github.event.workflow_run.pull_requests[0].number }}
+          SHA: ${{ github.event.workflow_run.head_sha }}
+          BUILD: ${{ github.event.workflow_run.name }}
+          BRANCH: ${{ github.event.workflow_run.head_branch }}
+        run: |
+          case "$BUILD:$BRANCH" in
+            Build:dependabot/submodules/src/core/cs2_sdk-*) file=src/core/cs2_sdk ;;
+            "CSS build":dependabot/nuget/csharp/BotHiderImpl/CounterStrikeSharp.API-*) file=csharp/BotHiderImpl/BotHiderImpl.csproj ;;
+            *) exit 0 ;;
+          esac
+          revision=$(gh pr view "$PR" --json author,baseRefName,state,files,changedFiles,headRefOid --jq '
+            select(.author.login == "app/dependabot" and .baseRefName == "main" and .state == "OPEN" and .changedFiles == 1)
+            | "\(.headRefOid):\(.files[0].path)"')
+          [[ "$revision" == "$SHA:$file" ]] || exit 0
+          gh pr merge "$PR" --auto --merge --match-head-commit "$SHA"

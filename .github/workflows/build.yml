@@ -1,6 +1,9 @@
 name: Build
 
 on:
+  pull_request:
+    branches: [main]
+    paths: [src/core/cs2_sdk]
   workflow_dispatch:
     inputs:
       target:
@@ -44,7 +47,7 @@ jobs:
           } >> "$GITHUB_OUTPUT"
 
       - name: Release preconditions
-        if: inputs.release
+        if: github.event_name == 'workflow_dispatch' && inputs.release
         env:
           NATIVE: ${{ steps.ver.outputs.native }}
         run: |
@@ -88,7 +91,7 @@ jobs:
 
   # Builds the native Windows plugin and assembles the complete package
   windows:
-    if: inputs.target == 'all' || inputs.target == 'windows'
+    if: github.event_name == 'pull_request' || inputs.target == 'all' || inputs.target == 'windows'
     needs: [guard, csharp]
     runs-on: windows-latest
     timeout-minutes: 60
@@ -126,6 +129,7 @@ jobs:
           test -f build/package/addons/counterstrikesharp/shared/0Harmony/0Harmony.dll
 
       - name: Upload package
+        if: github.event_name == 'workflow_dispatch'
         uses: actions/upload-artifact@v7
         with:
           name: BotHider-Windows-${{ needs.guard.outputs.native_version }}
@@ -134,7 +138,7 @@ jobs:
 
   # Builds the native Linux plugin in SteamRT3 and assembles the complete package
   linux:
-    if: inputs.target == 'all' || inputs.target == 'linux'
+    if: github.event_name == 'pull_request' || inputs.target == 'all' || inputs.target == 'linux'
     needs: [guard, csharp]
     runs-on: ubuntu-24.04
     container:
@@ -183,6 +187,7 @@ jobs:
           echo "$binary requires at most $max_glibc"
 
       - name: Upload package
+        if: github.event_name == 'workflow_dispatch'
         uses: actions/upload-artifact@v7
         with:
           name: BotHider-Linux-${{ needs.guard.outputs.native_version }}
@@ -191,7 +196,7 @@ jobs:
 
   # Publishes the complete Windows and Linux packages
   release:
-    if: inputs.release
+    if: github.event_name == 'workflow_dispatch' && inputs.release
     needs: [guard, csharp, windows, linux]
     runs-on: ubuntu-24.04
     timeout-minutes: 15
