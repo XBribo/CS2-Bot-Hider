@@ -56,6 +56,7 @@ class HiderPlugin : public ISmmPlugin, public IMetamodListener
     const char* GetLogTag() override;
 
     // IMetamodListener
+    void* OnMetamodQuery(const char* iface, int* ret) override;
     void OnLevelInit(char const* mapName, char const*, char const*, char const*, bool, bool) override;
     void OnLevelShutdown() override;
 

@@ -19,6 +19,7 @@ public partial class BotHiderImplPlugin : BasePlugin
         new("bothider:api");
 
     private delegate void IsBotPostfix(object __instance, ref bool __result);
+    private const string ModuleInterface = "BotHider_ModuleHandle001";
 
     private BridgeClient? _client;
     private readonly string[] _appliedCrosshair = new string[64];
@@ -34,25 +35,42 @@ public partial class BotHiderImplPlugin : BasePlugin
 
     public override void Load(bool hotReload)
     {
-        Server.PrintToConsole($"[BotHider] {PluginBuildInfo.DisplayVersion}, built {PluginBuildInfo.BuildTime}");
+        const string unavailable = ModuleInterface + " unavailable; check the Metamod package.";
+        if (TryStart(hotReload)) return;
+        if (hotReload) throw new InvalidOperationException(unavailable);
+
+        string? failure = null;
+        Listeners.OnMetamodAllPluginsLoaded retry = () =>
+        {
+            if (_client != null || failure != null) return;
+            try
+            {
+                if (!TryStart(false)) failure = unavailable;
+            }
+            catch (Exception ex) { failure = ex.Message; }
+        };
+        RegisterListener(retry);
+        Server.NextWorldUpdate(() =>
+        {
+            if (!Listeners.ContainsKey(retry)) return; // Unloaded before the callback.
+            RemoveListener(retry);
+            retry(); // Also handles manual loads after the Metamod event.
+            if (failure != null) TerminateSelf(failure);
+        });
+    }
+
+    private bool TryStart(bool hotReload)
+    {
+        if (Utilities.MetaFactory(ModuleInterface) is not { } module) return false;
+        Server.PrintToConsole($"[BotHider] {ModuleVersion}");
         LoadCommandPermissions();
         // Bind scoreboard updates.
-        string addons = Path.Combine(Server.GameDirectory, "csgo", "addons");
-        _client = new BridgeClient(
-            Path.Combine(addons, "BotHider", "bin",
-                OperatingSystem.IsWindows() ? "win64" : "linuxsteamrt64",
-                OperatingSystem.IsWindows() ? "BotHider.dll" : "BotHider.so"),
-            Path.Combine(addons, "avatars"),
+        _client = new BridgeClient(module,
+            Path.Combine(Server.GameDirectory, "csgo", "addons", "avatars"),
             ApplyVisibleName,
             ApplyVisibleSid,
             ApplyVisibleScoreboardFlair,
             ApplyVisibleCrosshair);
-        if (!_client.TryConnect(out string error))
-        {
-            _client.Dispose();
-            _client = null;
-            throw new InvalidOperationException($"BotHider bridge failed: {error}");
-        }
         try
         {
             BotHiderProvider.Attach(_client, supplier => Capabilities.RegisterPluginCapability(Capability, supplier),
@@ -71,6 +89,7 @@ public partial class BotHiderImplPlugin : BasePlugin
             RegisterEventHandler<EventPlayerConnectFull>(OnPlayerConnectFull);
             RegisterEventHandler<EventPlayerSpawn>(OnPlayerSpawn);
             RegisterEventHandler<EventPlayerDeath>(OnPlayerDeath);
+            return true;
         }
         catch
         {

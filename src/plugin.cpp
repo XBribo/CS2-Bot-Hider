@@ -4,6 +4,7 @@
 #include "ISmmPlugin.h"
 #include "ISmmPluginExt.h"
 #include "ISmmAPI.h"
+#include <IPluginManager.h>
 #include "entity_access.h"
 #include "icvar.h"
 #include "identity_runtime.h"
@@ -262,6 +263,18 @@ bool HiderPlugin::Load(PluginId id, ISmmAPI* ismm, char* error, size_t maxlen, b
                  settings.fakePingEnabled ? "on" : "off", settings.fakePingMin, settings.fakePingMax, BotInfo().Count(), installedHooks,
                  entity_access::UtilRemoveTarget() ? "ok" : "fail", networkStringTables ? "ok" : "fail");
     return true;
+}
+
+void* HiderPlugin::OnMetamodQuery(const char* iface, int* ret)
+{
+    void* module = nullptr;
+    if (std::strcmp(iface, "BotHider_ModuleHandle001") == 0)
+    {
+        auto* manager = static_cast<ISmmPluginManager*>(g_SMAPI->MetaFactory(MMIFACE_PLMANAGER, nullptr, nullptr));
+        if (manager) manager->QueryHandle(g_PLID, &module);
+    }
+    if (ret) *ret = module ? META_IFACE_OK : META_IFACE_FAILED;
+    return module;
 }
 
 // Remove hooks and release plugin modules.

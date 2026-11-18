@@ -47,14 +47,12 @@ internal sealed unsafe class BridgeClient : IBotHiderApi, IDisposable
     }
 
     private readonly int _threadId = Environment.CurrentManagedThreadId;
-    private readonly string _libraryPath;
     private readonly string _avatarDirectory;
     private readonly (ulong Incarnation, Task<byte[]>? Read)[] _avatarReads = new (ulong, Task<byte[]>?)[MaxSlots];
     private readonly Action<int, string, ulong>? _onVisibleName;
     private readonly Action<int, ulong>? _onSteamId;
     private readonly Action<int, uint, ulong>? _onScoreboardFlair;
     private readonly Action<int, string, ulong>? _onCrosshairCode;
-    private nint _library;
     private bool _disposed;
 
     private static class Imports
@@ -92,61 +90,22 @@ internal sealed unsafe class BridgeClient : IBotHiderApi, IDisposable
         internal static extern int SetNameSource(int useBotInfo);
     }
 
-    public BridgeClient(string libraryPath, string avatarDirectory,
+    public BridgeClient(nint module, string avatarDirectory,
                         Action<int, string, ulong>? onVisibleName = null,
                         Action<int, ulong>? onSteamId = null,
                         Action<int, uint, ulong>? onScoreboardFlair = null,
                         Action<int, string, ulong>? onCrosshairCode = null)
     {
-        _libraryPath = libraryPath;
         _avatarDirectory = avatarDirectory;
         _onVisibleName = onVisibleName;
         _onSteamId = onSteamId;
         _onScoreboardFlair = onScoreboardFlair;
         _onCrosshairCode = onCrosshairCode;
+        Imports.Library = module; // Borrowed from Metamod while attached.
+        if (Imports.Attach() == 0) throw new InvalidOperationException("BH_Attach rejected");
     }
 
-    public bool TryConnect() => TryConnect(out _);
-
-    public bool TryConnect(out string error)
-    {
-        error = string.Empty;
-        if (_disposed || Environment.CurrentManagedThreadId != _threadId)
-        {
-            error = "client disposed or wrong thread";
-            return false;
-        }
-        if (_library != 0) return true;
-        nint library;
-        try { library = NativeLibrary.Load(_libraryPath); }
-        catch (Exception e) when (e is DllNotFoundException or BadImageFormatException)
-        {
-            error = e.Message;
-            return false;
-        }
-        try
-        {
-            Imports.Library = library;
-            if (Imports.Attach() == 0)
-            {
-                error = "BH_Attach rejected";
-                return false;
-            }
-            _library = library;
-            return true;
-        }
-        catch (EntryPointNotFoundException e)
-        {
-            error = e.Message;
-            return false;
-        }
-        finally
-        {
-            if (_library == 0) NativeLibrary.Free(library);
-        }
-    }
-
-    public bool IsConnected() => _library != 0 && Environment.CurrentManagedThreadId == _threadId;
+    private bool IsConnected() => !_disposed && Environment.CurrentManagedThreadId == _threadId;
 
     internal bool ReadSlot(int slot, out SlotSnapshot snapshot)
     {
@@ -406,9 +365,7 @@ internal sealed unsafe class BridgeClient : IBotHiderApi, IDisposable
         if (Environment.CurrentManagedThreadId != _threadId)
             throw new InvalidOperationException("Dispose on the game thread.");
         _disposed = true;
-        if (_library == 0) return;
         Imports.Detach();
-        NativeLibrary.Free(_library);
-        _library = 0;
+        Imports.Library = 0;
     }
 }
