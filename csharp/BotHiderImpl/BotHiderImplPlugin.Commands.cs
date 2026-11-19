@@ -22,21 +22,18 @@ public partial class BotHiderImplPlugin
             string detail = string.Join(" ", sigs.Select(s => $"{s.Name}={s.Addr:X16}"));
             cmd.ReplyToCommand($"[BotHider] signatures: {resolved}/{sigs.Length} resolved | {detail}");
         }
-        var slots = _client.GetManagedSlots();
+        var slots = _client.ReadManagedSlots().ToArray();
         cmd.ReplyToCommand($"[BotHider] managed slots: {slots.Length}");
-        foreach (int s in slots)
+        foreach (var (slot, snapshot) in slots)
         {
-            var clan = _client.GetClan(s);
+            var clan = snapshot.Clan;
             string status =
-                $"  slot={s} sid={_client.GetBotSteamId(s)} name='{_client.GetPersonaName(s)}' " +
-                $"ping={_client.GetPing(s)} " +
-                $"crosshair='{_client.GetCrosshairCode(s)}'";
+                $"  slot={slot} sid={snapshot.SteamId} name='{snapshot.PersonaName}' " +
+                $"ping={snapshot.Ping} crosshair='{snapshot.CrosshairCode}'";
             if (clan.Tag.Length != 0 || clan.GroupId != 0)
                 status += $" clan='{clan.Tag}'/{clan.GroupId}";
-            bool hasAvatar = _client.HasBotAvatar(s);
-            int avatarSize = _client.GetConfiguredAvatarSize(s);
-            if (hasAvatar || avatarSize > 0)
-                status += $" avatar={hasAvatar}/{avatarSize}B";
+            if (snapshot.HasAvatar || snapshot.AvatarLength > 0)
+                status += $" avatar={snapshot.HasAvatar}/{snapshot.AvatarLength}B";
             cmd.ReplyToCommand(status);
         }
     }

@@ -23,6 +23,8 @@ internal sealed unsafe class BridgeClient : IBotHiderApi, IDisposable
         public fixed byte Crosshair[64];
         public fixed byte ClanTag[128];
 
+        public bool HasAvatar => Managed != 0 && AvatarApplied != 0 && AvatarSteamId == SteamId;
+
         public string PersonaName
         {
             get { fixed (byte* text = Name) return ReadText(text, 32); }
@@ -133,16 +135,16 @@ internal sealed unsafe class BridgeClient : IBotHiderApi, IDisposable
     public uint GetScoreboardFlair(int slot) => ReadSlot(slot, out var s) ? s.ScoreboardFlair : 0;
     public int GetConfiguredAvatarSize(int slot) => ReadSlot(slot, out var s) ? (int)s.AvatarLength : 0;
     public (string Tag, uint GroupId) GetClan(int slot) => ReadSlot(slot, out var s) ? s.Clan : (string.Empty, 0);
-    public bool HasBotAvatar(int slot) => ReadSlot(slot, out var s) && s.Managed != 0 &&
-        s.AvatarApplied != 0 && s.AvatarSteamId == s.SteamId;
+    public bool HasBotAvatar(int slot) => ReadSlot(slot, out var s) && s.HasAvatar;
 
-    public int[] GetManagedSlots()
+    internal IEnumerable<(int Slot, SlotSnapshot Snapshot)> ReadManagedSlots()
     {
-        var slots = new List<int>();
         for (int slot = 0; slot < MaxSlots; slot++)
-            if (IsManagedBot(slot)) slots.Add(slot);
-        return slots.ToArray();
+            if (ReadSlot(slot, out var snapshot) && snapshot.Managed != 0)
+                yield return (slot, snapshot);
     }
+
+    public int[] GetManagedSlots() => ReadManagedSlots().Select(entry => entry.Slot).ToArray();
 
     public (string Name, ulong Addr)[] GetSignatures()
     {

@@ -25,6 +25,7 @@
 
 #include <cstdio>
 #include <cstring>
+#include <iterator>
 #include <string>
 
 #define VERSION_STRING  "v" SEMVER " @ " GITHUB_SHA
@@ -214,14 +215,29 @@ bool HiderPlugin::Load(PluginId id, ISmmAPI* ismm, char* error, size_t maxlen, b
         return false;
     }
     Manager().Init();
-    Manager().PublishSignature("UTIL_Remove", entity_access::UtilRemoveTarget());
-    Manager().PublishSignature("MaintainBotQuota", identity_hooks::MaintainQuotaTarget());
-    Manager().PublishSignature("CountPotentialVoters", identity_hooks::CountPotentialVotersTarget());
-    Manager().PublishSignature("PackEntities", identity_hooks::PackEntitiesTarget());
-    Manager().PublishSignature("HandleJoinTeam", identity_hooks::HandleJoinTeamTarget());
-    Manager().PublishSignature("HumanTeamRestriction", identity_hooks::HumanTeamRestrictionTarget());
-    Manager().PublishSignature("SameMapTeardown", identity_hooks::SameMapTeardownTarget());
-    Manager().PublishSignature("ScriptIsBot", identity_hooks::ScriptIsBotTarget());
+    const struct
+    {
+        const char* name;
+        const void* target;
+    } hookTargets[] = {
+        { "MaintainBotQuota", identity_hooks::MaintainQuotaTarget() },
+        { "CountPotentialVoters", identity_hooks::CountPotentialVotersTarget() },
+        { "PackEntities", identity_hooks::PackEntitiesTarget() },
+        { "HandleJoinTeam", identity_hooks::HandleJoinTeamTarget() },
+        { "HumanTeamRestriction", identity_hooks::HumanTeamRestrictionTarget() },
+        { "SameMapTeardown", identity_hooks::SameMapTeardownTarget() },
+        { "ScriptIsBot", identity_hooks::ScriptIsBotTarget() },
+    };
+    // UTIL_Remove is published for diagnostics but is not an installed hook.
+    static_assert(1 + std::size(hookTargets) <= bridge::kMaxSigs);
+    const auto* cleanupTarget = entity_access::UtilRemoveTarget();
+    Manager().PublishSignature("UTIL_Remove", cleanupTarget);
+    int installedHooks = 0;
+    for (const auto& [name, target] : hookTargets)
+    {
+        Manager().PublishSignature(name, target);
+        if (target) ++installedHooks;
+    }
 
     // Load bot identities.
     std::string jsonPath = g_SMAPI->GetBaseDir();
@@ -250,18 +266,10 @@ bool HiderPlugin::Load(PluginId id, ISmmAPI* ismm, char* error, size_t maxlen, b
     g_SMAPI->AddListener(this, this);
     if (late) AdoptExistingBots();
 
-    int installedHooks = 0;
-    if (identity_hooks::MaintainQuotaTarget()) ++installedHooks;
-    if (identity_hooks::CountPotentialVotersTarget()) ++installedHooks;
-    if (identity_hooks::PackEntitiesTarget()) ++installedHooks;
-    if (identity_hooks::HandleJoinTeamTarget()) ++installedHooks;
-    if (identity_hooks::HumanTeamRestrictionTarget()) ++installedHooks;
-    if (identity_hooks::SameMapTeardownTarget()) ++installedHooks;
-    if (identity_hooks::ScriptIsBotTarget()) ++installedHooks;
     BH_LOG_INFO("Loaded %s", GetVersion());
-    BH_LOG_DEBUG("mode=%s ping=%s range=%d-%d identities=%zu hooks=%d/7 cleanup=%s avatar=%s", IsBotMode() ? "bot" : "player",
+    BH_LOG_DEBUG("mode=%s ping=%s range=%d-%d identities=%zu hooks=%d/%zu cleanup=%s avatar=%s", IsBotMode() ? "bot" : "player",
                  settings.fakePingEnabled ? "on" : "off", settings.fakePingMin, settings.fakePingMax, BotInfo().Count(), installedHooks,
-                 entity_access::UtilRemoveTarget() ? "ok" : "fail", networkStringTables ? "ok" : "fail");
+                 std::size(hookTargets), cleanupTarget ? "ok" : "fail", networkStringTables ? "ok" : "fail");
     return true;
 }
 
