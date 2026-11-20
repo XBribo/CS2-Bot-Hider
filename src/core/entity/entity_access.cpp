@@ -1,6 +1,6 @@
-#include "core/cs2_sdk/src/core/gameconfig.h"
-#include "core/cs2_sdk/src/utils/memory.h"
-#include "core/cs2_sdk/src/utils/platform.h"
+#include <cs2_sdk/gameconfig.h>
+#include <cs2_sdk/memory.h>
+#include <cs2_sdk/platform.h>
 #include "core/log.h"
 #include "entity_access.h"
 #include "core/entity/player.h"
@@ -11,7 +11,7 @@
 #include "entityidentity.h"
 #include "plugin.h" // NOLINT(misc-include-cleaner)
 #include "serversideclient_ref.h"
-#include "core/cs2_sdk/src/core/memory_module.h"
+#include <cs2_sdk/memory_module.h>
 #include "offsets.h"
 
 #include <cstdint>
@@ -109,47 +109,29 @@ bool SafeReadPointer(const void* address, void** output)
     return cs2_sdk::memory::Read(address, 0, *output);
 }
 
-// Copy a referenced string with Windows SEH protection.
+// Use one guarded read in the common case. A valid short string can end just before an unreadable page.
 bool SafeReadString(const void* address, char* output, size_t capacity)
 {
-#ifdef _WIN32
-    __try
+    const char* source = nullptr;
+    output[0] = '\0';
+    if (!cs2_sdk::memory::Read(address, 0, source) || !source) return false;
+    if (capacity == 1) return true;
+    if (cs2_sdk::memory::ReadBytes(source, output, capacity - 1))
     {
-        const char* source = *reinterpret_cast<const char* const*>(address);
-        if (!source)
+        output[capacity - 1] = '\0';
+        return true;
+    }
+    for (size_t i = 0; i < capacity - 1; ++i)
+    {
+        if (!cs2_sdk::memory::Read(source, i, output[i]))
         {
             output[0] = '\0';
             return false;
         }
-        size_t i = 0;
-        for (; i + 1 < capacity && source[i]; ++i)
-            output[i] = source[i];
-        output[i] = '\0';
-        return true;
+        if (!output[i]) return true;
     }
-    __except (EXCEPTION_EXECUTE_HANDLER)
-    {
-        output[0] = '\0';
-        return false;
-    }
-#else
-    if (!address)
-    {
-        output[0] = '\0';
-        return false;
-    }
-    const char* source = *reinterpret_cast<const char* const*>(address);
-    if (!source)
-    {
-        output[0] = '\0';
-        return false;
-    }
-    size_t i = 0;
-    for (; i + 1 < capacity && source[i]; ++i)
-        output[i] = source[i];
-    output[i] = '\0';
+    output[capacity - 1] = '\0';
     return true;
-#endif
 }
 
 } // namespace

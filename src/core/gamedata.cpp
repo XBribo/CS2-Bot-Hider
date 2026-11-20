@@ -1,10 +1,10 @@
 #include "core/gamedata.h"
-#include "core/cs2_sdk/src/core/gameconfig.h"
+#include <cs2_sdk/gameconfig.h>
 #include "core/log.h"
 #include "entity_access.h"
 #include "identity_hooks.h"
 #include "offsets.h"
-#include "core/cs2_sdk/src/core/memory_module.h"
+#include <cs2_sdk/memory_module.h>
 #include <cstdio>
 #include <string>
 namespace cs2bh::gamedata {
@@ -12,9 +12,8 @@ bool Prepare(char* error, size_t maxlen)
 {
     const std::string gamedataPath = cs2_sdk::gameconfig::ComputePath();
     nlohmann::json gamedata;
-    if (!cs2_sdk::gameconfig::LoadGamedata(gamedataPath.c_str(), gamedata))
+    if (!cs2_sdk::gameconfig::LoadGamedata(gamedataPath.c_str(), gamedata, error, maxlen))
     {
-        std::snprintf(error, maxlen, "gamedata load failed: %s", gamedataPath.c_str());
         BH_LOG_ERROR("%s", error);
         return false;
     }

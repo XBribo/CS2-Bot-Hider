@@ -1,43 +1,27 @@
 #include "core/offsets.h"
-#include "core/cs2_sdk/src/core/schema.h"
+#include <cs2_sdk/schema.h>
 #include "core/interfaces.h"
-#include "core/cs2_sdk/src/core/gameconfig.h"
+#include <cs2_sdk/gameconfig.h>
 #include "core/log.h"
 #include "serversideclient_ref.h"
 
 #include <cstdio>
-#include <string>
 
 namespace cs2bh::offsets {
 
 // Resolves required flags and optional pawn handles.
 bool LoadFromSchema(char* error, size_t maxlen)
 {
-    const bool schemaReady = cs2_sdk::schema::Init(g_schemaSystem, error, maxlen);
+    if (!cs2_sdk::schema::Init(g_schemaSystem, error, maxlen)) return false;
     const cs2_sdk::schema::FieldBinding fields[] = {
         { .target = &g_baseEntityFlagsOffset, .className = "CBaseEntity", .fieldName = "m_fFlags" },
     };
-    const bool fieldsReady = cs2_sdk::schema::ResolveFields(fields);
-    if (!fieldsReady)
-    {
-        std::snprintf(error, maxlen, "CBaseEntity.m_fFlags unavailable: %d", offsets::g_baseEntityFlagsOffset);
-        BH_LOG_ERROR("%s", error);
-        return false;
-    }
+    if (!cs2_sdk::schema::ResolveFields(fields, error, maxlen)) return false;
     BH_LOG_DEBUG("CBaseEntity::m_fFlags=0x%x", offsets::g_baseEntityFlagsOffset);
 
-    if (schemaReady)
-    {
-        int pawnOff = cs2_sdk::schema::GetFieldOffset("CBasePlayerController", "m_hPawn");
-        int playerPawnOff = cs2_sdk::schema::GetFieldOffset("CCSPlayerController", "m_hPlayerPawn");
-        g_botPawnHandleOffset = playerPawnOff >= 0 ? playerPawnOff : pawnOff;
-        if (g_botPawnHandleOffset < 0) BH_LOG_WARN("FL_BOT override disabled: pawn handle unresolved");
-    }
-    else
-    {
-        g_botPawnHandleOffset = -1;
-        BH_LOG_WARN("idle-kick/FL_BOT disabled: Schema unavailable");
-    }
+    g_botPawnHandleOffset = cs2_sdk::schema::GetFieldOffset("CCSPlayerController", "m_hPlayerPawn");
+    if (g_botPawnHandleOffset < 0) g_botPawnHandleOffset = cs2_sdk::schema::GetFieldOffset("CBasePlayerController", "m_hPawn");
+    if (g_botPawnHandleOffset < 0) BH_LOG_WARN("FL_BOT override disabled: pawn handle unresolved");
     return true;
 }
 
@@ -59,22 +43,13 @@ bool LoadFromGamedata(const nlohmann::json& gamedata, char* error, size_t maxlen
         { &g_entityIdentityInstanceOffset, "CEntityIdentity::m_pInstance" },
         { &g_entityIdentityClassNameOffset, "CEntityIdentity::m_designerName" },
     };
-    std::string invalid;
-    for (const auto& binding : offsets)
+    if (!cs2_sdk::gameconfig::LoadRequiredOffsets(gamedata, offsets, error, maxlen)) return false;
+    if (g_entityIdentitySize == 0)
     {
-        *binding.target = cs2_sdk::gameconfig::FindPlatformOffset(gamedata, binding.name, -1);
-        if (*binding.target < 0 || (binding.target == &g_entityIdentitySize && *binding.target == 0))
-        {
-            if (!invalid.empty()) invalid += ", ";
-            invalid += binding.name;
-        }
-    }
-    g_vtableSlotClientSetName = cs2_sdk::gameconfig::FindPlatformOffset(gamedata, "CServerSideClient::SetName", -1);
-    if (!invalid.empty())
-    {
-        std::snprintf(error, maxlen, "gamedata offsets invalid (%s): %s", cs2_sdk::gameconfig::PlatformName(), invalid.c_str());
+        if (error && maxlen) std::snprintf(error, maxlen, "CEntityIdentity::Size must be positive");
         return false;
     }
+    g_vtableSlotClientSetName = cs2_sdk::gameconfig::FindPlatformOffset(gamedata, "CServerSideClient::SetName", -1);
     return true;
 }
 

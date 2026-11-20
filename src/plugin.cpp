@@ -17,8 +17,8 @@
 #include "playerslot.h"
 #include "steam/steamtypes.h"
 #include "offsets.h"
-#include "core/cs2_sdk/src/core/memory_module.h"
-#include "core/cs2_sdk/src/core/schema.h"
+#include <cs2_sdk/memory_module.h>
+#include <cs2_sdk/schema.h>
 #include "core/config.h"
 #include "core/interfaces.h"
 #include "core/gamedata.h"
