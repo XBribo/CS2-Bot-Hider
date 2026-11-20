@@ -1,4 +1,4 @@
-#include "core/cs2_sdk/src/core/gameconfig.h"
+#include <cs2_sdk/gameconfig.h>
 #include "core/log.h"
 #include "identity_hooks.h"
 
@@ -9,9 +9,9 @@
 #include "nlohmann/json.hpp"
 #include "plugin.h"
 #include "serversideclient_ref.h"
-#include "core/cs2_sdk/src/core/schema.h"
-#include "core/cs2_sdk/src/core/memory_module.h"
-#include "core/cs2_sdk/src/utils/hooks.h"
+#include <cs2_sdk/schema.h>
+#include <cs2_sdk/memory_module.h>
+#include <cs2_sdk/hooks.h>
 #include "offsets.h"
 
 #include <cstdint>

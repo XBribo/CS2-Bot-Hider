@@ -1,6 +1,6 @@
 #pragma once
 
-#include "core/cs2_sdk/src/core/log.h"
+#include <cs2_sdk/log.h>
 
 namespace cs2bh {
 namespace log = cs2_sdk::log;

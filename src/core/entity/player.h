@@ -1,6 +1,6 @@
 #pragma once
 
-#include "core/cs2_sdk/src/core/schema.h"
+#include <cs2_sdk/schema.h>
 
 namespace cs2bh::sdk {
 // Resolve a typed entity field through Schema.
